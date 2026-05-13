@@ -3,8 +3,8 @@
 This file is the entry point for any developer (or AI assistant) picking up this project.
 Read this first, then read `implementation_plan.md` for the full schema, API routes, and feature breakdown.
 
-> **Status:** All three phases complete and live on Vercel.
-> **Last updated:** 2026-05-08
+> **Status:** All three phases complete. Migrating deployment from Vercel to Netlify.
+> **Last updated:** 2026-05-14
 
 ---
 
@@ -24,11 +24,11 @@ A unified web app for **Arthur Murray Lincolnshire (AMLS)** dance studio, built 
 
 | Layer | Technology |
 |---|---|
-| Frontend + Backend | Next.js 14 (App Router), TypeScript, Tailwind CSS v4 |
+| Frontend + Backend | Next.js 16 (App Router), TypeScript, Tailwind CSS v4 |
 | Database | Supabase (PostgreSQL) |
 | Auth | Supabase Auth (email/password, SSR cookies) |
 | Realtime | Supabase Realtime (`postgres_changes`) |
-| Hosting | Vercel |
+| Hosting | Netlify (via `@netlify/plugin-nextjs`) |
 | Accent color | `#2383E2` (blue) |
 | Font | Inter (Google Fonts) |
 | UI style | Clean, modern — Apple/Stripe/Linear-inspired |

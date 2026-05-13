@@ -38,7 +38,7 @@ Role is stored in the `studio_users` table (`role` column) per studio — a user
 
 - Supabase SSR client (`lib/supabase/server.ts`) reads session from cookies in server components and API routes
 - Supabase browser client (`lib/supabase/client.ts`) manages session in client components
-- Middleware (`middleware.ts`) protects all `(app)` routes — redirects unauthenticated users to `/login`
+- Proxy (`proxy.ts`) protects all `(app)` routes — redirects unauthenticated users to `/login`
 
 ---
 

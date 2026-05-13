@@ -2,10 +2,10 @@
 
 ## Framework
 
-- **Next.js 14+ App Router** — all routes live under `app/`
+- **Next.js 16 App Router** — all routes live under `app/`
 - **React 19**, **TypeScript**, **Tailwind CSS v4** (zero-config, `@tailwindcss/postcss`)
 - **Supabase** for DB, Auth, and Realtime
-- **Hosted on Vercel**
+- **Hosted on Netlify** (via `@netlify/plugin-nextjs`)
 
 ---
 
@@ -34,6 +34,8 @@ app/
   actions.ts          # All server actions (mutations + data fetching)
   globals.css         # Design tokens + global styles
   layout.tsx          # Root layout (ThemeProvider, Inter font)
+
+proxy.ts              # Request proxy (auth, rate limiting) — formerly middleware.ts
 
 components/
   sidebar/
