@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AMLS Web App — Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f7f7f5;
+    color: #1a1a1a;
+    padding: 32px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 22px; font-weight: 700; color: #061d37; margin-bottom: 4px; }
+  .page-subtitle { color: #777; font-size: 14px; margin-bottom: 32px; }
+  .section { margin-bottom: 28px; }
+  .label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #999;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #e5e5e3;
+  }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .card {
+    background: #fff;
+    border: 1px solid #e5e5e3;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .card-title { font-weight: 600; font-size: 13px; margin-bottom: 5px; color: #1a1a1a; }
+  .card-body { font-size: 13px; color: #555; line-height: 1.6; }
+  .tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .tag-navy  { background: #e8eef5; color: #061d37; }
+  .tag-blue  { background: #dbeafe; color: #1d4ed8; }
+  .tag-green { background: #dcfce7; color: #166534; }
+  .tag-red   { background: #fee2e2; color: #991b1b; }
+  .tag-purple{ background: #ede9fe; color: #5b21b6; }
+  .tag-orange{ background: #ffedd5; color: #92400e; }
+
+  /* Nav mockup */
+  .nav-mock {
+    background: #061d37;
+    border-radius: 8px;
+    width: 200px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 400px;
+    overflow: hidden;
+  }
+  .nav-studio {
+    margin: 12px 10px 8px;
+    padding: 9px 11px;
+    background: rgba(255,255,255,0.09);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+  .nav-studio-icon {
+    width: 28px; height: 28px;
+    background: #1a4a7a;
+    border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; flex-shrink: 0;
+  }
+  .nav-studio-name { font-size: 12px; font-weight: 700; color: #fff; line-height: 1.2; }
+  .nav-studio-loc  { font-size: 11px; color: rgba(255,255,255,0.5); }
+  .nav-divider { height: 1px; background: rgba(255,255,255,0.07); margin: 4px 10px 8px; }
+  .nav-item {
+    padding: 7px 12px;
+    font-size: 13px;
+    color: rgba(255,255,255,0.6);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    cursor: pointer;
+    border-radius: 6px;
+    margin: 1px 8px;
+  }
+  .nav-item.active { background: rgba(255,255,255,0.11); color: #fff; }
+  .nav-spacer { flex: 1; }
+  .nav-bottom-area { border-top: 1px solid rgba(255,255,255,0.07); margin: 0 8px; }
+  .nav-settings {
+    padding: 8px 12px;
+    font-size: 13px;
+    color: rgba(255,255,255,0.5);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    cursor: pointer;
+    border-radius: 6px;
+    margin: 6px 0;
+  }
+
+  /* Flow */
+  .flow-box {
+    background: #fff;
+    border: 1px solid #e5e5e3;
+    border-radius: 8px;
+    padding: 16px 20px;
+    font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-size: 12.5px;
+    line-height: 2.3;
+  }
+  .fl-src  { color: #1d4ed8; }
+  .fl-act  { color: #166534; }
+  .fl-warn { color: #991b1b; font-weight: 600; }
+
+  /* Phases */
+  .phase-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 16px;
+    border-top: 3px solid;
+    border-left: 1px solid #e5e5e3;
+    border-right: 1px solid #e5e5e3;
+    border-bottom: 1px solid #e5e5e3;
+  }
+  .phase-card.p1 { border-top-color: #061d37; }
+  .phase-card.p2 { border-top-color: #5b21b6; }
+  .phase-card.p3 { border-top-color: #92400e; }
+  .phase-title { font-size: 11px; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .phase-card.p1 .phase-title { color: #061d37; }
+  .phase-card.p2 .phase-title { color: #5b21b6; }
+  .phase-card.p3 .phase-title { color: #92400e; }
+  .phase-item { font-size: 13px; color: #444; padding: 3px 0; display: flex; gap: 7px; }
+  .phase-item::before { content: '·'; color: #bbb; flex-shrink: 0; font-weight: 700; }
+
+  /* Security */
+  .sec-item {
+    background: #fff;
+    border: 1px solid #e5e5e3;
+    border-left: 3px solid #166534;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #333;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .sec-check { color: #166534; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+
+  /* Settings mockup */
+  .settings-sidebar {
+    background: #fff;
+    border: 1px solid #e5e5e3;
+    border-radius: 8px;
+    overflow: hidden;
+    width: 210px;
+    flex-shrink: 0;
+  }
+  .settings-group {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #999;
+    padding: 12px 14px 5px;
+  }
+  .settings-row {
+    padding: 9px 14px;
+    font-size: 13px;
+    color: #444;
+    border-top: 1px solid #f0f0ee;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .settings-row.active { background: #eef2fb; color: #061d37; font-weight: 500; }
+  .settings-badge {
+    margin-left: auto;
+    font-size: 11px;
+    color: #999;
+    background: #f5f5f3;
+    padding: 1px 7px;
+    border-radius: 4px;
+  }
+
+  .pages-list { flex: 1; display: flex; flex-direction: column; gap: 9px; }
+  .page-card {
+    background: #fff;
+    border: 1px solid #e5e5e3;
+    border-radius: 8px;
+    padding: 11px 14px;
+  }
+  .page-card-title { font-weight: 600; font-size: 13px; margin-bottom: 3px; color: #1a1a1a; }
+  .page-phase { font-size: 11px; color: #999; font-weight: 400; margin-left: 6px; }
+  .page-card-desc { font-size: 13px; color: #666; line-height: 1.55; }
+</style>
+</head>
+<body>
+
+<h1>AMLS Web App — Architecture Overview</h1>
+<p class="page-subtitle">Arthur Murray Lincolnshire Studio · Reference document · Brand: <code style="font-size:12px;background:#eef2fb;padding:1px 5px;border-radius:3px;color:#061d37">#061d37</code> · System sans-serif · Notion-inspired UI</p>
+
+<!-- Tech Stack -->
+<div class="section">
+  <div class="label">Tech Stack</div>
+  <div class="grid-3">
+    <div class="card">
+      <div class="tag tag-navy">Frontend</div>
+      <div class="card-title">Next.js 14 (App Router)</div>
+      <div class="card-body">React · TypeScript · Tailwind CSS · System sans-serif font</div>
+    </div>
+    <div class="card">
+      <div class="tag tag-navy">Backend</div>
+      <div class="card-title">Next.js API Routes</div>
+      <div class="card-body">Server-side only. All GHL, Retell & Supabase calls live here — never from the browser.</div>
+    </div>
+    <div class="card">
+      <div class="tag tag-navy">Database · Auth · Realtime</div>
+      <div class="card-title">Supabase (Free tier)</div>
+      <div class="card-body">PostgreSQL · Row-Level Security (RLS) · Supabase Auth · Realtime subscriptions</div>
+    </div>
+    <div class="card" style="grid-column: span 3;">
+      <div class="tag tag-navy">Hosting</div>
+      <div class="card-title">Vercel</div>
+      <div class="card-body">Built by the Next.js team — best integration, fastest cold starts for serverless API routes. Free tier sufficient for 2–3 studios.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Roles -->
+<div class="section">
+  <div class="label">Roles & Permissions</div>
+  <div class="grid-3">
+    <div class="card">
+      <div class="tag tag-red">Super Admin</div>
+      <div class="card-title">Developers / Agency</div>
+      <div class="card-body">Bypasses all RLS. Creates studios, creates accounts, assigns studios to owners. Views all data across all studios. Internal use only — not visible to clients.</div>
+    </div>
+    <div class="card">
+      <div class="tag tag-blue">Studio Owner</div>
+      <div class="card-title">Dance Studio Owners</div>
+      <div class="card-body">Inherits all Staff permissions, plus: sees only their own studios, creates new studio locations, invites/removes staff. Settings: Business Profile + My Profile + My Staff.</div>
+    </div>
+    <div class="card">
+      <div class="tag tag-green">Studio Staff</div>
+      <div class="card-title">Front Desk / Coaches</div>
+      <div class="card-body">Can view and edit leads, view call analytics + calendar (read-only), use the unibox (send & receive). Settings: My Profile only. Business Profile and My Staff are hidden entirely.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Nav + Pages -->
+<div class="section">
+  <div class="label">Navigation Structure</div>
+  <div style="display:flex;gap:14px;align-items:flex-start">
+    <div class="nav-mock">
+      <div style="padding:4px 0"></div>
+      <div class="nav-studio">
+        <div class="nav-studio-icon">🏢</div>
+        <div>
+          <div class="nav-studio-name">Arthur Murray</div>
+          <div class="nav-studio-loc">Lincolnshire, IL ▾</div>
+        </div>
+      </div>
+      <div class="nav-divider"></div>
+      <div class="nav-item active">👥 Leads</div>
+      <div class="nav-item">📊 Call Analytics</div>
+      <div class="nav-item">💬 Conversations</div>
+      <div class="nav-item">📅 Calendar</div>
+      <div class="nav-spacer"></div>
+      <div class="nav-bottom-area">
+        <div class="nav-settings">⚙️ Settings</div>
+      </div>
+    </div>
+    <div class="pages-list">
+      <div class="page-card">
+        <div class="page-card-title">Leads <span class="page-phase">Phase 1</span></div>
+        <div class="page-card-desc">Notion-style table view. All Notion fields replicated (name, status, level, action, phone, email, last contacted, first lesson, comments, source, reason, checkboxes, etc.). Inline editing. Seeded via one-time Notion import. Live updates via GHL new-contact webhook → Supabase.</div>
+      </div>
+      <div class="page-card">
+        <div class="page-card-title">Call Analytics <span class="page-phase">Phase 2</span></div>
+        <div class="page-card-desc">KPI cards: call count, pickup rate, success rate, transfer rate, voicemail rate, avg duration, sentiment donut, disconnected reason donut. Global date range filter: presets (Today → All time) + custom picker (dual calendar, HH:MM:SS time inputs, Between / &gt;= / &lt;= modes). Data from Retell post-call webhook → Supabase.</div>
+      </div>
+      <div class="page-card">
+        <div class="page-card-title">Conversations (Unibox) <span class="page-phase">Phase 3</span></div>
+        <div class="page-card-desc">SMS + Email via GHL Conversations API. GHL webhook → Supabase → Supabase Realtime → browser instantly. Two-panel layout: conversation list + message thread. Send & receive.</div>
+      </div>
+      <div class="page-card">
+        <div class="page-card-title">Calendar <span class="page-phase">Phase 2</span></div>
+        <div class="page-card-desc">Read-only. Pulls live from GHL Calendar API (5-min server-side cache). No local Supabase copy — GHL is source of truth. No create/edit/delete.</div>
+      </div>
+      <div class="page-card">
+        <div class="page-card-title">Settings <span class="page-phase">Phase 1</span></div>
+        <div class="page-card-desc">
+          <strong>Business Profile</strong> (Owner only) — studio name, location, logo, GHL sub-account ID, Retell agent ID.<br>
+          <strong>My Profile</strong> (all roles) — name, email, password.<br>
+          <strong>My Staff</strong> (Owner only) — invite by email, assign role, remove. Scoped to current studio.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings detail -->
+<div class="section">
+  <div class="label">Settings Page Structure</div>
+  <div style="display:flex;gap:14px;align-items:flex-start">
+    <div class="settings-sidebar">
+      <div class="settings-group">My Business</div>
+      <div class="settings-row active">🏢 Business Profile</div>
+      <div class="settings-row">👤 My Profile</div>
+      <div class="settings-row">👥 My Staff <span class="settings-badge">Owner only</span></div>
+    </div>
+    <div class="card" style="flex:1">
+      <div class="card-title" style="margin-bottom:10px">Role-based visibility</div>
+      <div class="card-body">
+        <strong style="color:#1a1a1a">Staff</strong> — sees Settings with only "My Profile". Business Profile and My Staff are hidden entirely.<br><br>
+        <strong style="color:#1a1a1a">Studio Owner</strong> — sees all three sections. Business Profile is per-studio (studio name + location shown in sidebar dropdown, logo, GHL/Retell IDs).<br><br>
+        <strong style="color:#1a1a1a">Super Admin</strong> — full access across all studios.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Data Flow -->
+<div class="section">
+  <div class="label">Data Flow</div>
+  <div class="flow-box">
+    <div><span class="fl-src">GHL new contact created</span> → webhook → <span class="fl-act">POST /api/webhooks/ghl-contact</span> → Supabase <code>leads</code> table</div>
+    <div><span class="fl-src">GHL new message (SMS/Email)</span> → webhook → <span class="fl-act">POST /api/webhooks/ghl-message</span> → Supabase <code>messages</code> table → <strong>Realtime</strong> → browser instantly</div>
+    <div><span class="fl-src">Retell call ends</span> → post-call webhook → <span class="fl-act">POST /api/webhooks/retell-call</span> → Supabase <code>calls</code> table</div>
+    <div><span class="fl-src">Calendar page loaded</span> → <span class="fl-act">GET /api/calendar</span> → GHL Calendar API (5-min cache) → browser <em style="color:#999">(no Supabase copy)</em></div>
+    <div><span class="fl-warn">⚠ All API keys (GHL, Retell) are server-side only. The browser never calls GHL or Retell directly.</span></div>
+  </div>
+</div>
+
+<!-- Security -->
+<div class="section">
+  <div class="label">Security Principles</div>
+  <div class="grid-2">
+    <div class="sec-item"><span class="sec-check">✓</span> Supabase RLS on every table — users can only read/write their own studio's data</div>
+    <div class="sec-item"><span class="sec-check">✓</span> Sensitive internal data on separate tables from user-editable data</div>
+    <div class="sec-item"><span class="sec-check">✓</span> Rate limiting: auth 10/15min IP · send message 100/hr user · GHL calendar 5min cache · general 100/min user</div>
+    <div class="sec-item"><span class="sec-check">✓</span> Webhook endpoints validate shared secret token before processing any payload</div>
+    <div class="sec-item"><span class="sec-check">✓</span> All GHL / Retell calls server-side only — no secrets in frontend env vars</div>
+    <div class="sec-item"><span class="sec-check">✓</span> Budget caps on Supabase + Vercel. RLS audit before each phase goes live.</div>
+  </div>
+</div>
+
+<!-- Phases -->
+<div class="section">
+  <div class="label">Project Phases</div>
+  <div class="grid-3">
+    <div class="phase-card p1">
+      <div class="phase-title">Phase 1 — $300</div>
+      <div class="phase-item">GitHub repo + project setup</div>
+      <div class="phase-item">Next.js + Supabase init</div>
+      <div class="phase-item">Auth + 3 roles + RLS policies</div>
+      <div class="phase-item">Studio switcher sidebar (always a dropdown)</div>
+      <div class="phase-item">Leads page — Notion-style table UI</div>
+      <div class="phase-item">GHL new-contact webhook → Supabase</div>
+      <div class="phase-item">One-time Notion data import script</div>
+      <div class="phase-item">Settings (Business Profile, My Profile, My Staff)</div>
+    </div>
+    <div class="phase-card p2">
+      <div class="phase-title">Phase 2 — $300</div>
+      <div class="phase-item">Retell post-call webhook → Supabase</div>
+      <div class="phase-item">Call Analytics page — KPI cards + charts</div>
+      <div class="phase-item">Date range filter (presets + custom picker)</div>
+      <div class="phase-item">Calendar page (GHL Calendar API, read-only)</div>
+    </div>
+    <div class="phase-card p3">
+      <div class="phase-title">Phase 3 — $300</div>
+      <div class="phase-item">Conversations (Unibox) page</div>
+      <div class="phase-item">GHL Conversations API integration</div>
+      <div class="phase-item">GHL → Supabase message webhook relay</div>
+      <div class="phase-item">Supabase Realtime push to browser</div>
+      <div class="phase-item">Send + receive SMS / Email</div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:8px;font-size:12px;color:#aaa">Last updated: 2026-04-03 · Brand: #061d37 navy · System sans-serif · Notion-inspired UI/UX</div>
+
+</body>
+</html>

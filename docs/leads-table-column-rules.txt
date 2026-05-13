@@ -1,0 +1,53 @@
+LEADS TABLE — COLUMN TYPE RULES
+================================================================================
+
+BOOLEAN  (showed, bought, old, tick)
+  - Renders as a checkbox.
+  - Click toggles the value immediately (optimistic update, rolls back on error).
+  - No edit mode — one click = saved.
+
+ENUM  (status, level, action, source, reason, partnership)
+  - Renders as a coloured pill.
+  - Click opens the EnumDropdown portal where you can select a value or manage options.
+  - Selecting a value saves immediately (optimistic update, rolls back on error).
+  - Column cannot be resized narrower than the natural width of the longest
+    visible pill on the current page. This is measured automatically after
+    each page load using canvas text measurement.
+
+DATE — EDITABLE  (last_contacted, first_lesson)
+  - Renders as formatted text: "April 3, 2026 at 12:00 AM".
+  - Click opens a custom calendar popup:
+      • Editable date header — click to type a date (e.g. "Apr 2, 2026").
+      • Month grid with prev/next navigation and a Today shortcut.
+      • Time picker (hour, minute, AM/PM) at the bottom.
+      • Apply button saves the selected date + time.
+      • Clear date removes the value entirely.
+  - Clicking outside the popup also applies the current selection.
+  - Value is stored as ISO 8601 in Supabase.
+
+DATE — READ-ONLY  (created_at)
+  - Same display format as editable date columns.
+  - Not editable — reflects the row's creation timestamp set by Supabase.
+
+TEXT  (name, phone, email, available, comments)
+  - Click opens an inline input field.
+  - Enter or blur saves. Escape cancels without saving.
+  - Comments is capped at 3 visible lines with ellipsis when not editing.
+    Clicking opens a textarea for multi-line editing.
+  - Name column shows a detail-panel button (side panel icon) on hover
+    to open the full lead detail panel.
+
+ALL COLUMNS
+  - Font size: 13px for cell content.
+  - Drag the thin vertical line on the right edge of any column header to resize.
+  - Column widths are saved to localStorage and restored on page refresh.
+  - Cell content is always clipped at the column boundary (never overflows
+    into adjacent columns).
+  - Default widths per column (px):
+      Created Time   180    Name           150    Status         120
+      Level           90    Action         140    Phone          120
+      Last Contacted 190    First Lesson   190    Comments       240
+      Source         100    Email          190    Reason         110
+      Available      110    Showed         100    Bought         100
+      Partnership    110    OLD             90    Tick            90
+================================================================================

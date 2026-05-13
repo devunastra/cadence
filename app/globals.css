@@ -1,0 +1,470 @@
+@import "tailwindcss";
+
+/* Class-based dark mode for Tailwind v4 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ============================================================
+   DESIGN TOKENS
+   Single source of truth — mirrors rules/ui-styling.md
+   Never hardcode hex values in components. Use these vars.
+   ============================================================ */
+:root {
+  /* Accent */
+  --color-accent:           #2383E2;
+  --color-accent-hover:     #1a6ec7;
+  --color-accent-subtle:    #EBF3FD;
+
+  /* Backgrounds */
+  --color-bg:               #ffffff;
+  --color-surface:          #f7f7f7;
+  --color-surface-hover:    #f0f0ef;
+  --color-bubble-inbound:   #e5e5ea;
+
+  /* Borders */
+  --color-border:           #e5e5e3;
+  --color-border-strong:    #d0d0ce;
+
+  /* Text */
+  --color-text-primary:     #111111;
+  --color-text-body:        #37352f;
+  --color-text-secondary:   #6b7280;
+  --color-text-muted:       #9ca3af;
+
+  /* Sidebar */
+  --sidebar-bg:             #ffffff;
+  --sidebar-width:          240px;
+  --sidebar-width-collapsed: 56px;
+
+  /* Animation timings */
+  --transition-fast:        150ms ease;
+  --transition-base:        200ms ease;
+
+  /* Badge color tokens — inline-style-safe, mirrors status-bg-* classes */
+  --badge-blue-bg:          #cbe3f7;
+  --badge-blue-text:        #264a72;
+  --badge-blue-border:      #264a72;
+  --badge-green-bg:         #d7e6dd;
+  --badge-green-text:       #2a533c;
+  --badge-green-border:     #2a533c;
+  --badge-red-bg:           #f7d9d5;
+  --badge-red-text:         #6d3531;
+  --badge-red-border:       #6d3531;
+  --badge-gray-bg:          #e6e5e3;
+  --badge-gray-text:        #494846;
+  --badge-gray-border:      #494846;
+  --badge-purple-bg:        #e8dbf2;
+  --badge-purple-text:      #553b69;
+  --badge-purple-border:    #553b69;
+}
+
+.dark {
+  --color-accent-subtle:    rgba(35, 131, 226, 0.12);
+
+  --color-bg:               #111111;
+  --color-surface:          #1a1a1a;
+  --color-surface-hover:    #2e2e2e;
+  --color-bubble-inbound:   #303030;
+
+  --color-border:           #2a2a2a;
+  --color-border-strong:    #3a3a3a;
+
+  --color-text-primary:     rgba(255, 255, 255, 0.92);
+  --color-text-body:        rgba(255, 255, 255, 0.85);
+  --color-text-secondary:   rgba(255, 255, 255, 0.50);
+  --color-text-muted:       rgba(255, 255, 255, 0.30);
+
+  --sidebar-bg:             #161616;
+
+  --badge-blue-bg:          #3b6591;
+  --badge-blue-text:        #e5f2fc;
+  --badge-blue-border:      #6ab8d8;
+  --badge-green-bg:         #3f6f54;
+  --badge-green-text:       #e8f1ec;
+  --badge-green-border:     #7abf9a;
+  --badge-red-bg:           #984f49;
+  --badge-red-text:         #fce9e7;
+  --badge-red-border:       #e07f7a;
+  --badge-gray-bg:          #686762;
+  --badge-gray-text:        #f0efed;
+  --badge-gray-border:      #b0aea9;
+  --badge-purple-bg:        #6e5482;
+  --badge-purple-text:      #f3ebf9;
+  --badge-purple-border:    #c09ad8;
+}
+
+/* ============================================================
+   GLOBAL BASE
+   ============================================================ */
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Light/dark mode transition — exclude table internals to prevent lag */
+*, *::before, *::after {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.2s ease;
+}
+table, thead, tbody, tr, td, th {
+  transition: none;
+}
+.no-theme-transition, .no-theme-transition * {
+  transition: none !important;
+}
+
+/* Pointer cursor on all interactive elements */
+button, a, select, label[for], [role="button"], [role="option"], [role="menuitem"] {
+  cursor: pointer;
+}
+
+/* Inputs */
+input, select, textarea {
+  color: var(--color-text-primary);
+  background: var(--color-bg);
+}
+.dark input,
+.dark select,
+.dark textarea {
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+/* Native select — suppress OS chrome, apply design system styling */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  padding: 6px 28px 6px 10px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+select:hover {
+  border-color: var(--color-border-strong);
+  background-color: var(--color-bg);
+}
+select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+.dark select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23ffffff50' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+}
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface) 25%,
+    var(--color-surface-hover) 50%,
+    var(--color-surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite linear;
+  border-radius: 4px;
+}
+
+/* Top progress bar */
+@keyframes progress-indeterminate {
+  0%   { width: 0%;   opacity: 1; }
+  80%  { width: 80%;  opacity: 1; }
+  100% { width: 100%; opacity: 0; }
+}
+
+.progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  background: var(--color-accent);
+  z-index: 9999;
+  animation: progress-indeterminate 0.8s ease forwards;
+  pointer-events: none;
+}
+
+/* ============================================================
+   CHAT BUBBLES
+   Shared between Conversations and Call Transcripts.
+   Change here to update both products simultaneously.
+   ============================================================ */
+
+.chat-bubble-outbound {
+  max-width: 32rem; /* ~384px, same as Tailwind max-w-sm */
+  padding: 10px 16px;
+  border-radius: 1rem; /* rounded-2xl */
+  border-bottom-right-radius: 4px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  background-color: var(--color-accent);
+  color: #ffffff;
+}
+
+.chat-bubble-inbound {
+  max-width: 32rem;
+  padding: 10px 16px;
+  border-radius: 1rem;
+  border-bottom-left-radius: 4px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  background-color: var(--color-bubble-inbound);
+  color: var(--color-text-primary);
+}
+
+/* Button hover — primary only */
+.btn-primary {
+  background: var(--color-accent);
+  color: #ffffff;
+  border-radius: 8px;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+}
+.btn-primary:hover {
+  background: var(--color-accent-hover);
+  transform: scale(1.02);
+}
+
+/* ============================================================
+   LOGO
+   Light mode: invert white SVG to black. Dark mode: keep white.
+   ============================================================ */
+
+.logo-am {
+  filter: brightness(0);
+}
+.dark .logo-am {
+  filter: none;
+}
+
+/* Collapsed sidebar favicon — B&W treatment */
+.favicon-logo {
+  filter: brightness(0);
+}
+.dark .favicon-logo {
+  filter: brightness(0) invert(1);
+}
+
+/* ============================================================
+   SCROLLBARS
+   ============================================================ */
+
+::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+.views-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* ============================================================
+   STATUS BADGE COLOR VARIANTS
+   Defined here (not via Tailwind arbitrary values) so dark mode
+   is guaranteed to work regardless of Tailwind class scanning.
+   Use these class names in STATUS_COLORS in lib/constants.ts.
+   ============================================================ */
+
+/* Notion-accurate palette — pastel bg + dark tinted text (light), muted dark bg + light tinted text (dark) */
+.status-bg-default { background-color: #F1F1EF; }
+.status-text-default { color: #787774; }
+.dark .status-bg-default { background-color: #373737; }
+.dark .status-text-default { color: #c8c7c5; }
+
+.status-bg-gray { background-color: #F1F1EF; }
+.status-text-gray { color: #787774; }
+.dark .status-bg-gray { background-color: #686762; }
+.dark .status-text-gray { color: #f0efed; }
+
+.status-bg-brown { background-color: #EEE0DA; }
+.status-text-brown { color: #9F6B53; }
+.dark .status-bg-brown { background-color: #755b48; }
+.dark .status-text-brown { color: #f5ede9; }
+
+.status-bg-orange { background-color: #FAEBDD; }
+.status-text-orange { color: #C97B48; }
+.dark .status-bg-orange { background-color: #8e5835; }
+.dark .status-text-orange { color: #f8e7da; }
+
+.status-bg-yellow { background-color: #FBF3DB; }
+.status-text-yellow { color: #CB912F; }
+.dark .status-bg-yellow { background-color: #896a2c; }
+.dark .status-text-yellow { color: #f5e6c0; }
+
+.status-bg-green { background-color: #EDF3EC; }
+.status-text-green { color: #448361; }
+.dark .status-bg-green { background-color: #3f6f54; }
+.dark .status-text-green { color: #e8f1ec; }
+
+.status-bg-blue { background-color: #D3E5EF; }
+.status-text-blue { color: #337EA9; }
+.dark .status-bg-blue { background-color: #3b6591; }
+.dark .status-text-blue { color: #e5f2fc; }
+
+.status-bg-purple { background-color: #EDE9F4; }
+.status-text-purple { color: #9065B0; }
+.dark .status-bg-purple { background-color: #6e5482; }
+.dark .status-text-purple { color: #f3ebf9; }
+
+.status-bg-pink { background-color: #F5E0E9; }
+.status-text-pink { color: #C14C8A; }
+.dark .status-bg-pink { background-color: #824e67; }
+.dark .status-text-pink { color: #fae9f1; }
+
+.status-bg-red { background-color: #FFE2DD; }
+.status-text-red { color: #C4554D; }
+.dark .status-bg-red { background-color: #984f49; }
+.dark .status-text-red { color: #fce9e7; }
+
+/* ============================================================
+   SHARED DATE PICKER CELL STYLES
+   Used by date-picker-popup.tsx and date-range-picker-popup.tsx
+   ============================================================ */
+.dp-day {
+  width: 100%; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  color: var(--color-text-primary);
+  background: transparent;
+  border: none;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.dp-day:hover {
+  background: var(--color-surface-hover);
+}
+.dp-day--today {
+  font-weight: 600;
+  color: var(--color-accent);
+}
+.dp-day--selected {
+  background: var(--color-accent) !important;
+  color: #fff !important;
+  border-radius: 6px;
+}
+.dp-day--range-start {
+  background: var(--color-accent) !important;
+  color: #fff !important;
+  border-radius: 6px 0 0 6px;
+}
+.dp-day--range-end {
+  background: var(--color-accent) !important;
+  color: #fff !important;
+  border-radius: 0 6px 6px 0;
+}
+.dp-day--range-start.dp-day--range-end {
+  border-radius: 6px;
+}
+.dp-day--in-range {
+  background: var(--color-accent-subtle);
+  color: var(--color-text-primary);
+  border-radius: 0;
+}
+.dp-day--other-month {
+  color: var(--color-text-muted);
+}
+.dp-day--other-month:hover {
+  background: var(--color-surface);
+}
+.dark .dp-day--in-range {
+  background: rgba(35, 131, 226, 0.15);
+}
+
+@keyframes phone-shake {
+  0%, 100% { transform: translateX(0); }
+  15%       { transform: translateX(-5px); }
+  35%       { transform: translateX(4px); }
+  55%       { transform: translateX(-3px); }
+  75%       { transform: translateX(2px); }
+}
+
+/* Email thread row header — pure CSS hover, no JS interference */
+.email-row-header {
+  background-color: transparent;
+  transition: background-color var(--transition-fast);
+}
+.email-row-header:hover {
+  background-color: var(--color-surface);
+}
+
+/* Icon buttons inside email rows */
+.email-icon-btn {
+  color: var(--color-text-muted);
+  background: transparent;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+.email-icon-btn:hover {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+/* Light-mode overrides for conversations page */
+:root {
+  /* Email thread card: white bg in light mode */
+  --email-thread-bg: var(--color-bg);
+}
+.dark {
+  --email-thread-bg: var(--color-bubble-inbound);
+}
+
+/* Action icons (phone, star, mail, trash) — darker in light mode */
+:not(.dark) .conv-action-icon {
+  color: var(--color-text-secondary);
+}
+.dark .conv-action-icon {
+  color: var(--color-text-muted);
+}
+
+/* Appointment chip — white + border in light, dark bubble in dark */
+:not(.dark) .appt-chip {
+  background-color: var(--color-surface-hover);
+}
+.dark .appt-chip {
+  background-color: var(--color-bubble-inbound);
+}
+
+/* Email thread card bg — white in light, dark bubble in dark */
+:not(.dark) .email-thread-card {
+  background-color: var(--color-bg) !important;
+}
+.dark .email-thread-card {
+  background-color: var(--color-bubble-inbound) !important;
+}

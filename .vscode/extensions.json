@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    "bradlc.vscode-tailwindcss",
+    "esbenp.prettier-vscode",
+    "csstools.postcss",
+    "mikestead.dotenv",
+    "usernameheo.errorlens"
+  ]
+}

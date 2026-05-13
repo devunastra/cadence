@@ -1,0 +1,1811 @@
+'use server'
+
+import { cookies } from 'next/headers'
+import { revalidatePath } from 'next/cache'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { createGHLContact, updateGHLContact, deleteGHLContact, deleteGHLAppointment, updateGHLAppointment, createGHLAppointment, patchGHLAppointmentDetails } from '@/lib/ghl'
+import type { Lead, StudioSlotConfig } from '@/lib/types'
+import type { FieldOption } from '@/lib/field-options'
+
+// Converts a naive Chicago-local ISO string ("2026-05-08T17:00:00") to a UTC ISO string
+// by formatting that naive moment in the Chicago timezone and computing the offset.
+function naiveChicagoToUtcIso(naiveLocal: string): string {
+  // Interpret the naive string as Chicago local time via Intl
+  const dt = new Date(naiveLocal + 'Z') // treat as UTC first to get a Date object
+  // Find the UTC offset that Chicago has at that moment by formatting the UTC date in Chicago tz
+  const chicagoFmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(dt)
+  const p = Object.fromEntries(chicagoFmt.map(({ type, value }) => [type, value]))
+  // Build the Chicago-local ISO from parts
+  const chicagoLocalIso = `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`
+  // Diff between what Chicago shows for our "UTC" date vs the naive string gives the offset
+  const utcMs = dt.getTime()
+  const chicagoAsUtcMs = new Date(chicagoLocalIso + 'Z').getTime()
+  const offsetMs = chicagoAsUtcMs - utcMs // e.g. +18000000 for CDT (UTC-5)
+  // The real UTC time for the naive local input is: subtract offset
+  return new Date(new Date(naiveLocal + 'Z').getTime() - offsetMs).toISOString()
+}
+
+export async function setSelectedStudio(studioId: string) {
+  const cookieStore = await cookies()
+  cookieStore.set('selected_studio_id', studioId, { path: '/', maxAge: 31536000 })
+}
+
+async function getAuthorizedClient() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  const { data: memberships } = await supabase
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+
+  const isSuper = memberships?.some(m => m.role === 'super_admin') ?? false
+  return { client: isSuper ? createServiceClient() : supabase, user }
+}
+
+export async function createLeadView(studioId: string, name: string, columns: string[]) {
+  const { client, user } = await getAuthorizedClient()
+  const { data, error } = await client
+    .from('lead_views')
+    .insert({ studio_id: studioId, name, columns, created_by: user.id })
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return data as { id: string; name: string; columns: string[] }
+}
+
+// Note: 'tick' is intentionally excluded — the field exists in Notion but is not present in the dashboard schema
+const BULK_UPDATABLE_LEAD_FIELDS = new Set([
+  'status', 'level', 'action', 'source', 'reason', 'partnership',
+  'showed', 'bought', 'old', 'comments', 'available',
+])
+
+export async function bulkUpdateLeads(ids: string[], field: string, value: string | null) {
+  if (ids.length === 0) return
+  if (!BULK_UPDATABLE_LEAD_FIELDS.has(field)) throw new Error('Invalid field')
+  const { client } = await getAuthorizedClient()
+  const { error } = await client.from('leads').update({ [field]: value }).in('id', ids)
+  if (error) throw new Error(error.message)
+}
+
+const GHL_SYNCED_FIELDS = new Set(['name', 'phone', 'email'])
+// Note: last_contacted is excluded — GHL "last activity" is auto-computed and cannot be set via API
+
+const UPDATABLE_LEAD_FIELDS = new Set([
+  'name', 'phone', 'email', 'status', 'level', 'action', 'source', 'reason', 'partnership',
+  'showed', 'bought', 'old', 'comments', 'available', 'last_contacted', 'first_lesson',
+])
+
+export async function updateLead(id: string, updates: Record<string, string | boolean | null>): Promise<void> {
+  const sanitized = Object.fromEntries(
+    Object.entries(updates).filter(([k]) => UPDATABLE_LEAD_FIELDS.has(k))
+  )
+  if (Object.keys(sanitized).length === 0) return
+  const { client } = await getAuthorizedClient()
+  const { error } = await client.from('leads').update(sanitized).eq('id', id)
+  if (error) throw new Error(error.message)
+
+  const hasGHLField = Object.keys(updates).some(k => GHL_SYNCED_FIELDS.has(k))
+  if (hasGHLField) {
+    const { data: lead } = await client
+      .from('leads')
+      .select('ghl_contact_id, studio_id')
+      .eq('id', id)
+      .single()
+    if (lead?.ghl_contact_id && lead.studio_id) {
+      const { data: studio } = await client
+        .from('studios')
+        .select('ghl_api_key')
+        .eq('id', lead.studio_id)
+        .single()
+      await updateGHLContact(lead.ghl_contact_id, {
+        name:  'name'  in updates ? updates.name  as string | null : undefined,
+        phone: 'phone' in updates ? updates.phone as string | null : undefined,
+        email: 'email' in updates ? updates.email as string | null : undefined,
+      }, studio?.ghl_api_key ?? undefined)
+    }
+  }
+}
+
+export async function deleteLeads(ids: string[]) {
+  if (ids.length === 0) return
+  const { client, user } = await getAuthorizedClient()
+
+  // Fetch names + GHL IDs + Studio IDs before deleting
+  const { data: toDelete } = await client
+    .from('leads')
+    .select('id, name, ghl_contact_id, studio_id')
+    .in('id', ids)
+
+  // Fetch unique studio API keys needed for deletion
+  const studioIds = [...new Set((toDelete ?? []).map(l => l.studio_id).filter(Boolean) as string[])]
+  const { data: studios } = await client
+    .from('studios')
+    .select('id, ghl_api_key')
+    .in('id', studioIds)
+  const apiKeysByStudio = Object.fromEntries((studios ?? []).map(s => [s.id, s.ghl_api_key]))
+
+  // Sync deletions to GHL before removing from Supabase
+  await Promise.allSettled(
+    (toDelete ?? [])
+      .filter(l => l.ghl_contact_id && l.studio_id)
+      .map(l => deleteGHLContact(l.ghl_contact_id!, apiKeysByStudio[l.studio_id!] ?? undefined))
+  )
+
+  const { error } = await client.from('leads').delete().in('id', ids)
+  if (error) throw new Error(error.message)
+
+  // Log the activity
+  const studioId = (toDelete ?? [])[0]?.studio_id
+  if (studioId) {
+    const names = (toDelete ?? []).map(l => l.name || 'Unknown')
+    const nameStr = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names[0]}, ${names[1]}, and ${names.length - 2} more`
+    try {
+      await client.from('activity_logs').insert({
+        studio_id: studioId,
+        lead_name: nameStr,
+        actor_email: user.email ?? null,
+        event_type: 'delete',
+      })
+    } catch { /* non-critical */ }
+  }
+}
+
+export async function deleteLeadView(viewId: string) {
+  const { client } = await getAuthorizedClient()
+  const { error } = await client.from('lead_views').delete().eq('id', viewId)
+  if (error) throw new Error(error.message)
+}
+
+export async function updateLeadView(viewId: string, name: string, columns: string[]) {
+  const { client } = await getAuthorizedClient()
+  const { error } = await client
+    .from('lead_views')
+    .update({ name, columns })
+    .eq('id', viewId)
+  if (error) throw new Error(error.message)
+  return { id: viewId, name, columns }
+}
+
+export async function createLead({
+  studioId,
+  name,
+  phone,
+  email,
+  statusId,
+  levelId,
+  sourceId,
+  reasonId,
+  available,
+  comments,
+}: {
+  studioId: string
+  name: string
+  phone?: string
+  email?: string
+  statusId?: string | null
+  levelId?: string | null
+  sourceId?: string | null
+  reasonId?: string | null
+  available?: string
+  comments?: string
+}): Promise<Lead> {
+  const { client, user } = await getAuthorizedClient()
+  const { data: inserted, error } = await client
+    .from('leads')
+    .insert({
+      studio_id: studioId, name, phone, email,
+      status: statusId ?? null,
+      level: levelId ?? null,
+      source: sourceId ?? null,
+      reason: reasonId ?? null,
+      available, comments,
+      created_by_email: user.email ?? null,
+    })
+    .select('id')
+    .single()
+  if (error) throw new Error(error.message)
+
+  // Sync to GHL — create contact and store the returned ID
+  const { data: studio } = await client
+    .from('studios')
+    .select('ghl_account_id, ghl_api_key')
+    .eq('id', studioId)
+    .single()
+  if (studio?.ghl_account_id) {
+    const ghlContactId = await createGHLContact(studio.ghl_account_id, { name, phone, email }, studio.ghl_api_key ?? undefined)
+    if (ghlContactId) {
+      await client.from('leads').update({ ghl_contact_id: ghlContactId }).eq('id', inserted.id)
+    }
+  }
+
+  // Fetch back with display names via joins
+  const { data, error: fetchError } = await client
+    .from('leads')
+    .select(ENUM_JOIN_SELECT)
+    .eq('id', inserted.id)
+    .single()
+  if (fetchError) throw new Error(fetchError.message)
+  const lead = flattenLead(data as unknown as RawLeadRow)
+
+  // Log the activity
+  try {
+    await client.from('activity_logs').insert({
+      studio_id: studioId,
+      lead_name: lead.name,
+      actor_email: user.email ?? null,
+      event_type: 'create',
+    })
+  } catch { /* non-critical */ }
+
+  return lead
+}
+
+export async function fetchLeadById(id: string): Promise<Lead | null> {
+  const { client } = await getAuthorizedClient()
+  const { data, error } = await client
+    .from('leads')
+    .select(ENUM_JOIN_SELECT)
+    .eq('id', id)
+    .single()
+  if (error) return null
+  return flattenLead(data as unknown as RawLeadRow)
+}
+
+export async function createStudio({
+  name,
+  city,
+  state,
+  street_address,
+  postal_code,
+  country,
+  ghl_account_id,
+  ghl_api_key,
+  ghl_calendar_id,
+  retell_agent_id,
+  retell_api_key,
+}: {
+  name: string
+  city?: string
+  state?: string
+  street_address?: string
+  postal_code?: string
+  country?: string
+  ghl_account_id?: string
+  ghl_api_key?: string
+  ghl_calendar_id?: string
+  retell_agent_id?: string
+  retell_api_key?: string
+}): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  const { data: memberships } = await supabase
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+
+  const isOwnerOrAbove = memberships?.some(m => m.role === 'super_admin' || m.role === 'studio_owner') ?? false
+  if (!isOwnerOrAbove) throw new Error('Forbidden')
+
+  const location = [city, state].filter(Boolean).join(', ')
+  const serviceClient = createServiceClient()
+  const { data: studio, error } = await serviceClient
+    .from('studios')
+    .insert({
+      name,
+      city: city ?? '',
+      state: state ?? '',
+      street_address: street_address ?? '',
+      postal_code: postal_code ?? '',
+      country: country ?? '',
+      location,
+      ghl_account_id: ghl_account_id || '',
+      ghl_api_key: ghl_api_key || null,
+      ghl_calendar_id: ghl_calendar_id || null,
+      retell_agent_id: retell_agent_id || '',
+      retell_api_key: retell_api_key || null,
+    })
+    .select('id')
+    .single()
+
+  if (error) throw new Error(error.message)
+
+  // Add the creator as studio_owner if they are not a super_admin
+  const isSuperAdmin = memberships?.some(m => m.role === 'super_admin') ?? false
+  if (!isSuperAdmin && studio) {
+    await serviceClient.from('studio_users').insert({ studio_id: studio.id, user_id: user.id, role: 'studio_owner' })
+  }
+
+  revalidatePath('/', 'layout')
+}
+
+export async function updateStudio(id: string, updates: {
+  name?: string
+  city?: string
+  state?: string
+  street_address?: string
+  postal_code?: string
+  country?: string
+  ghl_account_id?: string
+  ghl_api_key?: string
+  ghl_calendar_id?: string
+  retell_agent_id?: string
+  retell_api_key?: string
+}): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  const { data: memberships } = await supabase
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('studio_id', id)
+
+  const isOwnerOrAbove = memberships?.some(m => m.role === 'super_admin' || m.role === 'studio_owner') ?? false
+  if (!isOwnerOrAbove) throw new Error('Forbidden')
+
+  const serviceClient = createServiceClient()
+  const { error } = await serviceClient
+    .from('studios')
+    .update(updates)
+    .eq('id', id)
+
+  if (error) throw new Error(error.message)
+
+  revalidatePath('/', 'layout')
+}
+
+export async function deleteStudio(id: string): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  const { data: memberships } = await supabase
+    .from('studio_users')
+    .select('role, studio_id')
+    .eq('user_id', user.id)
+
+  const isSuperAdmin = memberships?.some(m => m.role === 'super_admin') ?? false
+  const isOwnerOfStudio = memberships?.some(m => m.studio_id === id && (m.role === 'studio_owner' || m.role === 'super_admin')) ?? false
+
+  if (!isSuperAdmin && !isOwnerOfStudio) throw new Error('Forbidden')
+
+  const serviceClient = createServiceClient()
+  const { error } = await serviceClient
+    .from('studios')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', id)
+
+  if (error) throw new Error(error.message)
+
+  revalidatePath('/', 'layout')
+}
+
+export async function removeAvatar(): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  const serviceClient = createServiceClient()
+  await serviceClient.storage.from('avatars').remove([`${user.id}/avatar`])
+  await serviceClient.from('studio_users').update({ avatar_url: null }).eq('user_id', user.id)
+}
+
+export async function uploadAvatar(formData: FormData): Promise<{ url: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  const file = formData.get('file') as File
+  if (!file) throw new Error('No file provided')
+
+  const serviceClient = createServiceClient()
+  const path = `${user.id}/avatar`
+  const buffer = Buffer.from(await file.arrayBuffer())
+
+  const { error } = await serviceClient.storage
+    .from('avatars')
+    .upload(path, buffer, { upsert: true, contentType: file.type })
+
+  if (error) throw new Error(error.message)
+
+  const { data: { publicUrl } } = serviceClient.storage.from('avatars').getPublicUrl(path)
+
+  await serviceClient.from('studio_users').update({ avatar_url: publicUrl }).eq('user_id', user.id)
+
+  return { url: publicUrl }
+}
+
+const ENUM_JOIN_SELECT = `
+  id, studio_id, created_at, name, phone, email,
+  last_contacted, first_lesson, comments, available,
+  showed, bought, old, ghl_contact_id, created_by_email,
+  status:studio_field_options!leads_status_fkey(id, value),
+  level:studio_field_options!leads_level_fkey(id, value),
+  action:studio_field_options!leads_action_fkey(id, value),
+  source:studio_field_options!leads_source_fkey(id, value),
+  reason:studio_field_options!leads_reason_fkey(id, value),
+  partnership:studio_field_options!leads_partnership_fkey(id, value)
+`.trim()
+
+type RawLeadRow = Omit<Lead, 'status' | 'level' | 'action' | 'source' | 'reason' | 'partnership'> & {
+  status:      { id: string; value: string } | null
+  level:       { id: string; value: string } | null
+  action:      { id: string; value: string } | null
+  source:      { id: string; value: string } | null
+  reason:      { id: string; value: string } | null
+  partnership: { id: string; value: string } | null
+}
+
+function flattenLead(raw: RawLeadRow): Lead {
+  return {
+    ...raw,
+    status:      raw.status?.value      ?? null,
+    level:       raw.level?.value       ?? null,
+    action:      raw.action?.value      ?? null,
+    source:      raw.source?.value      ?? null,
+    reason:      raw.reason?.value      ?? null,
+    partnership: raw.partnership?.value ?? null,
+  }
+}
+
+export async function fetchLeadsPage({
+  studioId,
+  page,
+  pageSize,
+  search,
+  statusFilter,
+  levelFilter,
+  actionFilter,
+  sourceFilter,
+  reasonFilter,
+  sortField = 'created_at',
+  sortAscending = false,
+}: {
+  studioId: string | null
+  page: number
+  pageSize: number
+  search: string
+  statusFilter: string[]
+  levelFilter: string[]
+  actionFilter: string[]
+  sourceFilter: string[]
+  reasonFilter: string[]
+  sortField?: string
+  sortAscending?: boolean
+}): Promise<{ leads: Lead[]; total: number }> {
+  const { client } = await getAuthorizedClient()
+  const from = page * pageSize
+  const to = from + pageSize - 1
+
+  const filterEntries: { field: string; values: string[] }[] = [
+    { field: 'status', values: statusFilter },
+    { field: 'level',  values: levelFilter },
+    { field: 'action', values: actionFilter },
+    { field: 'source', values: sourceFilter },
+    { field: 'reason', values: reasonFilter },
+  ].filter(e => e.values.length > 0)
+
+  const filterIds: Record<string, string[]> = {}
+  if (filterEntries.length > 0 && studioId) {
+    const allValues = filterEntries.flatMap(e => e.values)
+    const allFields = filterEntries.map(e => e.field)
+    const { data: opts } = await client
+      .from('studio_field_options')
+      .select('field, value, id')
+      .eq('studio_id', studioId)
+      .in('field', allFields)
+      .in('value', allValues)
+    for (const opt of opts ?? []) {
+      if (!filterIds[opt.field]) filterIds[opt.field] = []
+      filterIds[opt.field].push(opt.id)
+    }
+  }
+
+  let query = client.from('leads').select(ENUM_JOIN_SELECT, { count: 'exact' })
+
+  if (studioId)                       query = query.eq('studio_id', studioId)
+  if (search) {
+    const words = search.trim().split(/\s+/)
+    for (const word of words) query = query.ilike('name', `%${word}%`)
+  }
+  if (filterIds['status']?.length)    query = query.in('status', filterIds['status'])
+  if (filterIds['level']?.length)     query = query.in('level',  filterIds['level'])
+  if (filterIds['action']?.length)    query = query.in('action', filterIds['action'])
+  if (filterIds['source']?.length)    query = query.in('source', filterIds['source'])
+  if (filterIds['reason']?.length)    query = query.in('reason', filterIds['reason'])
+
+  const VALID_LEAD_SORT_FIELDS = new Set([
+    'created_at', 'name', 'last_contacted', 'first_lesson',
+    'status', 'level', 'action', 'source', 'reason',
+  ])
+  const safeSortField = VALID_LEAD_SORT_FIELDS.has(sortField) ? sortField : 'created_at'
+
+  const { data, count, error } = await query
+    .order(safeSortField, { ascending: sortAscending })
+    .range(from, to)
+
+  if (error) throw new Error(error.message)
+  return {
+    leads: (data ?? []).map(r => flattenLead(r as unknown as RawLeadRow)),
+    total: count ?? 0,
+  }
+}
+
+export async function getUserPreferences(studioId: string): Promise<{
+  col_widths: Record<string, number>
+  active_view_id: string
+  theme: 'light' | 'dark'
+  nav_collapsed: boolean
+  notify_lead_created: boolean
+  notify_lead_updated: boolean
+  notify_lead_deleted: boolean
+} | null> {
+  const { client, user } = await getAuthorizedClient()
+  const { data, error } = await client
+    .from('user_preferences')
+    .select('col_widths, active_view_id, theme, nav_collapsed, notify_lead_created, notify_lead_updated, notify_lead_deleted')
+    .eq('user_id', user.id)
+    .eq('studio_id', studioId)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) return null
+  return {
+    col_widths: (data.col_widths ?? {}) as Record<string, number>,
+    active_view_id: (data.active_view_id as string) ?? 'all',
+    theme: ((data.theme as string) === 'dark' ? 'dark' : 'light'),
+    nav_collapsed: !!(data.nav_collapsed),
+    notify_lead_created: data.notify_lead_created !== false,
+    notify_lead_updated: data.notify_lead_updated !== false,
+    notify_lead_deleted: data.notify_lead_deleted !== false,
+  }
+}
+
+// Returns all field options for a studio including their stored colors and sort order
+export async function getStudioFieldOptions(studioId: string): Promise<Record<string, Array<{ id: string; value: string; bg: string | null; text: string | null }>>> {
+  const { client } = await getAuthorizedClient()
+  const { data, error } = await client
+    .from('studio_field_options')
+    .select('id, field, value, bg, text, sort_order')
+    .eq('studio_id', studioId)
+    .order('sort_order', { ascending: true, nullsFirst: false })
+  if (error) throw new Error(error.message)
+  const result: Record<string, Array<{ id: string; value: string; bg: string | null; text: string | null }>> = {}
+  for (const row of data ?? []) {
+    if (!result[row.field]) result[row.field] = []
+    if (result[row.field].some(o => o.value === row.value)) continue
+    result[row.field].push({ id: row.id, value: row.value, bg: row.bg ?? null, text: row.text ?? null })
+  }
+  return result
+}
+
+// Update the color for a single studio-level field option
+export async function updateStudioFieldOptionColor(optionId: string, bg: string, text: string): Promise<void> {
+  const { client } = await getAuthorizedClient()
+  const { error } = await client
+    .from('studio_field_options')
+    .update({ bg, text })
+    .eq('id', optionId)
+  if (error) throw new Error(error.message)
+}
+
+// Persist a new sort order for a field's options (called after drag-and-drop reorder)
+export async function updateStudioFieldOptionOrder(updates: Array<{ id: string; sortOrder: number }>): Promise<void> {
+  const { client } = await getAuthorizedClient()
+  await Promise.all(
+    updates.map(({ id, sortOrder }) =>
+      client.from('studio_field_options').update({ sort_order: sortOrder }).eq('id', id)
+    )
+  )
+}
+
+// Add a new option — returns the new row with its ID
+export async function addStudioFieldOption(studioId: string, field: string, value: string): Promise<{ id: string; value: string }> {
+  const { client } = await getAuthorizedClient()
+  const { data: existing } = await client
+    .from('studio_field_options')
+    .select('id, value')
+    .eq('studio_id', studioId)
+    .eq('field', field)
+    .eq('value', value)
+    .maybeSingle()
+  if (existing) return existing as { id: string; value: string }
+  const { data, error } = await client
+    .from('studio_field_options')
+    .insert({ studio_id: studioId, field, value })
+    .select('id, value')
+    .single()
+  if (error) throw new Error(error.message)
+  return data as { id: string; value: string }
+}
+
+// Rename an option — updates 1 row by (studioId, field, oldValue), all leads referencing
+// this ID instantly see the new name without any lead row updates
+export async function renameStudioFieldOption(studioId: string, field: string, oldValue: string, newValue: string): Promise<void> {
+  const { client } = await getAuthorizedClient()
+  const { error } = await client
+    .from('studio_field_options')
+    .update({ value: newValue })
+    .eq('studio_id', studioId)
+    .eq('field', field)
+    .eq('value', oldValue)
+  if (error) throw new Error(error.message)
+}
+
+// Delete an option — leads with this option will have the field set to NULL (via ON DELETE SET NULL)
+export async function deleteStudioFieldOption(optionId: string): Promise<void> {
+  const { client } = await getAuthorizedClient()
+  const { error } = await client
+    .from('studio_field_options')
+    .delete()
+    .eq('id', optionId)
+  if (error) throw new Error(error.message)
+}
+
+export async function saveThemePreference(theme: 'light' | 'dark'): Promise<void> {
+  const { client, user } = await getAuthorizedClient()
+  const cookieStore = await cookies()
+  let studioId = cookieStore.get('selected_studio_id')?.value
+  if (!studioId) {
+    // Cookie not set yet (user has never switched studios) — fall back to DB
+    const supabase = await createClient()
+    const { data } = await supabase
+      .from('studio_users')
+      .select('studio_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle()
+    studioId = data?.studio_id ?? undefined
+  }
+  if (!studioId) return
+  const { error } = await client
+    .from('user_preferences')
+    .upsert(
+      { user_id: user.id, studio_id: studioId, theme, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id,studio_id' }
+    )
+  if (error) throw new Error(error.message)
+}
+
+export async function saveUserPreferences(
+  studioId: string,
+  colWidths: Record<string, number>,
+  activeViewId: string,
+  theme: 'light' | 'dark',
+  navCollapsed?: boolean,
+): Promise<void> {
+  const { client, user } = await getAuthorizedClient()
+  const { error } = await client
+    .from('user_preferences')
+    .upsert(
+      {
+        user_id: user.id,
+        studio_id: studioId,
+        col_widths: colWidths,
+        active_view_id: activeViewId,
+        theme,
+        ...(navCollapsed !== undefined ? { nav_collapsed: navCollapsed } : {}),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,studio_id' }
+    )
+  if (error) throw new Error(error.message)
+}
+
+export async function saveNavCollapsed(collapsed: boolean): Promise<void> {
+  const { client, user } = await getAuthorizedClient()
+  const cookieStore = await cookies()
+  let studioId = cookieStore.get('selected_studio_id')?.value
+  if (!studioId) {
+    const supabase = await createClient()
+    const { data } = await supabase
+      .from('studio_users')
+      .select('studio_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle()
+    studioId = data?.studio_id ?? undefined
+  }
+  if (!studioId) return
+  const { error } = await client
+    .from('user_preferences')
+    .upsert(
+      { user_id: user.id, studio_id: studioId, nav_collapsed: collapsed, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id,studio_id' }
+    )
+  if (error) throw new Error(error.message)
+}
+
+export async function saveNotificationPreferences(
+  notifyCreated: boolean,
+  notifyUpdated: boolean,
+  notifyDeleted: boolean,
+): Promise<void> {
+  const { client, user } = await getAuthorizedClient()
+  const cookieStore = await cookies()
+  let studioId = cookieStore.get('selected_studio_id')?.value
+  if (!studioId) {
+    const supabase = await createClient()
+    const { data } = await supabase
+      .from('studio_users')
+      .select('studio_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle()
+    studioId = data?.studio_id ?? undefined
+  }
+  if (!studioId) return
+  const { error } = await client
+    .from('user_preferences')
+    .upsert(
+      {
+        user_id: user.id,
+        studio_id: studioId,
+        notify_lead_created: notifyCreated,
+        notify_lead_updated: notifyUpdated,
+        notify_lead_deleted: notifyDeleted,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,studio_id' }
+    )
+  if (error) throw new Error(error.message)
+}
+
+export async function logLeadActivity(
+  studioId: string,
+  leadName: string,
+  actorEmail: string | null,
+  eventType: 'create' | 'update' | 'delete',
+): Promise<void> {
+  const { client } = await getAuthorizedClient()
+  try {
+    await client.from('activity_logs').insert({
+      studio_id: studioId,
+      lead_name: leadName,
+      actor_email: actorEmail,
+      event_type: eventType,
+    })
+  } catch { /* non-critical */ }
+}
+
+export async function getActivityLogs(studioId: string): Promise<{
+  id: string
+  lead_name: string | null
+  actor_email: string | null
+  event_type: string | null
+  created_at: string
+}[]> {
+  const { client } = await getAuthorizedClient()
+  const { data } = await client
+    .from('activity_logs')
+    .select('id, lead_name, actor_email, event_type, created_at')
+    .eq('studio_id', studioId)
+    .order('created_at', { ascending: false })
+    .limit(200)
+  return (data ?? []) as { id: string; lead_name: string | null; actor_email: string | null; event_type: string | null; created_at: string }[]
+}
+
+export async function deleteActivityLog(id: string): Promise<void> {
+  const { client } = await getAuthorizedClient()
+  // RLS enforces owner-only delete — no extra round trips needed
+  const { error } = await client.from('activity_logs').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+// ── User Preferences ───────────────────────────────────────────────────────────
+
+export async function getAnalyticsPreferences(studioId: string): Promise<{ direction: string; preset: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { direction: 'all', preset: '7d' }
+
+  const { data } = await supabase
+    .from('user_preferences')
+    .select('analytics')
+    .eq('user_id', user.id)
+    .eq('studio_id', studioId)
+    .maybeSingle()
+
+  return {
+    direction: (data?.analytics as Record<string, string> | null)?.direction ?? 'all',
+    preset:    (data?.analytics as Record<string, string> | null)?.preset    ?? '7d',
+  }
+}
+
+export async function saveAnalyticsPreferences(studioId: string, direction: string, preset: string): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
+
+  const { data: existing } = await supabase
+    .from('user_preferences')
+    .select('id')
+    .eq('user_id', user.id)
+    .eq('studio_id', studioId)
+    .maybeSingle()
+
+  if (existing) {
+    await supabase
+      .from('user_preferences')
+      .update({ analytics: { direction, preset } })
+      .eq('user_id', user.id)
+      .eq('studio_id', studioId)
+  } else {
+    await supabase
+      .from('user_preferences')
+      .insert({ user_id: user.id, studio_id: studioId, analytics: { direction, preset } })
+  }
+}
+
+// ── Page Filter Preferences ────────────────────────────────────────────────────
+
+export interface PageFilters {
+  leads?: {
+    filters?: { status?: string[]; level?: string[]; action?: string[]; source?: string[]; reason?: string[] }
+    sort?: { field: string; ascending: boolean }
+  }
+  transcripts?: {
+    direction?: string; sentiment?: string[]; outcome?: string
+    appointmentBooked?: string; disconnectedReason?: string[]
+    qualityScore?: { op: string; value: string }
+  }
+  appointmentList?: {
+    statusFilters?: string[]; dateFrom?: string; dateTo?: string
+    sortField?: string; sortAscending?: boolean
+  }
+}
+
+export async function getPageFilters(studioId: string): Promise<PageFilters> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return {}
+  const { data } = await supabase
+    .from('user_preferences')
+    .select('page_filters')
+    .eq('user_id', user.id)
+    .eq('studio_id', studioId)
+    .maybeSingle()
+  return (data?.page_filters as PageFilters) ?? {}
+}
+
+export async function savePageFilters(studioId: string, pageFilters: PageFilters): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
+  const { data: existing } = await supabase
+    .from('user_preferences')
+    .select('id, page_filters')
+    .eq('user_id', user.id)
+    .eq('studio_id', studioId)
+    .maybeSingle()
+  const merged = { ...(existing?.page_filters as PageFilters ?? {}), ...pageFilters }
+  if (existing) {
+    await supabase
+      .from('user_preferences')
+      .update({ page_filters: merged })
+      .eq('user_id', user.id)
+      .eq('studio_id', studioId)
+  } else {
+    await supabase
+      .from('user_preferences')
+      .insert({ user_id: user.id, studio_id: studioId, page_filters: merged })
+  }
+}
+
+// ── Retell Sync ────────────────────────────────────────────────────────────────
+
+const VALID_DISCONNECT_REASONS_SYNC = new Set([
+  'agent_hangup', 'user_hangup', 'voicemail', 'dial_no_answer', 'dial_busy', 'call_transfer',
+])
+const UUID_REGEX_SYNC = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function formatTranscriptSync(transcript: any): string | null {
+  if (!transcript) return null
+  if (typeof transcript === 'string') return transcript
+  if (!Array.isArray(transcript)) return null
+  const lines: string[] = []
+  for (const turn of transcript) {
+    if (turn.role === 'agent' && turn.content) lines.push(`Agent: ${turn.content}`)
+    else if (turn.role === 'user' && turn.content) lines.push(`User: ${turn.content}`)
+  }
+  return lines.length > 0 ? lines.join('\n') : null
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapRetellCallSync(studioId: string, call: any) {
+  const durationSeconds = call.end_timestamp && call.start_timestamp
+    ? Math.round((call.end_timestamp - call.start_timestamp) / 1000)
+    : null
+  const disconnectionReason = (call.disconnection_reason ?? '').toLowerCase()
+  const rawSentiment = call.call_analysis?.user_sentiment?.toLowerCase() ?? 'unknown'
+  const sentiment = ['positive', 'neutral', 'negative', 'unknown'].includes(rawSentiment) ? rawSentiment : 'unknown'
+  const leadId = call.metadata?.lead_id
+  return {
+    studio_id:           studioId,
+    retell_call_id:      call.call_id,
+    created_at:          new Date(call.start_timestamp).toISOString(),
+    duration_seconds:    durationSeconds,
+    sentiment,
+    outcome:             call.call_analysis?.call_successful === true ? 'successful'
+                           : call.call_analysis?.call_successful === false ? 'unsuccessful' : null,
+    disconnected_reason: VALID_DISCONNECT_REASONS_SYNC.has(disconnectionReason) ? disconnectionReason : null,
+    picked_up:           !['dial_no_answer', 'dial_busy'].includes(disconnectionReason),
+    transferred:         disconnectionReason === 'call_transfer',
+    voicemail:           disconnectionReason === 'voicemail',
+    direction:           call.direction ?? null,
+    transcript_summary:  call.call_analysis?.call_summary ?? null,
+    transcript:          formatTranscriptSync(call.transcript),
+    lead_id:             leadId && UUID_REGEX_SYNC.test(leadId) ? leadId : null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recording_url:       (call as any).recording_url ?? null,
+  }
+}
+
+export async function syncRetellCallsNow(studioId: string): Promise<{ synced: number; error?: string }> {
+  // Auth + membership check — this action triggers live Retell API calls
+  const authSupabase = await createClient()
+  const { data: { user } } = await authSupabase.auth.getUser()
+  if (!user) return { synced: 0, error: 'Unauthorized' }
+
+  const { data: membership } = await authSupabase
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('studio_id', studioId)
+    .maybeSingle()
+  const { data: allMemberships } = await authSupabase.from('studio_users').select('role').eq('user_id', user.id)
+  const isSuperAdmin = allMemberships?.some(m => m.role === 'super_admin') ?? false
+  if (!membership && !isSuperAdmin) return { synced: 0, error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: studio } = await supabase
+    .from('studios')
+    .select('retell_agent_id, retell_api_key')
+    .eq('id', studioId)
+    .single()
+
+  if (!studio?.retell_agent_id) return { synced: 0, error: 'No Retell agent ID configured for this studio' }
+
+  const apiKey = studio.retell_api_key
+  if (!apiKey) return { synced: 0, error: 'No Retell API key set — add it in Business Profile settings' }
+
+  // Start from the most recent call we already have (with 1-min overlap to avoid gaps)
+  // Falls back to 7 days if no calls exist yet
+  const { data: latest } = await supabase
+    .from('calls')
+    .select('created_at')
+    .eq('studio_id', studioId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const afterTimestamp = latest?.created_at
+    ? new Date(latest.created_at).getTime() - 60_000
+    : Date.now() - 7 * 24 * 60 * 60 * 1000
+
+  const res = await fetch('https://api.retellai.com/v2/list-calls', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      filter_criteria: { agent_id: [studio.retell_agent_id], after_start_timestamp: afterTimestamp },
+      limit: 500,
+      sort_order: 'descending',
+    }),
+  })
+
+  if (!res.ok) return { synced: 0, error: `Retell API error: ${res.status}` }
+
+  const data = await res.json()
+  const calls: unknown[] = Array.isArray(data) ? data : (data.calls ?? [])
+  if (!calls.length) return { synced: 0 }
+
+  const rows = calls.map(c => mapRetellCallSync(studioId, c))
+  const { error } = await supabase.from('calls').upsert(rows, { onConflict: 'retell_call_id' })
+  if (error) return { synced: 0, error: error.message }
+
+  // Link unlinked calls to leads via Retell dynamic variables (email / phone)
+  const retellIds = rows.filter(r => !r.lead_id).map(r => r.retell_call_id)
+  if (retellIds.length > 0) {
+    const { data: unlinked } = await supabase
+      .from('calls')
+      .select('id, retell_call_id')
+      .in('retell_call_id', retellIds)
+      .is('lead_id', null)
+
+    for (const call of unlinked ?? []) {
+      try {
+        const detailRes = await fetch(`https://api.retellai.com/v2/get-call/${call.retell_call_id}`, {
+          headers: { 'Authorization': `Bearer ${apiKey}` },
+        })
+        if (!detailRes.ok) continue
+        const detail = await detailRes.json()
+        const vars = detail.retell_llm_dynamic_variables ?? {}
+        const email = typeof vars.email === 'string' ? vars.email.trim().toLowerCase() : null
+        const phone = typeof vars.phone_number === 'string' ? vars.phone_number.trim() : null
+
+        if (!email && !phone) continue
+
+        // Try email first, then phone
+        let leadId: string | null = null
+        if (email) {
+          const { data: byEmail } = await supabase
+            .from('leads')
+            .select('id')
+            .eq('studio_id', studioId)
+            .ilike('email', email)
+            .limit(1)
+            .maybeSingle()
+          if (byEmail) leadId = byEmail.id
+        }
+        if (!leadId && phone) {
+          const { data: byPhone } = await supabase
+            .from('leads')
+            .select('id')
+            .eq('studio_id', studioId)
+            .ilike('phone', `%${phone}%`)
+            .limit(1)
+            .maybeSingle()
+          if (byPhone) leadId = byPhone.id
+        }
+
+        if (leadId) {
+          await supabase.from('calls').update({ lead_id: leadId }).eq('id', call.id)
+        }
+      } catch {
+        // Non-fatal — skip this call
+      }
+    }
+  }
+
+  return { synced: rows.length }
+}
+
+// ── Call Analytics ─────────────────────────────────────────────────────────────
+
+import type { CallAnalyticsData, Call } from '@/lib/types'
+import { groupCallsByDay, groupDurationByDay } from '@/lib/date-utils'
+
+export async function fetchCallsAnalytics(
+  studioId: string,
+  from: string,
+  to: string,
+): Promise<CallAnalyticsData> {
+  const { client } = await getAuthorizedClient()
+  const { data, error } = await client
+    .from('calls')
+    .select('id,retell_call_id,created_at,duration_seconds,sentiment,outcome,disconnected_reason,picked_up,transferred,voicemail,direction,transcript_summary,lead_id,quality_score,appointment_booked')
+    .eq('studio_id', studioId)
+    .gte('created_at', from)
+    .lte('created_at', to)
+    .order('created_at', { ascending: true })
+
+  if (error) throw new Error(error.message)
+  const calls = (data ?? []) as Omit<Call, 'transcript'>[]
+
+  const totalCalls          = calls.length
+  const totalDurationSeconds = calls.reduce((s, c) => s + (c.duration_seconds ?? 0), 0)
+  const appointmentsBooked  = calls.filter(c => c.appointment_booked).length
+  const qualityCalls        = calls.filter(c => c.quality_score != null)
+  const avgQualityScore     = qualityCalls.length
+    ? Math.round(qualityCalls.reduce((s, c) => s + (c.quality_score ?? 0), 0) / qualityCalls.length * 10) / 10
+    : null
+  const successRate         = totalCalls ? calls.filter(c => c.outcome === 'successful').length / totalCalls : 0
+  const pickupRate          = totalCalls ? calls.filter(c => c.picked_up).length / totalCalls : 0
+  const volumeByDay         = groupCallsByDay(calls)
+
+  const sentimentCounts: Record<string, number> = {}
+  const disconnectCounts: Record<string, number> = {}
+  const outcomeCounts: Record<string, number> = {}
+  for (const c of calls) {
+    if (c.sentiment)            sentimentCounts[c.sentiment]              = (sentimentCounts[c.sentiment]              ?? 0) + 1
+    if (c.disconnected_reason)  disconnectCounts[c.disconnected_reason]   = (disconnectCounts[c.disconnected_reason]   ?? 0) + 1
+    if (c.outcome)              outcomeCounts[c.outcome]                  = (outcomeCounts[c.outcome]                  ?? 0) + 1
+  }
+
+  return {
+    calls, volumeByDay, totalCalls, totalDurationSeconds,
+    appointmentsBooked, avgQualityScore,
+    successRate, pickupRate,
+    sentimentCounts, disconnectCounts, outcomeCounts,
+  }
+}
+
+export type TranscriptCallRow = Pick<Call,
+  'id' | 'retell_call_id' | 'created_at' | 'duration_seconds' | 'outcome' | 'sentiment' |
+  'transcript_summary' | 'lead_id' | 'direction' | 'disconnected_reason' | 'quality_score' |
+  'appointment_booked' | 'recording_url'
+> & { transcript?: string | null; lead_name: string | null; lead_phone: string | null }
+
+export async function fetchCallTranscripts(
+  studioId: string,
+  from: string,
+  to: string,
+  page = 1,
+  pageSize = 20,
+  direction?: 'all' | 'inbound' | 'outbound'
+): Promise<{ calls: TranscriptCallRow[]; total: number }> {
+  const { client } = await getAuthorizedClient()
+  const offset = (page - 1) * pageSize
+
+  let query = client
+    .from('calls')
+    .select('id,retell_call_id,created_at,duration_seconds,outcome,sentiment,transcript_summary,lead_id,direction,disconnected_reason,quality_score,appointment_booked,recording_url', { count: 'exact' })
+    .eq('studio_id', studioId)
+    .gte('created_at', from)
+    .lte('created_at', to)
+
+  if (direction && direction !== 'all') {
+    query = query.eq('direction', direction)
+  }
+
+  const { data, error, count } = await query
+    .order('created_at', { ascending: false })
+    .range(offset, offset + pageSize - 1)
+
+  if (error) throw new Error(error.message)
+
+  const rows = data ?? []
+  const leadIds = [...new Set(rows.filter(c => c.lead_id).map(c => c.lead_id as string))]
+  const leadNames: Record<string, string> = {}
+  const leadPhones: Record<string, string> = {}
+  if (leadIds.length) {
+    const { data: leads } = await client.from('leads').select('id,name,phone').in('id', leadIds)
+    for (const l of leads ?? []) {
+      leadNames[l.id] = l.name
+      if (l.phone) leadPhones[l.id] = l.phone
+    }
+  }
+
+  return {
+    calls: rows.map(c => ({
+      ...c,
+      lead_name:  c.lead_id ? (leadNames[c.lead_id]  ?? null) : null,
+      lead_phone: c.lead_id ? (leadPhones[c.lead_id] ?? null) : null,
+    })) as TranscriptCallRow[],
+    total: count ?? 0,
+  }
+}
+
+export async function fetchCallsForLead(
+  leadId: string,
+  studioId: string,
+): Promise<TranscriptCallRow[]> {
+  const { client } = await getAuthorizedClient()
+  const { data: lead } = await client.from('leads').select('name').eq('id', leadId).single()
+  const leadName = lead?.name ?? null
+
+  const { data, error } = await client
+    .from('calls')
+    .select('id,retell_call_id,created_at,duration_seconds,outcome,sentiment,transcript_summary,lead_id,direction,disconnected_reason,quality_score,appointment_booked,recording_url')
+    .eq('studio_id', studioId)
+    .eq('lead_id', leadId)
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  return (data ?? []).map(c => ({ ...c, lead_name: leadName })) as TranscriptCallRow[]
+}
+
+export async function refreshSingleCallFromRetell(callId: string, studioId: string): Promise<TranscriptCallRow | null> {
+  const authClient = await createClient()
+  const { data: { user } } = await authClient.auth.getUser()
+  if (!user) return null
+
+  const supabase = createServiceClient()
+
+  const { data: call } = await supabase
+    .from('calls')
+    .select('retell_call_id')
+    .eq('id', callId)
+    .single()
+
+  if (!call?.retell_call_id) return null
+
+  const { data: studio } = await supabase
+    .from('studios')
+    .select('retell_api_key')
+    .eq('id', studioId)
+    .single()
+
+  const apiKey = studio?.retell_api_key
+  if (!apiKey) return null
+
+  const res = await fetch(`https://api.retellai.com/v2/get-call/${call.retell_call_id}`, {
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+  })
+  if (!res.ok) return null
+
+  const retellCall = await res.json()
+  const row = mapRetellCallSync(studioId, retellCall)
+
+  // Extract transcript_with_tool_calls from fresh Retell response
+  const freshToolCalls = Array.isArray(retellCall.transcript_with_tool_calls) && retellCall.transcript_with_tool_calls.length > 0
+    ? retellCall.transcript_with_tool_calls
+    : null
+
+  // Only update mutable fields — never overwrite id, studio_id, retell_call_id, created_at, or lead_id
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (supabase.from('calls') as any).update({
+    duration_seconds:             row.duration_seconds,
+    sentiment:                    row.sentiment,
+    outcome:                      row.outcome,
+    disconnected_reason:          row.disconnected_reason,
+    picked_up:                    row.picked_up,
+    transferred:                  row.transferred,
+    voicemail:                    row.voicemail,
+    direction:                    row.direction,
+    transcript_summary:           row.transcript_summary,
+    transcript:                   row.transcript,
+    recording_url:                row.recording_url,
+    transcript_with_tool_calls:   freshToolCalls,
+  }).eq('id', callId)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: updated } = await (supabase.from('calls') as any)
+    .select('id,retell_call_id,created_at,duration_seconds,outcome,sentiment,transcript_summary,transcript,lead_id,direction,disconnected_reason,quality_score,appointment_booked,recording_url,transcript_with_tool_calls')
+    .eq('id', callId)
+    .single()
+
+  if (!updated) return null
+
+  let lead_name: string | null = null
+  let lead_phone: string | null = null
+  if (updated.lead_id) {
+    const { data: lead } = await supabase.from('leads').select('name,phone').eq('id', updated.lead_id).single()
+    lead_name  = lead?.name  ?? null
+    lead_phone = lead?.phone ?? null
+  }
+
+  return { ...updated, lead_name, lead_phone, transcript: updated.transcript ?? null } as TranscriptCallRow
+}
+
+export async function fetchCallTranscriptText(callId: string): Promise<string | null> {
+  const { client } = await getAuthorizedClient()
+  const { data, error } = await client.from('calls').select('transcript').eq('id', callId).single()
+  if (error) throw new Error(error.message)
+  return data?.transcript ?? null
+}
+
+// ── Enriched transcript types ──────────────────────────────────────────────────
+
+export type RetellTranscriptItem =
+  | { role: 'agent'; content: string; words: { word: string; start: number; end: number }[]; metadata?: { response_id: number } }
+  | { role: 'user';  content: string; words: { word: string; start: number; end: number }[] }
+  | { role: 'node_transition'; former_node_id: string; former_node_name: string; new_node_id: string; new_node_name: string; time_sec: number; transition_type: string }
+  | { role: 'tool_call_invocation'; tool_call_id: string; name: string; arguments: string; time_sec: number; type: string }
+  | { role: 'tool_call_result';     tool_call_id: string; successful: boolean; content: string; time_sec: number }
+
+/** Fetches both plain transcript text AND the enriched transcript_with_tool_calls array in one query. */
+export async function fetchCallTranscriptFull(callId: string): Promise<{
+  transcript: string | null
+  transcriptWithToolCalls: RetellTranscriptItem[] | null
+}> {
+  const { client } = await getAuthorizedClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (client.from('calls') as any)
+    .select('transcript, transcript_with_tool_calls')
+    .eq('id', callId)
+    .single()
+  if (error) throw new Error(error.message)
+  return {
+    transcript: data?.transcript ?? null,
+    transcriptWithToolCalls: Array.isArray(data?.transcript_with_tool_calls)
+      ? (data.transcript_with_tool_calls as RetellTranscriptItem[])
+      : null,
+  }
+}
+
+// ── Calendar ─────────────────────────────────────────────────────────────────
+
+import type { Appointment } from '@/lib/types'
+
+export async function findLeadsByContactIds(
+  contactIds: string[],
+  studioId: string,
+): Promise<Record<string, Lead>> {
+  if (!contactIds.length) return {}
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('leads')
+    .select('*')
+    .eq('studio_id', studioId)
+    .in('ghl_contact_id', contactIds)
+  const map: Record<string, Lead> = {}
+  for (const row of data ?? []) {
+    if (row.ghl_contact_id) map[row.ghl_contact_id] = row as Lead
+  }
+  return map
+}
+
+export async function getCalendarAppointments(
+  studioId: string,
+  startTime: string,
+  endTime: string,
+): Promise<Appointment[]> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('appointments')
+    .select('*')
+    .eq('studio_id', studioId)
+    .is('deleted_at', null)
+    .gte('start_time', startTime)
+    .lte('start_time', endTime)
+    .order('start_time', { ascending: true })
+  return (data ?? []) as Appointment[]
+}
+
+/**
+ * Reschedules an appointment: updates GHL first (fatal on conflict), then Supabase.
+ * newStartTime / newEndTime are naive local ISO strings e.g. "2026-04-21T15:30:00"
+ */
+export async function rescheduleAppointment(
+  appointmentId: string,
+  newStartTime: string,
+  newEndTime: string,
+): Promise<{ error?: string; newId?: string }> {
+  // Auth check
+  const authClient = await createClient()
+  const { data: { user } } = await authClient.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  // Fetch full appointment so we can preserve all fields in the GHL PUT
+  const { data: appt } = await supabase
+    .from('appointments')
+    .select('calendar_id, studio_id, title, contact_id, status, assigned_user_id, notes, address')
+    .eq('id', appointmentId)
+    .single()
+
+  if (!appt?.calendar_id) return { error: 'Appointment not found' }
+
+  // Verify user has membership for this studio
+  const { data: membership } = await authClient
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('studio_id', appt.studio_id)
+    .single()
+  // super_admin may not have a per-studio membership row — check all memberships
+  const { data: allMemberships } = await authClient.from('studio_users').select('role').eq('user_id', user.id)
+  const isSuperAdmin = allMemberships?.some(m => m.role === 'super_admin') ?? false
+  if (!membership && !isSuperAdmin) return { error: 'Unauthorized' }
+
+  const { data: studio } = await supabase
+    .from('studios')
+    .select('ghl_account_id, ghl_api_key')
+    .eq('id', appt.studio_id)
+    .single()
+
+  const locationId = studio?.ghl_account_id ?? null
+
+  // GHL first — will throw if the slot is taken or any other error
+  // Pass all existing fields so GHL doesn't reset them to defaults
+  let ghlNewId: string | undefined
+  try {
+    const result = await updateGHLAppointment(appointmentId, appt.calendar_id, newStartTime, newEndTime, locationId, {
+      title:             appt.title,
+      contactId:         appt.contact_id,
+      appointmentStatus: appt.status,
+      assignedUserId:    appt.assigned_user_id,
+      notes:             appt.notes,
+      address:           appt.address,
+    }, studio?.ghl_api_key ?? undefined)
+    ghlNewId = result.newId
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+
+  // GHL succeeded — update Supabase.
+  // If GHL assigned a new ID after rescheduling, update the primary key so
+  // future deletes target the correct GHL record.
+  const updates: Record<string, string> = {
+    start_time: newStartTime,
+    end_time: newEndTime,
+    updated_at: new Date().toISOString(),
+  }
+  if (ghlNewId) updates.id = ghlNewId
+
+  const { error } = await supabase
+    .from('appointments')
+    .update(updates)
+    .eq('id', appointmentId)
+
+  if (error) return { error: error.message }
+
+  // Emit appointment event so conversations chip updates in real-time.
+  // newStartTime is a naive Chicago-local string — convert to UTC ISO before storing in timestamptz.
+  const chicagoStartUtc = naiveChicagoToUtcIso(newStartTime)
+  await supabase.from('appointment_events').insert({
+    studio_id: appt.studio_id,
+    appointment_id: ghlNewId ?? appointmentId,
+    contact_id: appt.contact_id ?? null,
+    verb: 'Updated',
+    new_start_time: chicagoStartUtc,
+  })
+
+  return { newId: ghlNewId }
+}
+
+export async function deleteAppointment(appointmentId: string): Promise<{ error?: string }> {
+  // Auth check
+  const authClient = await createClient()
+  const { data: { user } } = await authClient.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  // Fetch studio_id and contact_id before deleting
+  const { data: appt } = await supabase
+    .from('appointments')
+    .select('studio_id, contact_id')
+    .eq('id', appointmentId)
+    .single()
+
+  if (!appt) return { error: 'Appointment not found' }
+
+  const { data: studio } = await supabase
+    .from('studios')
+    .select('ghl_api_key')
+    .eq('id', appt.studio_id)
+    .single()
+
+  // Verify user has membership for this studio
+  const { data: membership } = await authClient
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('studio_id', appt.studio_id)
+    .maybeSingle()
+  const { data: allMemberships } = await authClient.from('studio_users').select('role').eq('user_id', user.id)
+  const isSuperAdmin = allMemberships?.some(m => m.role === 'super_admin') ?? false
+  if (!membership && !isSuperAdmin) return { error: 'Unauthorized' }
+
+  const { error } = await supabase.from('appointments').update({
+    deleted_at: new Date().toISOString(),
+    status: 'cancelled',
+    updated_at: new Date().toISOString(),
+  }).eq('id', appointmentId)
+  if (error) return { error: error.message }
+
+  // Mirror deletion to GHL (non-fatal)
+  await deleteGHLAppointment(appointmentId, studio?.ghl_api_key ?? undefined)
+
+  // Emit appointment event
+  if (appt) {
+    await supabase.from('appointment_events').insert({
+      studio_id: appt.studio_id,
+      appointment_id: appointmentId,
+      contact_id: appt.contact_id ?? null,
+      verb: 'Deleted',
+    })
+  }
+
+  return {}
+}
+
+/** Returns "HH:MM" start times of non-cancelled appointments on the given date for a studio. */
+export async function fetchBookedSlotsForDate(studioId: string, date: string): Promise<string[]> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('appointments')
+    .select('start_time')
+    .eq('studio_id', studioId)
+    .gte('start_time', `${date}T00:00:00`)
+    .lte('start_time', `${date}T23:59:59`)
+    .neq('status', 'cancelled')
+  return (data ?? []).map((a: { start_time: string }) => a.start_time.substring(11, 16))
+}
+
+/** Updates title and/or notes on an appointment in GHL + Supabase. */
+export async function updateAppointmentDetails(
+  appointmentId: string,
+  updates: { title?: string | null; notes?: string | null },
+): Promise<{ error?: string }> {
+  const authClient = await createClient()
+  const { data: { user } } = await authClient.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: appt } = await supabase
+    .from('appointments')
+    .select('calendar_id, studio_id, contact_id')
+    .eq('id', appointmentId)
+    .single()
+
+  if (!appt?.calendar_id) return { error: 'Appointment not found' }
+
+  const { data: studio } = await supabase
+    .from('studios')
+    .select('ghl_api_key')
+    .eq('id', appt.studio_id)
+    .single()
+
+  try {
+    await patchGHLAppointmentDetails(appointmentId, appt.calendar_id, updates, studio?.ghl_api_key ?? undefined)
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+
+  const { error } = await supabase
+    .from('appointments')
+    .update({
+      ...(updates.title !== undefined  && { title: updates.title }),
+      ...(updates.notes !== undefined  && { notes: updates.notes }),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', appointmentId)
+
+  if (error) return { error: error.message }
+
+  // Emit appointment event
+  await supabase.from('appointment_events').insert({
+    studio_id: appt.studio_id,
+    appointment_id: appointmentId,
+    contact_id: appt.contact_id ?? null,
+    verb: 'Updated',
+  })
+
+  return {}
+}
+
+export async function saveCalendarSettings(
+  studioId: string,
+  config: StudioSlotConfig,
+  calStartHour: number,
+  calEndHour: number,
+): Promise<{ error?: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
+
+  // Role check: must be studio_owner or super_admin for this studio
+  const { data: membership } = await supabase
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('studio_id', studioId)
+    .single()
+
+  const { data: allMemberships } = await supabase.from('studio_users').select('role').eq('user_id', user.id)
+  const isSuperAdmin = allMemberships?.some(m => m.role === 'super_admin') ?? false
+  const role = membership?.role ?? null
+
+  if (!isSuperAdmin && role !== 'studio_owner') {
+    return { error: 'You do not have permission to edit calendar settings.' }
+  }
+
+  // Validate
+  if (!Number.isInteger(config.appointment_duration_minutes) || config.appointment_duration_minutes < 1) {
+    return { error: 'Appointment duration must be at least 1 minute.' }
+  }
+  if (!Number.isInteger(config.appointment_min_advance_weeks) || config.appointment_min_advance_weeks < 1) {
+    return { error: 'Minimum advance weeks must be at least 1.' }
+  }
+  if (!Number.isInteger(calStartHour) || calStartHour < 0 || calStartHour > 23) {
+    return { error: 'Invalid calendar start hour.' }
+  }
+  if (!Number.isInteger(calEndHour) || calEndHour < 1 || calEndHour > 24) {
+    return { error: 'Invalid calendar end hour.' }
+  }
+  if (calStartHour >= calEndHour) {
+    return { error: 'Calendar start hour must be before end hour.' }
+  }
+
+  // Validate slot structure
+  const validDow = new Set(['0', '1', '2', '3', '4', '5', '6'])
+  const timeRegex = /^\d{2}:\d{2}$/
+  for (const [dow, times] of Object.entries(config.appointment_slots)) {
+    if (!validDow.has(dow) || !Array.isArray(times)) return { error: 'Invalid slot data.' }
+    if (times.some(t => typeof t !== 'string' || !timeRegex.test(t))) return { error: 'Invalid time format in slots.' }
+  }
+
+  const { error } = await supabase
+    .from('studios')
+    .update({
+      appointment_duration_minutes:  config.appointment_duration_minutes,
+      appointment_min_advance_weeks: config.appointment_min_advance_weeks,
+      appointment_slots:             config.appointment_slots,
+      calendar_start_hour:           calStartHour,
+      calendar_end_hour:             calEndHour,
+    })
+    .eq('id', studioId)
+
+  if (error) return { error: error.message }
+  return {}
+}
+
+/** Search leads by name for the contact typeahead in the create-appointment modal. */
+export async function searchLeadsByName(
+  studioId: string,
+  query: string,
+): Promise<{ id: string; name: string; ghl_contact_id: string | null }[]> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('leads')
+    .select('id, name, ghl_contact_id')
+    .eq('studio_id', studioId)
+    .ilike('name', `%${query}%`)
+    .order('name')
+    .limit(300)
+  return data ?? []
+}
+
+/** Creates a new appointment in GHL and upserts it into Supabase. */
+export async function createAppointment(opts: {
+  studioId: string
+  contactId: string
+  contactName: string
+  startTime: string   // naive local "YYYY-MM-DDThh:mm:ss"
+  endTime: string
+  title?: string
+  notes?: string
+}): Promise<{ error?: string; appointment?: import('@/lib/types').Appointment }> {
+  const authClient = await createClient()
+  const { data: { user } } = await authClient.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: studio } = await supabase
+    .from('studios')
+    .select('ghl_account_id, ghl_calendar_id, ghl_api_key')
+    .eq('id', opts.studioId)
+    .single()
+
+  if (!studio?.ghl_account_id) return { error: 'Studio not found' }
+  if (!studio?.ghl_calendar_id) return { error: 'No GHL calendar configured for this studio. Set ghl_calendar_id in Settings.' }
+
+  let ghlId: string
+  try {
+    ghlId = await createGHLAppointment({
+      calendarId: studio.ghl_calendar_id,
+      locationId: studio.ghl_account_id,
+      contactId:  opts.contactId,
+      startTime:  opts.startTime,
+      endTime:    opts.endTime,
+      title:      opts.title ?? 'Dance Appointment',
+      notes:      opts.notes,
+      apiKey:     studio.ghl_api_key ?? undefined,
+    })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+
+  const now = new Date().toISOString()
+  const row = {
+    id:           ghlId,
+    studio_id:    opts.studioId,
+    title:        opts.title ?? 'Dance Appointment',
+    start_time:   opts.startTime,
+    end_time:     opts.endTime,
+    status:       'confirmed',
+    calendar_id:  studio.ghl_calendar_id,
+    contact_id:   opts.contactId,
+    contact_name: opts.contactName,
+    notes:        opts.notes ?? null,
+    created_at:   now,
+    updated_at:   now,
+  }
+
+  const { data: appt, error } = await supabase
+    .from('appointments')
+    .upsert(row, { onConflict: 'id' })
+    .select()
+    .single()
+
+  if (error) return { error: error.message }
+
+  await supabase.from('appointment_events').insert({
+    studio_id:      opts.studioId,
+    appointment_id: ghlId,
+    contact_id:     opts.contactId,
+    verb:           'Created',
+  })
+
+  return { appointment: appt as import('@/lib/types').Appointment }
+}
+
+export async function fetchAppointmentList(
+  studioId: string,
+  filters: {
+    search?: string
+    statusFilters?: string[]
+    dateFrom?: string
+    dateTo?: string
+  },
+  sortField: 'start_time' | 'title' | 'status' = 'start_time',
+  sortAscending = true,
+  page = 1,
+  pageSize = 20,
+): Promise<{ appointments: import('@/lib/types').Appointment[]; total: number }> {
+  const supabase = await createClient()
+
+  let query = supabase
+    .from('appointments')
+    .select('*', { count: 'exact' })
+    .eq('studio_id', studioId)
+    .is('deleted_at', null)
+
+  if (filters.dateFrom) query = query.gte('start_time', `${filters.dateFrom}T00:00:00`)
+  if (filters.dateTo) query = query.lte('start_time', `${filters.dateTo}T23:59:59`)
+  if (filters.statusFilters?.length) query = query.in('status', filters.statusFilters)
+  if (filters.search) {
+    // Escape PostgREST filter metacharacters before embedding in the or() string
+    const s = filters.search.trim().replace(/[%_\\*,()"]/g, '\\$&')
+    query = query.or(`title.ilike.%${s}%,contact_name.ilike.%${s}%`)
+  }
+
+  query = query.order(sortField, { ascending: sortAscending })
+  query = query.range((page - 1) * pageSize, page * pageSize - 1)
+
+  const { data, count, error } = await query
+  if (error) return { appointments: [], total: 0 }
+  return { appointments: (data ?? []) as import('@/lib/types').Appointment[], total: count ?? 0 }
+}
+
+export async function updateAppointmentStatus(
+  appointmentId: string,
+  status: 'confirmed' | 'showed' | 'noshow' | 'cancelled' | 'invalid',
+): Promise<{ error?: string }> {
+  const authClient = await createClient()
+  const { data: { user } } = await authClient.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: appt } = await supabase
+    .from('appointments')
+    .select('calendar_id, studio_id, contact_id')
+    .eq('id', appointmentId)
+    .single()
+
+  if (!appt?.calendar_id) return { error: 'Appointment not found' }
+
+  const { data: studio } = await supabase
+    .from('studios')
+    .select('ghl_api_key')
+    .eq('id', appt.studio_id)
+    .single()
+
+  try {
+    await patchGHLAppointmentDetails(appointmentId, appt.calendar_id, { appointmentStatus: status }, studio?.ghl_api_key ?? undefined)
+  } catch {
+    // GHL sync failure is non-fatal for status updates
+  }
+
+  const updates: Record<string, unknown> = { status, updated_at: new Date().toISOString() }
+
+  const { error } = await supabase
+    .from('appointments')
+    .update(updates)
+    .eq('id', appointmentId)
+
+  if (error) return { error: error.message }
+
+  const verbMap: Record<string, string> = {
+    confirmed: 'Confirmed',
+    showed:    'Showed',
+    noshow:    'No Show',
+    cancelled: 'Cancelled',
+    invalid:   'Invalid',
+  }
+  await supabase.from('appointment_events').insert({
+    studio_id:      appt.studio_id,
+    appointment_id: appointmentId,
+    contact_id:     appt.contact_id ?? null,
+    verb:           verbMap[status] ?? 'Updated',
+  })
+
+  return {}
+}
