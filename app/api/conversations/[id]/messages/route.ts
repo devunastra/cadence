@@ -209,7 +209,7 @@ export async function POST(
   }
 
   // Rate limit by user
-  const { allowed } = checkRateLimit(`send-message:${user.id}`, MESSAGE_LIMIT)
+  const { allowed } = await checkRateLimit(`send-message:${user.id}`, MESSAGE_LIMIT)
   if (!allowed) {
     return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
   }

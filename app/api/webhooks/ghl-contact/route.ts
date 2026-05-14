@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
 
   // 2. Rate limit by IP
   const ip = request.headers.get('x-forwarded-for') ?? 'unknown'
-  const { allowed } = checkRateLimit(`webhook:ghl-contact:${ip}`, GENERAL_LIMIT)
+  const { allowed } = await checkRateLimit(`webhook:ghl-contact:${ip}`, GENERAL_LIMIT)
   if (!allowed) {
     return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
   }

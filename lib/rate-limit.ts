@@ -1,11 +1,9 @@
+import { Redis } from '@upstash/redis'
+import { Ratelimit } from '@upstash/ratelimit'
+
 interface RateLimitOptions {
   limit: number
   windowMs: number
-}
-
-interface RateLimitRecord {
-  count: number
-  resetAt: number
 }
 
 interface RateLimitResult {
@@ -14,30 +12,31 @@ interface RateLimitResult {
   resetAt: number
 }
 
-// In-memory store — suitable for single-instance Vercel serverless functions.
-// For multi-region deployments, replace with Upstash Redis or Vercel KV.
-const defaultStore = new Map<string, RateLimitRecord>()
+const redis = Redis.fromEnv()
 
-export function checkRateLimit(
+// Cache Ratelimit instances to avoid recreating on every call
+const limiters = new Map<string, Ratelimit>()
+
+function getLimiter(options: RateLimitOptions): Ratelimit {
+  const key = `${options.limit}:${options.windowMs}`
+  let limiter = limiters.get(key)
+  if (!limiter) {
+    limiter = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(options.limit, `${options.windowMs} ms`),
+    })
+    limiters.set(key, limiter)
+  }
+  return limiter
+}
+
+export async function checkRateLimit(
   key: string,
   options: RateLimitOptions,
-  store: Map<string, RateLimitRecord> = defaultStore
-): RateLimitResult {
-  const now = Date.now()
-  const record = store.get(key)
-
-  if (!record || now > record.resetAt) {
-    const resetAt = now + options.windowMs
-    store.set(key, { count: 1, resetAt })
-    return { allowed: true, remaining: options.limit - 1, resetAt }
-  }
-
-  if (record.count >= options.limit) {
-    return { allowed: false, remaining: 0, resetAt: record.resetAt }
-  }
-
-  record.count += 1
-  return { allowed: true, remaining: options.limit - record.count, resetAt: record.resetAt }
+): Promise<RateLimitResult> {
+  const limiter = getLimiter(options)
+  const { success, remaining, reset } = await limiter.limit(key)
+  return { allowed: success, remaining, resetAt: reset }
 }
 
 // Pre-configured limiters for different endpoint types

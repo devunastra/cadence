@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { allowed } = checkRateLimit(`outbound-call:${user.id}`, GENERAL_LIMIT)
+  const { allowed } = await checkRateLimit(`outbound-call:${user.id}`, GENERAL_LIMIT)
   if (!allowed) {
     return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
   }

@@ -8,7 +8,7 @@ export async function proxy(request: NextRequest) {
   // Rate limit login POST attempts by IP
   if (pathname === '/login' && request.method === 'POST') {
     const ip = request.headers.get('x-forwarded-for') ?? 'unknown'
-    const { allowed } = checkRateLimit(`login:${ip}`, LOGIN_LIMIT)
+    const { allowed } = await checkRateLimit(`login:${ip}`, LOGIN_LIMIT)
     if (!allowed) {
       return NextResponse.json({ error: 'Too many login attempts. Try again later.' }, { status: 429 })
     }
