@@ -10,8 +10,8 @@ import {
 } from '@/lib/constants'
 
 describe('constants', () => {
-  it('STATUS_OPTIONS contains all 9 Notion status values', () => {
-    expect(STATUS_OPTIONS).toHaveLength(9)
+  it('STATUS_OPTIONS contains all 10 Notion status values', () => {
+    expect(STATUS_OPTIONS).toHaveLength(10)
     expect(STATUS_OPTIONS).toContain('Active')
     expect(STATUS_OPTIONS).toContain('Solicitation')
   })
@@ -22,8 +22,8 @@ describe('constants', () => {
     expect(LEVEL_OPTIONS).toContain('Silver 2')
   })
 
-  it('ACTION_OPTIONS contains all 15 action values', () => {
-    expect(ACTION_OPTIONS).toHaveLength(15)
+  it('ACTION_OPTIONS contains all 16 action values', () => {
+    expect(ACTION_OPTIONS).toHaveLength(16)
     expect(ACTION_OPTIONS).toContain('NO SHOW')
     expect(ACTION_OPTIONS).toContain('Bought Gift Certificate')
   })
@@ -31,7 +31,7 @@ describe('constants', () => {
   it('SOURCE_OPTIONS contains all 6 source values', () => {
     expect(SOURCE_OPTIONS).toHaveLength(6)
     expect(SOURCE_OPTIONS).toContain('Facebook Ads')
-    expect(SOURCE_OPTIONS).toContain('Events')
+    expect(SOURCE_OPTIONS).toContain('Event')
   })
 
   it('REASON_OPTIONS contains all 4 reason values', () => {
