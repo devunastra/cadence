@@ -867,6 +867,7 @@ export interface PageFilters {
       appointmentBooked?: string; disconnectedReason?: string[]
       qualityScore?: { op: string; value: string }
       dateFrom?: string; dateTo?: string
+      callbackOnly?: boolean
     }
     sort?: { field: string; ascending: boolean }
   }
@@ -956,6 +957,8 @@ function mapRetellCallSync(studioId: string, call: any) {
     lead_id:             leadId && UUID_REGEX_SYNC.test(leadId) ? leadId : null,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     recording_url:       (call as any).recording_url ?? null,
+    caller_phone:        call.from_number ?? null,
+    called_phone:        call.to_number ?? null,
   }
 }
 
@@ -1190,12 +1193,18 @@ export async function fetchCallTranscripts(
 export type CallHistoryRow = Pick<Call,
   'id' | 'retell_call_id' | 'created_at' | 'duration_seconds' | 'outcome' | 'sentiment' |
   'transcript_summary' | 'lead_id' | 'direction' | 'disconnected_reason' | 'quality_score' |
-  'appointment_booked' | 'recording_url' | 'picked_up'
-> & { transcript?: string | null; lead_name: string | null; lead_phone: string | null }
+  'appointment_booked' | 'recording_url' | 'picked_up' | 'transferred'
+> & {
+  transcript?: string | null
+  lead_name: string | null
+  lead_phone: string | null
+  is_callback?: boolean
+  last_missed_outbound_at?: string | null
+}
 
 export interface CallHistoryParams {
   studioId: string
-  tab: 'all' | 'outbound' | 'inbound' | 'failed'
+  tab: 'all' | 'outbound' | 'inbound' | 'failed' | 'callbacks'
   search?: string
   filters?: {
     direction?: string
@@ -1206,6 +1215,7 @@ export interface CallHistoryParams {
     qualityScore?: { op: string; value: string }
     dateFrom?: string
     dateTo?: string
+    callbackOnly?: boolean
   }
   page?: number
   pageSize?: number
@@ -1235,18 +1245,40 @@ export async function fetchCallHistory(params: CallHistoryParams): Promise<{ cal
     if (searchLeadIds.length === 0) return { calls: [], total: 0 }
   }
 
+  // For callbacks tab or callbackOnly filter, find leads with missed outbound calls first
+  let callbackLeadIds: Set<string> | null = null
+  const needCallbackDetection = tab === 'callbacks' || tab === 'all' || tab === 'inbound' || filters.callbackOnly
+  if (tab === 'callbacks' || filters.callbackOnly) {
+    // Find lead IDs that have at least one missed outbound call in this studio
+    const { data: missedOutbound } = await client
+      .from('calls')
+      .select('lead_id')
+      .eq('studio_id', studioId)
+      .eq('direction', 'outbound')
+      .eq('picked_up', false)
+      .not('lead_id', 'is', null)
+    callbackLeadIds = new Set((missedOutbound ?? []).map(c => c.lead_id as string))
+    if (callbackLeadIds.size === 0) return { calls: [], total: 0 }
+  }
+
   let query = client
     .from('calls')
-    .select('id,retell_call_id,created_at,duration_seconds,outcome,sentiment,transcript_summary,lead_id,direction,disconnected_reason,quality_score,appointment_booked,recording_url,picked_up', { count: 'exact' })
+    .select('id,retell_call_id,created_at,duration_seconds,outcome,sentiment,transcript_summary,lead_id,direction,disconnected_reason,quality_score,appointment_booked,recording_url,picked_up,transferred', { count: 'exact' })
     .eq('studio_id', studioId)
 
   // Tab filters
   if (tab === 'outbound') {
     query = query.eq('direction', 'outbound')
-  } else if (tab === 'inbound') {
+  } else if (tab === 'inbound' || tab === 'callbacks') {
     query = query.eq('direction', 'inbound')
   } else if (tab === 'failed') {
     query = query.or('picked_up.eq.false,outcome.eq.unsuccessful,disconnected_reason.in.(voicemail,dial_no_answer,dial_busy)')
+  }
+
+  // For callbacks tab or filter, restrict to leads with missed outbound calls
+  if (callbackLeadIds) {
+    const ids = [...callbackLeadIds]
+    if (ids.length > 0) query = query.in('lead_id', ids)
   }
 
   // Search by lead IDs
@@ -1308,12 +1340,54 @@ export async function fetchCallHistory(params: CallHistoryParams): Promise<{ cal
     }
   }
 
+  // For callback detection on all/inbound tabs, find which inbound rows are callbacks
+  let callbackLeadIdsForFlag: Set<string> | null = callbackLeadIds
+  if (needCallbackDetection && !callbackLeadIds) {
+    const inboundLeadIds = rows
+      .filter(c => c.direction === 'inbound' && c.lead_id)
+      .map(c => c.lead_id as string)
+    if (inboundLeadIds.length > 0) {
+      const { data: missedOutbound } = await client
+        .from('calls')
+        .select('lead_id')
+        .eq('studio_id', studioId)
+        .eq('direction', 'outbound')
+        .eq('picked_up', false)
+        .in('lead_id', inboundLeadIds)
+      callbackLeadIdsForFlag = new Set((missedOutbound ?? []).map(c => c.lead_id as string))
+    }
+  }
+
+  // For callbacks, fetch the last missed outbound date per lead
+  const lastMissedMap: Record<string, string> = {}
+  if ((tab === 'callbacks' || needCallbackDetection) && callbackLeadIdsForFlag && callbackLeadIdsForFlag.size > 0) {
+    const cbIds = [...callbackLeadIdsForFlag]
+    const { data: missedCalls } = await client
+      .from('calls')
+      .select('lead_id,created_at')
+      .eq('studio_id', studioId)
+      .eq('direction', 'outbound')
+      .eq('picked_up', false)
+      .in('lead_id', cbIds)
+      .order('created_at', { ascending: false })
+    for (const mc of missedCalls ?? []) {
+      if (mc.lead_id && !lastMissedMap[mc.lead_id]) {
+        lastMissedMap[mc.lead_id] = mc.created_at
+      }
+    }
+  }
+
   return {
-    calls: rows.map(c => ({
-      ...c,
-      lead_name:  c.lead_id ? (leadNames[c.lead_id]  ?? null) : null,
-      lead_phone: c.lead_id ? (leadPhones[c.lead_id] ?? null) : null,
-    })) as CallHistoryRow[],
+    calls: rows.map(c => {
+      const isCallback = c.direction === 'inbound' && !!c.lead_id && !!(callbackLeadIdsForFlag?.has(c.lead_id))
+      return {
+        ...c,
+        lead_name:  c.lead_id ? (leadNames[c.lead_id]  ?? null) : null,
+        lead_phone: c.lead_id ? (leadPhones[c.lead_id] ?? null) : null,
+        is_callback: isCallback,
+        last_missed_outbound_at: isCallback && c.lead_id ? (lastMissedMap[c.lead_id] ?? null) : null,
+      }
+    }) as CallHistoryRow[],
     total: count ?? 0,
   }
 }
@@ -1389,6 +1463,8 @@ export async function refreshSingleCallFromRetell(callId: string, studioId: stri
     transcript:                   row.transcript,
     recording_url:                row.recording_url,
     transcript_with_tool_calls:   freshToolCalls,
+    caller_phone:                 row.caller_phone,
+    called_phone:                 row.called_phone,
   }).eq('id', callId)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -93,6 +93,8 @@ export interface Call {
   quality_score: number | null
   appointment_booked: boolean | null
   recording_url: string | null
+  caller_phone: string | null
+  called_phone: string | null
 }
 
 export interface RetellCallEndedPayload {

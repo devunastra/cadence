@@ -11,13 +11,14 @@ import { CallDetailDrawer } from './call-detail-drawer'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-type Tab = 'all' | 'outbound' | 'inbound' | 'failed'
+type Tab = 'all' | 'outbound' | 'inbound' | 'failed' | 'callbacks'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'all', label: 'All Calls' },
   { key: 'outbound', label: 'Outbound' },
   { key: 'inbound', label: 'Inbound' },
   { key: 'failed', label: 'Failed' },
+  { key: 'callbacks', label: 'Callbacks' },
 ]
 
 const TAB_EMPTY_MESSAGES: Record<Tab, string> = {
@@ -25,6 +26,7 @@ const TAB_EMPTY_MESSAGES: Record<Tab, string> = {
   outbound: 'No outbound calls found.',
   inbound: 'No inbound calls found.',
   failed: 'No failed calls \u2014 all calls connected successfully.',
+  callbacks: 'No callbacks recorded yet. Callbacks appear when a lead calls back after a missed outbound call.',
 }
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100]
@@ -70,6 +72,34 @@ function formatPhone(raw: string | null): string {
   return raw
 }
 
+function formatTimeSince(fromDate: string | null | undefined, toDate: string): string {
+  if (!fromDate) return '\u2014'
+  const diffMs = new Date(toDate).getTime() - new Date(fromDate).getTime()
+  if (diffMs < 0) return '\u2014'
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 60) return `${mins}m`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ${mins % 60}m`
+  const days = Math.floor(hours / 24)
+  return `${days}d ${hours % 24}h`
+}
+
+function CallbackChip() {
+  return (
+    <span className="px-2 py-0.5 rounded text-sm font-medium status-bg-orange status-text-orange">
+      Callback
+    </span>
+  )
+}
+
+function ForwardedChip() {
+  return (
+    <span className="px-2 py-0.5 rounded text-sm font-medium status-bg-blue status-text-blue">
+      Forwarded
+    </span>
+  )
+}
+
 // ── Filter types ─────────────────────────────────────────────────────────────
 
 interface CallHistoryFilters {
@@ -81,6 +111,7 @@ interface CallHistoryFilters {
   qualityScore: { op: '>=' | '<=' | '>' | '<' | '='; value: string }
   dateFrom: string
   dateTo: string
+  callbackOnly: boolean
 }
 
 const DEFAULT_FILTERS: CallHistoryFilters = {
@@ -92,6 +123,7 @@ const DEFAULT_FILTERS: CallHistoryFilters = {
   qualityScore: { op: '>=', value: '' },
   dateFrom: '',
   dateTo: '',
+  callbackOnly: false,
 }
 
 function activeFilterCount(f: CallHistoryFilters): number {
@@ -103,6 +135,7 @@ function activeFilterCount(f: CallHistoryFilters): number {
   if (f.disconnectedReason.length > 0) n++
   if (f.qualityScore.value !== '') n++
   if (f.dateFrom || f.dateTo) n++
+  if (f.callbackOnly) n++
   return n
 }
 
@@ -121,6 +154,7 @@ function filtersFromSaved(saved: PageFilters['callHistory']): CallHistoryFilters
     },
     dateFrom: f.dateFrom ?? '',
     dateTo: f.dateTo ?? '',
+    callbackOnly: f.callbackOnly ?? false,
   }
 }
 
@@ -406,6 +440,7 @@ export function CallHistoryShell({ studioId, initialCalls, initialTotal, initial
             qualityScore: filters.qualityScore,
             dateFrom: filters.dateFrom,
             dateTo: filters.dateTo,
+            callbackOnly: filters.callbackOnly,
           },
           sort,
         },
@@ -458,6 +493,7 @@ export function CallHistoryShell({ studioId, initialCalls, initialTotal, initial
             qualityScore: f.qualityScore,
             dateFrom: f.dateFrom,
             dateTo: f.dateTo,
+            callbackOnly: f.callbackOnly,
           },
           page: p,
           pageSize: ps,
@@ -636,6 +672,26 @@ export function CallHistoryShell({ studioId, initialCalls, initialTotal, initial
                     style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
                 </div>
               </div>
+              {/* Callback filter — only on All Calls and Inbound tabs */}
+              {(tab === 'all' || tab === 'inbound') && (
+                <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={filters.callbackOnly}
+                      onChange={e => set('callbackOnly', e.target.checked)}
+                      className="rounded"
+                      style={{ accentColor: 'var(--color-accent)' }}
+                    />
+                    <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                      Callbacks only
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                      Show leads who called back after a missed outbound
+                    </span>
+                  </label>
+                </div>
+              )}
               {count > 0 && (
                 <div className="flex justify-end mt-3">
                   <button type="button" onClick={() => handleFilterChange(DEFAULT_FILTERS)} className="text-xs font-medium"
@@ -658,7 +714,16 @@ export function CallHistoryShell({ studioId, initialCalls, initialTotal, initial
         <table className="w-full text-sm border-collapse">
           <thead className="sticky top-0 z-10" style={{ backgroundColor: 'var(--color-surface)' }}>
             <tr>
-              {[
+              {(tab === 'callbacks' ? [
+                { key: 'created_at', label: 'Callback Date', sortable: true },
+                { key: 'lead_name', label: 'Lead Name', sortable: false },
+                { key: 'phone', label: 'Phone', sortable: false },
+                { key: 'time_since', label: 'Time Since Missed', sortable: false },
+                { key: 'duration_seconds', label: 'Duration', sortable: true },
+                { key: 'outcome', label: 'Outcome', sortable: false },
+                { key: 'status', label: 'Status', sortable: false },
+                { key: 'quality_score', label: 'Quality', sortable: true },
+              ] : [
                 { key: 'created_at', label: 'Date/Time', sortable: true },
                 { key: 'lead_name', label: 'Lead Name', sortable: false },
                 { key: 'phone', label: 'Phone', sortable: false },
@@ -667,7 +732,7 @@ export function CallHistoryShell({ studioId, initialCalls, initialTotal, initial
                 { key: 'sentiment', label: 'Sentiment', sortable: false },
                 { key: 'outcome', label: 'Outcome', sortable: false },
                 { key: 'quality_score', label: 'Quality', sortable: true },
-              ].map(col => (
+              ]).map(col => (
                 <th
                   key={col.key}
                   className={`pl-3 pr-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${col.sortable ? 'cursor-pointer select-none' : ''}`}
@@ -693,6 +758,46 @@ export function CallHistoryShell({ studioId, initialCalls, initialTotal, initial
                   {search ? 'No calls match your search' : count > 0 ? 'No calls match these filters' : TAB_EMPTY_MESSAGES[tab]}
                 </td>
               </tr>
+            ) : tab === 'callbacks' ? (
+              calls.map(call => (
+                <tr
+                  key={call.id}
+                  className="cursor-pointer transition-colors bg-[var(--color-bg)] hover:bg-[var(--color-surface)]"
+                  style={{ borderBottom: '1px solid var(--color-border)' }}
+                  onClick={() => setSelectedCall(call)}
+                >
+                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)' }}>
+                    {formatDateTime(call.created_at)}
+                  </td>
+                  <td className="px-3 py-3 align-middle font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                    {call.lead_name ?? <span style={{ color: 'var(--color-text-muted)' }}>Unknown</span>}
+                  </td>
+                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-secondary)' }}>
+                    {formatPhone(call.lead_phone ?? null)}
+                  </td>
+                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+                    {formatTimeSince(call.last_missed_outbound_at, call.created_at)}
+                  </td>
+                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)', fontVariantNumeric: 'tabular-nums' }}>
+                    {formatDurationMSS(call.duration_seconds)}
+                  </td>
+                  <td className="px-3 py-3 align-middle">
+                    {call.outcome ? <Badge value={call.outcome} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
+                  </td>
+                  <td className="px-3 py-3 align-middle">
+                    <div className="flex items-center gap-1.5">
+                      <CallbackChip />
+                      {call.transferred && <ForwardedChip />}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{
+                    color: call.quality_score != null ? qualityScoreColor(call.quality_score) : 'var(--color-text-muted)',
+                    fontWeight: call.quality_score != null ? 500 : 400,
+                  }}>
+                    {call.quality_score != null ? call.quality_score : '\u2014'}
+                  </td>
+                </tr>
+              ))
             ) : (
               calls.map(call => (
                 <tr
@@ -711,7 +816,11 @@ export function CallHistoryShell({ studioId, initialCalls, initialTotal, initial
                     {formatPhone(call.lead_phone ?? null)}
                   </td>
                   <td className="px-3 py-3 align-middle">
-                    {call.direction ? <Badge value={call.direction} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
+                    <div className="flex items-center gap-1.5">
+                      {call.direction ? <Badge value={call.direction} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
+                      {call.is_callback && <CallbackChip />}
+                      {call.is_callback && call.transferred && <ForwardedChip />}
+                    </div>
                   </td>
                   <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)', fontVariantNumeric: 'tabular-nums' }}>
                     {formatDurationMSS(call.duration_seconds)}
