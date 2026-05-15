@@ -154,6 +154,66 @@ Color is managed via two systems — use the right one for the context:
 
 ---
 
+## Data Tables
+
+All table-based pages (Leads, Call History, etc.) must follow these patterns exactly.
+
+### Page Layout
+- Page heading: `text-2xl font-semibold flex-shrink-0 px-5 pt-10 pb-3` with `color: var(--color-text-primary)`
+- Content wrapper: `flex flex-col flex-1 min-h-0` (constrains table height so pagination stays pinned)
+- Shell root: `relative flex flex-col h-full px-5 pb-4 gap-3 [font-family:var(--font-inter,Inter,sans-serif)]`
+- `<main>` in `app/(app)/layout.tsx` must be `flex-1 flex flex-col overflow-hidden` for height chain to work
+
+### Table Card
+- Outer: `relative flex-1 min-h-0 rounded-xl overflow-hidden shadow-sm` with `border: 1px solid var(--color-border)`
+- Inner scroll wrapper: `h-full overflow-y-auto overflow-x-auto no-theme-transition` with `backgroundColor: var(--color-bg)`
+- `<table>`: `w-full text-sm border-collapse`
+
+### Table Header
+- `<thead>`: `sticky top-0 z-10` with `backgroundColor: var(--color-surface)` (on `<thead>`, not `<tr>`)
+- `<th>`: `pl-3 pr-4 py-3 text-left text-xs font-medium uppercase tracking-wider` with `color: var(--color-text-muted)`
+- Bottom border: `borderBottom: 1px solid var(--color-border)`
+
+### Table Rows
+- Cell padding: `px-3 py-3 align-middle`
+- Row background: `bg-[var(--color-bg)]`
+- Row hover: `hover:bg-[var(--color-surface)]` (CSS class, not JS handlers)
+- Row border: `borderBottom: 1px solid var(--color-border)`
+- Transition: `transition-colors`
+- Clickable rows: add `cursor-pointer`
+- Text color: `var(--color-text-primary)` for primary data, `var(--color-text-secondary)` for secondary, `var(--color-text-muted)` for null/empty placeholders
+
+### Badges (in table cells)
+- Classes: `inline-flex items-center px-2 py-0.5 rounded text-sm font-medium`
+- Colors: use `STATUS_COLORS` from `lib/constants.ts` → `status-bg-*` / `status-text-*` CSS classes
+- Null/empty: show `—` (`\u2014`) in `var(--color-text-muted)`
+
+### Pagination Footer
+- Layout: `flex-shrink-0 flex items-center justify-between px-2 py-0.5 text-sm`
+- Left side: "Rows per page" label + segmented button group (20 / 50 / 100)
+  - Active: `backgroundColor: var(--color-accent)`, `color: #ffffff`
+  - Inactive: `backgroundColor: var(--color-bg)`, `color: var(--color-text-secondary)`
+  - Hover (inactive): `backgroundColor: var(--color-surface)`, `color: var(--color-text-primary)`
+  - Border: `1px solid var(--color-border)`, active: `borderColor: var(--color-accent)`
+  - First button: `rounded-l-md`, last: `rounded-r-md`
+- Right side: "1–50 of 234" text + First/Prev/PageInput/Next/Last nav buttons
+  - Text: `var(--color-text-secondary)`
+  - Nav buttons: `p-2 rounded-md` with `border: 1px solid var(--color-border)`
+  - Disabled: `opacity-30 cursor-not-allowed`
+  - Icons: `size={16}`
+- Default page size: 50
+
+### Empty State
+- Padding: `py-8` centered in table
+- Text: `text-sm` in `var(--color-text-muted)`
+- Contextual message per tab/filter state
+
+### Sidebar Icons
+- All nav icons: `size={20}`, clean outline style from Lucide
+- Style: simple, object/concept icons — avoid "action" variants (e.g. `Phone` not `PhoneCall`)
+
+---
+
 ## Progress Bar
 
 - Fixed at very top of viewport, `3px` height

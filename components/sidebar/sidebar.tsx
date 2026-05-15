@@ -7,6 +7,7 @@ import { useState } from "react";
 import {
     Users,
     BarChart2,
+    Phone,
     MessageSquare,
     Calendar,
     Settings,
@@ -23,6 +24,7 @@ const NAV_ITEMS = [
     { href: "/conversations", label: "Conversations", Icon: MessageSquare },
     { href: "/calendar", label: "Calendar", Icon: Calendar },
     { href: "/call-analytics", label: "Call Analytics", Icon: BarChart2 },
+    { href: "/call-history", label: "Call History", Icon: Phone },
 ];
 
 interface SidebarProps {

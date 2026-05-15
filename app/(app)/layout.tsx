@@ -52,7 +52,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <ProgressBar />
         <Sidebar studios={studios} initialStudioId={initialStudio.id} initialCollapsed={prefs?.nav_collapsed ?? false} />
         <div className="flex-1 flex flex-col overflow-hidden relative">
-          <main className="flex-1 overflow-y-auto">
+          <main className="flex-1 flex flex-col overflow-hidden">
             <ErrorBoundary>{children}</ErrorBoundary>
           </main>
         </div>

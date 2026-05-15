@@ -861,6 +861,15 @@ export interface PageFilters {
     statusFilters?: string[]; dateFrom?: string; dateTo?: string
     sortField?: string; sortAscending?: boolean
   }
+  callHistory?: {
+    filters?: {
+      direction?: string; sentiment?: string[]; outcome?: string
+      appointmentBooked?: string; disconnectedReason?: string[]
+      qualityScore?: { op: string; value: string }
+      dateFrom?: string; dateTo?: string
+    }
+    sort?: { field: string; ascending: boolean }
+  }
 }
 
 export async function getPageFilters(studioId: string): Promise<PageFilters> {
@@ -1172,6 +1181,139 @@ export async function fetchCallTranscripts(
       lead_name:  c.lead_id ? (leadNames[c.lead_id]  ?? null) : null,
       lead_phone: c.lead_id ? (leadPhones[c.lead_id] ?? null) : null,
     })) as TranscriptCallRow[],
+    total: count ?? 0,
+  }
+}
+
+// ── Call History ──────────────────────────────────────────────────────────────
+
+export type CallHistoryRow = Pick<Call,
+  'id' | 'retell_call_id' | 'created_at' | 'duration_seconds' | 'outcome' | 'sentiment' |
+  'transcript_summary' | 'lead_id' | 'direction' | 'disconnected_reason' | 'quality_score' |
+  'appointment_booked' | 'recording_url' | 'picked_up'
+> & { transcript?: string | null; lead_name: string | null; lead_phone: string | null }
+
+export interface CallHistoryParams {
+  studioId: string
+  tab: 'all' | 'outbound' | 'inbound' | 'failed'
+  search?: string
+  filters?: {
+    direction?: string
+    sentiment?: string[]
+    outcome?: string
+    appointmentBooked?: string
+    disconnectedReason?: string[]
+    qualityScore?: { op: string; value: string }
+    dateFrom?: string
+    dateTo?: string
+  }
+  page?: number
+  pageSize?: number
+  sort?: { field: string; ascending: boolean }
+}
+
+export async function fetchCallHistory(params: CallHistoryParams): Promise<{ calls: CallHistoryRow[]; total: number }> {
+  const { client } = await getAuthorizedClient()
+  const {
+    studioId, tab, search = '', filters = {},
+    page = 1, pageSize = 50,
+    sort = { field: 'created_at', ascending: false },
+  } = params
+  const offset = (page - 1) * pageSize
+
+  // If searching by lead name/phone, resolve matching lead IDs first
+  let searchLeadIds: string[] | null = null
+  if (search.trim()) {
+    const term = `%${search.trim()}%`
+    const { data: matchingLeads } = await client
+      .from('leads')
+      .select('id')
+      .eq('studio_id', studioId)
+      .or(`name.ilike.${term},phone.ilike.${term}`)
+      .limit(500)
+    searchLeadIds = (matchingLeads ?? []).map(l => l.id)
+    if (searchLeadIds.length === 0) return { calls: [], total: 0 }
+  }
+
+  let query = client
+    .from('calls')
+    .select('id,retell_call_id,created_at,duration_seconds,outcome,sentiment,transcript_summary,lead_id,direction,disconnected_reason,quality_score,appointment_booked,recording_url,picked_up', { count: 'exact' })
+    .eq('studio_id', studioId)
+
+  // Tab filters
+  if (tab === 'outbound') {
+    query = query.eq('direction', 'outbound')
+  } else if (tab === 'inbound') {
+    query = query.eq('direction', 'inbound')
+  } else if (tab === 'failed') {
+    query = query.or('picked_up.eq.false,outcome.eq.unsuccessful,disconnected_reason.in.(voicemail,dial_no_answer,dial_busy)')
+  }
+
+  // Search by lead IDs
+  if (searchLeadIds) {
+    query = query.in('lead_id', searchLeadIds)
+  }
+
+  // Additional filters
+  if (filters.direction && filters.direction !== 'all') {
+    query = query.eq('direction', filters.direction)
+  }
+  if (filters.sentiment && filters.sentiment.length > 0) {
+    query = query.in('sentiment', filters.sentiment)
+  }
+  if (filters.outcome) {
+    query = query.eq('outcome', filters.outcome)
+  }
+  if (filters.appointmentBooked) {
+    query = query.eq('appointment_booked', filters.appointmentBooked === 'yes')
+  }
+  if (filters.disconnectedReason && filters.disconnectedReason.length > 0) {
+    query = query.in('disconnected_reason', filters.disconnectedReason)
+  }
+  if (filters.qualityScore?.value) {
+    const val = parseFloat(filters.qualityScore.value)
+    if (!isNaN(val)) {
+      const op = filters.qualityScore.op
+      if (op === '>=') query = query.gte('quality_score', val)
+      else if (op === '<=') query = query.lte('quality_score', val)
+      else if (op === '>') query = query.gt('quality_score', val)
+      else if (op === '<') query = query.lt('quality_score', val)
+      else if (op === '=') query = query.eq('quality_score', val)
+    }
+  }
+  if (filters.dateFrom) {
+    query = query.gte('created_at', filters.dateFrom)
+  }
+  if (filters.dateTo) {
+    query = query.lte('created_at', filters.dateTo)
+  }
+
+  // Sort
+  const sortCol = ['created_at', 'duration_seconds', 'quality_score'].includes(sort.field) ? sort.field : 'created_at'
+  query = query.order(sortCol, { ascending: sort.ascending })
+
+  // Paginate
+  const { data, error, count } = await query.range(offset, offset + pageSize - 1)
+  if (error) throw new Error(error.message)
+
+  const rows = data ?? []
+  const leadIds = [...new Set(rows.filter(c => c.lead_id).map(c => c.lead_id as string))]
+  const leadNames: Record<string, string> = {}
+  const leadPhones: Record<string, string> = {}
+  if (leadIds.length) {
+    const { data: leads } = await client.from('leads').select('id,name,phone').in('id', leadIds)
+    for (const l of leads ?? []) {
+      leadNames[l.id] = l.name
+      if (l.phone) leadPhones[l.id] = l.phone
+    }
+  }
+
+  return {
+    calls: rows.map(c => ({
+      ...c,
+      lead_name:  c.lead_id ? (leadNames[c.lead_id]  ?? null) : null,
+      lead_phone: c.lead_id ? (leadPhones[c.lead_id] ?? null) : null,
+    })) as CallHistoryRow[],
     total: count ?? 0,
   }
 }
