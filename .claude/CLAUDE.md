@@ -53,6 +53,7 @@ A unified web app for **Arthur Murray Lincolnshire (AMLS)** dance studio, built 
 |---|---|---|---|
 | **Leads** | `/leads` | ✅ Live | Notion-style table, inline editing, views, multi-select filters, sort, real-time |
 | **Call Analytics** | `/call-analytics` | ✅ Live | KPI cards, charts, transcript viewer, date range filter |
+| **Call History** | `/call-history` | ✅ Live | Tabbed call log (All, Outbound, Inbound, Failed, Callbacks), filters, detail drawer |
 | **Conversations** | `/conversations` | ✅ Live | SMS + Email unibox, real-time, inline reply, lead side panel |
 | **Calendar** | `/calendar` | ✅ Live | Week view + list view, create/reschedule/delete synced to GHL |
 | **Settings** | `/settings` | ✅ Live | Business Profile, My Profile, My Staff, Studios (super admin), Appearance, Activity Log |
@@ -142,7 +143,26 @@ User filter and sort state is saved to `user_preferences.page_filters` (JSONB) o
 
 - **Leads:** Status, Level, Action, Source, Reason filters + sort field/direction
 - **Call Analytics transcripts:** Direction, Sentiment, Outcome, Appointment Booked, Disconnect Reason, Quality Score
+- **Call History:** Direction, Sentiment, Outcome, Appointment Booked, Disconnect Reason, Quality Score, Date range, Callbacks Only toggle
 - **Calendar list view:** Status filters, date range, sort field/direction
+
+---
+
+## Call History — Tabs
+
+| Tab | What it shows |
+|---|---|
+| **All Calls** | Every call record regardless of direction or outcome |
+| **Outbound** | Calls made by the AI agent to leads |
+| **Inbound** | Every call where someone dialed the AI agent's number |
+| **Failed** | Calls that didn't connect — `picked_up = false`, unsuccessful outcome, or disconnect reason is voicemail/no answer/busy |
+| **Callbacks** | Subset of inbound — only calls where the caller was previously called outbound by the AI agent and didn't pick up |
+
+**Inbound vs Callbacks:** If a random person calls the AI agent for the first time — that's inbound but not a callback. If the AI called someone, they missed it, then they call back — that's both inbound and a callback.
+
+The Callbacks tab, orange "Callback" chip, and "Callbacks only" filter all use this distinction. Callback detection matches via `lead_id` — the inbound call must be linked to a lead who has at least one prior outbound call with `picked_up = false`.
+
+The `calls` table stores `caller_phone` and `called_phone` (from Retell's `from_number`/`to_number`) to support phone-based matching.
 
 ---
 
