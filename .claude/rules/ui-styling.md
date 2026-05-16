@@ -147,10 +147,14 @@ Color is managed via two systems — use the right one for the context:
 
 ## Skeleton Loaders
 
-- Full row height (~40px) — not thin bars
-- 3 shimmer blocks per row at widths: `~5%` (checkbox), `~20%` (name), `~60%` (data)
+Skeleton components live in `components/skeletons.tsx`. Each page has a dedicated `loading.tsx` that renders a layout-accurate skeleton matching the page's final structure (heading, tabs, toolbar, table/cards).
+
+- **Shared components:** `SkeletonTable`, `SkeletonToolbar`, `SkeletonTabs`, `SkeletonKpiCard`, `SkeletonBar`
+- **Shimmer class:** `skeleton-shimmer` — use on any `<div>` with explicit `height`, `width`, and `borderRadius`
 - Animation: `@keyframes shimmer` — gradient sweep from `var(--color-surface)` → `var(--color-surface-hover)` → `var(--color-surface)`, `1.5s infinite linear`
+- Table skeletons: full row height (~40px), 3 shimmer blocks per row at widths: `~5%` (checkbox), `~20%` (name), `~60%` (data)
 - Dark mode: uses dark surface tokens automatically — no extra code needed
+- `loading.tsx` files show during Next.js route transitions via the automatic Suspense boundary
 
 ---
 
@@ -219,7 +223,9 @@ All table-based pages (Leads, Call History, etc.) must follow these patterns exa
 - Fixed at very top of viewport, `3px` height
 - Color: `var(--color-accent)`
 - Triggered on Next.js route changes via `usePathname` + `useEffect`
-- Slides from 0% → ~80% during load, jumps to 100% on complete, then fades out
+- Timing sequence: 0→30% at 10ms, 30→80% at 80ms, 80→100% at 250ms, fade out at 400ms, unmount at 600ms
+- Easing: `cubic-bezier(0.4, 0, 0.2, 1)` for the fill, `ease` for fade-out
+- Designed for fast client-side navigations — completes in under 600ms total
 
 ---
 

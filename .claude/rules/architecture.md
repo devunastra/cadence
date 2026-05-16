@@ -73,17 +73,44 @@ All external API calls (GoHighLevel, Retell AI) happen inside `app/api/` routes 
 
 ## Server vs Client Components
 
-- **Default to Server Components** — data fetching, DB queries, auth checks
-- **Use `'use client'`** only when you need: browser APIs, event handlers, useState/useEffect, real-time subscriptions
-- Heavy client components (leads-table, conversations): clearly marked `'use client'` at top
+- **Layout (`app/(app)/layout.tsx`) is a Server Component** — resolves auth, memberships, studio, and preferences once. Passes data to `StudioProvider` context.
+- **Page components are `'use client'`** — they read `studioId`, `userRole`, `isSuper` from `useCurrentStudio()` context and render shell components. No async work, so `loading.tsx` skeletons show instantly during navigation.
+- **Shell components are `'use client'`** — they fetch their own data on mount using the Supabase browser client, then use server actions for user-initiated operations (pagination, filter changes, refresh).
+- **Exception pages** that need server-side DB queries (e.g., `/leads/[id]`, `/settings/my-profile`, `/settings/my-staff`) remain async Server Components.
 
 ---
 
 ## Data Fetching
 
-- Server components fetch directly via Supabase server client (`lib/supabase/server.ts`)
-- Client components use Supabase browser client (`lib/supabase/client.ts`) for mutations + real-time
+### Navigation pattern (skeleton-first)
+
+1. User clicks a nav link → Next.js shows `loading.tsx` skeleton instantly (no server wait)
+2. Page component mounts → reads `studioId` from `StudioProvider` context
+3. Shell component mounts → fetches data from Supabase browser client in `useEffect`
+4. Data arrives → shell renders content, replaces loading state
+
+### Client vs server data access
+
+- **Initial page data:** Supabase browser client (`lib/supabase/client.ts`) in shell `useEffect` — avoids blocking navigation via server action serialization
+- **User-initiated operations** (pagination, filter changes, refresh, mutations): Server actions (`app/actions.ts`) — these are expected to be sequential
+- **External API calls** (GHL conversations, recordings): API routes (`app/api/`) — the browser calls these via `fetch()`
 - Never expose Supabase service role key to the browser — use `SUPABASE_ANON_KEY` only in client code
+
+### Auth in the request pipeline
+
+- **Proxy (`proxy.ts`):** Validates session via `getSession()` (reads JWT from cookie, no network call). Redirects unauthenticated users to `/login`.
+- **Layout:** Calls `getUser()` + `getMemberships()` once per full page load. Cached via `React.cache()` within the same request.
+- **Page components:** Do NOT re-fetch auth. Read from `StudioProvider` context.
+- **API routes:** Use `getSession()` (not `getUser()`) for auth since the proxy already validated the session.
+
+### StudioProvider context
+
+`StudioProvider` (in `components/studio-context.tsx`) exposes:
+- `currentStudio` — full `Studio` object (includes calendar config, slot config, etc.)
+- `studioId` — shorthand for `currentStudio.id`
+- `userRole` — derived from `memberships` for the current studio
+- `isSuper` — whether user has `super_admin` role in any studio
+- `memberships` — all user studio memberships
 
 ---
 
