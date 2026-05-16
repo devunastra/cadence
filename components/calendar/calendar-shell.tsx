@@ -20,8 +20,8 @@ const STUDIO_TZ = 'America/Chicago'
 
 interface CalendarShellProps {
   studioId: string
-  initialAppointments: Appointment[]
-  initialWeekStart: Date | string
+  initialAppointments?: Appointment[]
+  initialWeekStart?: Date | string
   calStartHour: number
   calEndHour: number
   slotConfig: StudioSlotConfig
@@ -66,8 +66,8 @@ function buildContactMap(appts: Appointment[]): string[] {
 export function CalendarShell({ studioId, initialAppointments, initialWeekStart, calStartHour, calEndHour, slotConfig, userRole, initialListFilters }: CalendarShellProps) {
   const router = useRouter()
   const [tab, setTab]                        = useState<'calendar' | 'list' | 'settings'>('calendar')
-  const [weekStart, setWeekStart]            = useState<Date>(getWeekStart(new Date(initialWeekStart)))
-  const [appointments, setAppointments]      = useState<Appointment[]>(initialAppointments)
+  const [weekStart, setWeekStart]            = useState<Date>(getWeekStart(initialWeekStart ? new Date(initialWeekStart) : new Date()))
+  const [appointments, setAppointments]      = useState<Appointment[]>(initialAppointments ?? [])
   const [contactLeadMap, setContactLeadMap]  = useState<Record<string, Lead>>({})
   const [selected, setSelected]              = useState<Appointment | null>(null)
   const [isPending, startTransition]         = useTransition()
@@ -87,6 +87,31 @@ export function CalendarShell({ studioId, initialAppointments, initialWeekStart,
   const listOnDeleteRef = useRef<(() => void) | null>(null)
   const [datePickerOpen,   setDatePickerOpen]   = useState(false)
   const [datePickerAnchor, setDatePickerAnchor] = useState<DOMRect | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => { setMounted(true) }, [])
+
+  // Fetch initial appointments on mount if not provided by server
+  useEffect(() => {
+    if (initialAppointments) return
+    let cancelled = false
+    const supabase = createClient()
+    const ws = weekStart
+    const we = weekEnd(ws)
+    supabase
+      .from('appointments')
+      .select('*')
+      .eq('studio_id', studioId)
+      .is('deleted_at', null)
+      .gte('start_time', ws.toISOString())
+      .lte('start_time', we.toISOString())
+      .order('start_time', { ascending: true })
+      .then(({ data }) => {
+        if (cancelled) return
+        if (data) setAppointments(data as Appointment[])
+      })
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const ids = buildContactMap(appointments)
@@ -100,6 +125,7 @@ export function CalendarShell({ studioId, initialAppointments, initialWeekStart,
 
   // Persist list filter + sort changes to Supabase (debounced 1s)
   useEffect(() => {
+    if (!mounted) return
     if (listFilterSaveTimer.current) clearTimeout(listFilterSaveTimer.current)
     listFilterSaveTimer.current = setTimeout(() => {
       savePageFilters(studioId, {

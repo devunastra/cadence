@@ -4,7 +4,6 @@ import { ghlFetch } from '@/lib/ghl'
 import { getSelectedStudioId } from '@/lib/data-cache'
 
 async function getLocationId(userId: string): Promise<{ locationId: string | null; apiKey?: string } | null> {
-  const supabase = await createClient()
   const serviceClient = createServiceClient()
   const selectedStudioId = await getSelectedStudioId()
 
@@ -12,7 +11,7 @@ async function getLocationId(userId: string): Promise<{ locationId: string | nul
   if (selectedStudioId) {
     query = query.eq('id', selectedStudioId)
   } else {
-    const { data: memberships } = await supabase
+    const { data: memberships } = await serviceClient
       .from('studio_users')
       .select('studio_id')
       .eq('user_id', userId)
@@ -34,8 +33,9 @@ export async function GET(
   { params }: { params: Promise<{ msgId: string }> }
 ) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const user = session.user
 
   const studioData = await getLocationId(user.id)
   if (!studioData?.locationId) return NextResponse.json({ error: 'Studio not found' }, { status: 404 })

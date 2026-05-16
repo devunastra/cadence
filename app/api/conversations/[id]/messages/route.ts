@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createServiceClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { ghlFetch } from '@/lib/ghl'
 import { checkRateLimit, MESSAGE_LIMIT } from '@/lib/rate-limit'
 import { getSelectedStudioId } from '@/lib/data-cache'
 
 async function validateUserAndGetApiKey() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { user: null, apiKey: undefined }
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.user) return { user: null, apiKey: undefined }
+  const user = session.user
 
   const serviceClient = createServiceClient()
   const selectedStudioId = await getSelectedStudioId()
@@ -18,7 +18,7 @@ async function validateUserAndGetApiKey() {
   if (selectedStudioId) {
     studioQuery = studioQuery.eq('id', selectedStudioId)
   } else {
-    const { data: memberships } = await supabase
+    const { data: memberships } = await serviceClient
       .from('studio_users')
       .select('studio_id')
       .eq('user_id', user.id)

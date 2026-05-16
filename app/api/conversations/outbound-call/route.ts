@@ -5,7 +5,6 @@ import { checkRateLimit, GENERAL_LIMIT } from '@/lib/rate-limit'
 import { getSelectedStudioId } from '@/lib/data-cache'
 
 async function getStudio(userId: string) {
-  const supabase = await createClient()
   const serviceClient = createServiceClient()
   const selectedStudioId = await getSelectedStudioId()
 
@@ -14,7 +13,7 @@ async function getStudio(userId: string) {
   if (selectedStudioId) {
     studioQuery = studioQuery.eq('id', selectedStudioId)
   } else {
-    const { data: memberships } = await supabase
+    const { data: memberships } = await serviceClient
       .from('studio_users')
       .select('studio_id')
       .eq('user_id', userId)
@@ -30,10 +29,11 @@ async function getStudio(userId: string) {
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const user = session.user
 
   const { allowed } = await checkRateLimit(`outbound-call:${user.id}`, GENERAL_LIMIT)
   if (!allowed) {

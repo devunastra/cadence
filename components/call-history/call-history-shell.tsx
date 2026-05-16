@@ -377,15 +377,15 @@ function SkeletonRow() {
 
 interface CallHistoryShellProps {
   studioId: string
-  initialCalls: CallHistoryRow[]
-  initialTotal: number
+  initialCalls?: CallHistoryRow[]
+  initialTotal?: number
   initialPageFilters?: PageFilters
 }
 
 export function CallHistoryShell({ studioId, initialCalls, initialTotal, initialPageFilters }: CallHistoryShellProps) {
   const [tab, setTab] = useState<Tab>('all')
-  const [calls, setCalls] = useState<CallHistoryRow[]>(initialCalls)
-  const [total, setTotal] = useState(initialTotal)
+  const [calls, setCalls] = useState<CallHistoryRow[]>(initialCalls ?? [])
+  const [total, setTotal] = useState(initialTotal ?? 0)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   const [search, setSearch] = useState('')
@@ -393,7 +393,7 @@ export function CallHistoryShell({ studioId, initialCalls, initialTotal, initial
   const [sort, setSort] = useState<{ field: string; ascending: boolean }>(
     initialPageFilters?.callHistory?.sort ?? { field: 'created_at', ascending: false }
   )
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(!initialCalls)
   const [selectedCall, setSelectedCall] = useState<CallHistoryRow | null>(null)
   const [filterOpen, setFilterOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -401,9 +401,87 @@ export function CallHistoryShell({ studioId, initialCalls, initialTotal, initial
   const filterRef = useRef<HTMLDivElement>(null)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const debouncedSearch = useRef(search)
+  // Cache tab results to avoid re-fetching on tab switch
+  const tabCache = useRef<Record<string, { calls: CallHistoryRow[]; total: number }>>({})
+
+  function cacheKey(t: Tab, s: string, f: CallHistoryFilters, srt: { field: string; ascending: boolean }, p: number, ps: number) {
+    return JSON.stringify({ t, s, f, srt, p, ps })
+  }
 
   // Mark mounted after first render
   useEffect(() => { setMounted(true) }, [])
+
+  // Fetch initial data on mount if not provided by server
+  useEffect(() => {
+    if (initialCalls) return
+    let cancelled = false
+    const supabase = createClient()
+    supabase
+      .from('calls')
+      .select('id,retell_call_id,created_at,duration_seconds,outcome,sentiment,transcript_summary,lead_id,direction,disconnected_reason,quality_score,appointment_booked,recording_url,picked_up,transferred', { count: 'exact' })
+      .eq('studio_id', studioId)
+      .order('created_at', { ascending: false })
+      .range(0, 49)
+      .then(async ({ data, count, error }) => {
+        if (cancelled || error) { if (!cancelled) setLoading(false); return }
+        const rows = data ?? []
+        // Resolve lead names/phones
+        const leadIds = [...new Set(rows.filter(c => c.lead_id).map(c => c.lead_id as string))]
+        const leadNames: Record<string, string> = {}
+        const leadPhones: Record<string, string> = {}
+        if (leadIds.length) {
+          const { data: leads } = await supabase.from('leads').select('id,name,phone').in('id', leadIds)
+          if (cancelled) return
+          for (const l of leads ?? []) {
+            leadNames[l.id] = l.name
+            if (l.phone) leadPhones[l.id] = l.phone
+          }
+        }
+        // Detect callbacks: find inbound rows whose lead had a missed outbound call
+        const inboundLeadIds = rows
+          .filter(c => c.direction === 'inbound' && c.lead_id)
+          .map(c => c.lead_id as string)
+        let callbackSet = new Set<string>()
+        const lastMissedMap: Record<string, string> = {}
+        if (inboundLeadIds.length > 0) {
+          const { data: missed } = await supabase
+            .from('calls')
+            .select('lead_id,created_at')
+            .eq('studio_id', studioId)
+            .eq('direction', 'outbound')
+            .eq('picked_up', false)
+            .in('lead_id', inboundLeadIds)
+            .order('created_at', { ascending: false })
+          if (cancelled) return
+          for (const mc of missed ?? []) {
+            if (mc.lead_id) {
+              callbackSet.add(mc.lead_id)
+              if (!lastMissedMap[mc.lead_id]) lastMissedMap[mc.lead_id] = mc.created_at
+            }
+          }
+        }
+        if (cancelled) return
+        setCalls(rows.map(c => {
+          const isCallback = c.direction === 'inbound' && !!c.lead_id && callbackSet.has(c.lead_id)
+          return {
+            ...c,
+            lead_name: c.lead_id ? (leadNames[c.lead_id] ?? null) : null,
+            lead_phone: c.lead_id ? (leadPhones[c.lead_id] ?? null) : null,
+            is_callback: isCallback,
+            last_missed_outbound_at: isCallback && c.lead_id ? (lastMissedMap[c.lead_id] ?? null) : null,
+          }
+        }) as CallHistoryRow[])
+        setTotal(count ?? 0)
+        setLoading(false)
+        // Cache this initial result
+        const key = cacheKey('all', '', DEFAULT_FILTERS, { field: 'created_at', ascending: false }, 1, 50)
+        tabCache.current[key] = { calls: rows.map(c => {
+          const isCallback = c.direction === 'inbound' && !!c.lead_id && callbackSet.has(c.lead_id)
+          return { ...c, lead_name: c.lead_id ? (leadNames[c.lead_id] ?? null) : null, lead_phone: c.lead_id ? (leadPhones[c.lead_id] ?? null) : null, is_callback: isCallback, last_missed_outbound_at: isCallback && c.lead_id ? (lastMissedMap[c.lead_id] ?? null) : null } as CallHistoryRow
+        }), total: count ?? 0 }
+      })
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close filter panel on outside click
   useEffect(() => {
@@ -414,8 +492,9 @@ export function CallHistoryShell({ studioId, initialCalls, initialTotal, initial
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  // Debounced search (400ms)
+  // Debounced search (400ms) — skip initial mount to avoid duplicate fetch
   useEffect(() => {
+    if (!mounted) return
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     searchTimerRef.current = setTimeout(() => {
       debouncedSearch.current = search
@@ -460,6 +539,8 @@ export function CallHistoryShell({ studioId, initialCalls, initialTotal, initial
         table: 'calls',
         filter: `studio_id=eq.${studioId}`,
       }, (payload) => {
+        // Invalidate tab cache when new data arrives
+        tabCache.current = {}
         // Only prepend if on page 1 of All Calls tab with no active search
         if (tab === 'all' && page === 1 && !debouncedSearch.current && activeFilterCount(filters) === 0) {
           const newCall = payload.new as CallHistoryRow
@@ -477,6 +558,13 @@ export function CallHistoryShell({ studioId, initialCalls, initialTotal, initial
     srt: { field: string; ascending: boolean },
     p: number, ps: number
   ) => {
+    const key = cacheKey(t, s, f, srt, p, ps)
+    const cached = tabCache.current[key]
+    if (cached) {
+      setCalls(cached.calls)
+      setTotal(cached.total)
+      return
+    }
     setLoading(true)
     startTransition(async () => {
       try {
@@ -500,6 +588,7 @@ export function CallHistoryShell({ studioId, initialCalls, initialTotal, initial
           sort: srt,
         }
         const result = await fetchCallHistory(params)
+        tabCache.current[key] = result
         setCalls(result.calls)
         setTotal(result.total)
       } catch {

@@ -37,7 +37,11 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // Use getSession() (no network call — reads JWT from cookie) for fast navigation.
+  // The JWT is validated by Supabase client library (signature + expiry).
+  // getUser() is only needed for login-related actions, not every page load.
+  const { data: { session } } = await supabase.auth.getSession()
+  const user = session?.user ?? null
 
   // Allow unauthenticated access to public paths
   const PUBLIC_PATHS = ['/login', '/auth/callback', '/accept-invite', '/api/webhooks']

@@ -540,6 +540,27 @@ export async function fetchLeadsPage({
   }
 }
 
+export async function fetchLeadsInit(studioId: string) {
+  const { client } = await getAuthorizedClient()
+  const [viewsResult, fieldOptsResult, prefs, pageFilters, leadsData] = await Promise.all([
+    client.from('lead_views').select('*').eq('studio_id', studioId).order('created_at', { ascending: true }),
+    client.from('studio_field_options').select('id, field, value, bg, text').eq('studio_id', studioId).order('sort_order', { ascending: true, nullsFirst: false }),
+    getUserPreferences(studioId).catch(() => null),
+    getPageFilters(studioId).catch(() => ({} as PageFilters)),
+    fetchLeadsPage({ studioId, page: 0, pageSize: 50, search: '', statusFilter: [], levelFilter: [], actionFilter: [], sourceFilter: [], reasonFilter: [] }).catch(() => ({ leads: [] as Lead[], total: 0 })),
+  ])
+  const customViews = (viewsResult.data ?? []).map((v: { id: string; name: string; columns: string[] }) => ({
+    id: v.id, name: v.name, columns: v.columns,
+  }))
+  const fieldOptions: Record<string, Array<{ id: string; value: string; bg: string | null; text: string | null }>> = {}
+  for (const row of (fieldOptsResult.data ?? []) as { id: string; field: string; value: string; bg: string | null; text: string | null }[]) {
+    if (!fieldOptions[row.field]) fieldOptions[row.field] = []
+    if (fieldOptions[row.field].some(o => o.value === row.value)) continue
+    fieldOptions[row.field].push({ id: row.id, value: row.value, bg: row.bg ?? null, text: row.text ?? null })
+  }
+  return { customViews, fieldOptions, prefs, pageFilters, leads: leadsData.leads, total: leadsData.total }
+}
+
 export async function getUserPreferences(studioId: string): Promise<{
   col_widths: Record<string, number>
   active_view_id: string

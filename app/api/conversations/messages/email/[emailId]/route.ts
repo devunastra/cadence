@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { ghlFetch } from '@/lib/ghl'
-import { createServiceClient } from '@/lib/supabase/server'
 import { getSelectedStudioId } from '@/lib/data-cache'
 
 async function getApiKey(userId: string) {
-  const supabase = await createClient()
   const serviceClient = createServiceClient()
   const selectedStudioId = await getSelectedStudioId()
 
@@ -13,7 +11,7 @@ async function getApiKey(userId: string) {
   if (selectedStudioId) {
     query = query.eq('id', selectedStudioId)
   } else {
-    const { data: memberships } = await supabase.from('studio_users').select('studio_id').eq('user_id', userId).limit(1)
+    const { data: memberships } = await serviceClient.from('studio_users').select('studio_id').eq('user_id', userId).limit(1)
     const firstStudioId = memberships?.[0]?.studio_id
     if (!firstStudioId) return undefined
     query = query.eq('id', firstStudioId)
@@ -27,8 +25,9 @@ export async function GET(
   { params }: { params: Promise<{ emailId: string }> }
 ) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const user = session.user
 
   const { emailId } = await params
   const apiKey = await getApiKey(user.id)

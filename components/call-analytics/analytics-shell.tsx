@@ -3,9 +3,11 @@
 import { useState, useTransition, useRef, useEffect } from 'react'
 import { Spinner } from '@/components/spinner'
 import { fetchCallsAnalytics, saveAnalyticsPreferences, savePageFilters } from '@/app/actions'
+import { createClient } from '@/lib/supabase/client'
+import { groupCallsByDay } from '@/lib/date-utils'
 import { NOTION_COLORS } from '@/lib/constants'
 import type { CallAnalyticsData, DateRange, DatePreset, Call } from '@/lib/types'
-import { formatTotalDuration } from '@/lib/date-utils'
+import { formatTotalDuration, getPresetRange } from '@/lib/date-utils'
 import { applyTranscriptFilters } from '@/lib/call-filters'
 import { ChevronDown, RefreshCw } from 'lucide-react'
 
@@ -19,10 +21,24 @@ import { TranscriptsPanel } from './transcripts-panel'
 import { DateRangePickerPopup } from './date-range-picker-popup'
 import { TranscriptsFilterBar, TranscriptFilters, DEFAULT_FILTERS } from './transcripts-filter-bar'
 
+const EMPTY_ANALYTICS: CallAnalyticsData = {
+  calls: [],
+  volumeByDay: [],
+  totalCalls: 0,
+  totalDurationSeconds: 0,
+  appointmentsBooked: 0,
+  avgQualityScore: null,
+  successRate: 0,
+  pickupRate: 0,
+  sentimentCounts: {},
+  disconnectCounts: {},
+  outcomeCounts: {},
+}
+
 interface AnalyticsShellProps {
   studioId: string
-  initialData: CallAnalyticsData
-  initialRange: DateRange
+  initialData?: CallAnalyticsData
+  initialRange?: DateRange
   initialDirection?: string
   initialFieldOptions?: Record<string, Array<{ id: string; value: string; bg: string | null; text: string | null }>>
   initialTab?: 'analytics' | 'transcripts'
@@ -56,8 +72,13 @@ const DISCONNECT_LABELS: Record<string, string> = {
 }
 
 export function AnalyticsShell({ studioId, initialData, initialRange, initialDirection = 'all', initialFieldOptions = {}, initialTab, initialTranscriptFilters }: AnalyticsShellProps) {
-  const [data,       setData]      = useState<CallAnalyticsData>(initialData)
-  const [range,      setRange]     = useState<DateRange>(initialRange)
+  const defaultRange: DateRange = initialRange ?? (() => {
+    const { from, to } = getPresetRange('7d' as DatePreset)
+    return { from, to, preset: '7d' as DatePreset }
+  })()
+  const [data,       setData]      = useState<CallAnalyticsData>(initialData ?? EMPTY_ANALYTICS)
+  const [range,      setRange]     = useState<DateRange>(defaultRange)
+  const [initialLoading, setInitialLoading] = useState(!initialData)
   const [filters,    setFilters]   = useState<TranscriptFilters>({
     ...DEFAULT_FILTERS,
     direction: (initialTranscriptFilters?.direction ?? initialDirection) as TranscriptFilters['direction'],
@@ -75,12 +96,60 @@ export function AnalyticsShell({ studioId, initialData, initialRange, initialDir
   const [spinning,   setSpinning]  = useState(false)
   const [chartKey,   setChartKey]  = useState(0)
   const [transcriptRefreshTrigger, setTranscriptRefreshTrigger] = useState(0)
+  const [mounted, setMounted] = useState(false)
 
   // Custom range picker state
   const [datePickerOpen,   setDatePickerOpen]   = useState(false)
   const [datePickerAnchor, setDatePickerAnchor] = useState<DOMRect | null>(null)
 
+  // Fetch initial data on mount if not provided by server
   useEffect(() => {
+    if (initialData) return
+    let cancelled = false
+    const supabase = createClient()
+    supabase
+      .from('calls')
+      .select('id,retell_call_id,created_at,duration_seconds,sentiment,outcome,disconnected_reason,picked_up,transferred,voicemail,direction,transcript_summary,lead_id,quality_score,appointment_booked')
+      .eq('studio_id', studioId)
+      .gte('created_at', defaultRange.from.toISOString())
+      .lte('created_at', defaultRange.to.toISOString())
+      .order('created_at', { ascending: true })
+      .then(({ data: calls, error }) => {
+        if (cancelled || error) { if (!cancelled) setInitialLoading(false); return }
+        const rows = (calls ?? []) as Omit<Call, 'transcript'>[]
+        const totalCalls = rows.length
+        const totalDurationSeconds = rows.reduce((s, c) => s + (c.duration_seconds ?? 0), 0)
+        const appointmentsBooked = rows.filter(c => c.appointment_booked).length
+        const qualityCalls = rows.filter(c => c.quality_score != null)
+        const avgQualityScore = qualityCalls.length
+          ? Math.round(qualityCalls.reduce((s, c) => s + (c.quality_score ?? 0), 0) / qualityCalls.length * 10) / 10
+          : null
+        const successRate = totalCalls ? rows.filter(c => c.outcome === 'successful').length / totalCalls : 0
+        const pickupRate = totalCalls ? rows.filter(c => c.picked_up).length / totalCalls : 0
+        const volumeByDay = groupCallsByDay(rows)
+        const sc: Record<string, number> = {}
+        const dc: Record<string, number> = {}
+        const oc: Record<string, number> = {}
+        for (const c of rows) {
+          if (c.sentiment) sc[c.sentiment] = (sc[c.sentiment] ?? 0) + 1
+          if (c.disconnected_reason) dc[c.disconnected_reason] = (dc[c.disconnected_reason] ?? 0) + 1
+          if (c.outcome) oc[c.outcome] = (oc[c.outcome] ?? 0) + 1
+        }
+        setData({
+          calls: rows, volumeByDay, totalCalls, totalDurationSeconds,
+          appointmentsBooked, avgQualityScore, successRate, pickupRate,
+          sentimentCounts: sc, disconnectCounts: dc, outcomeCounts: oc,
+        })
+        setInitialLoading(false)
+      })
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mark mounted after initial render
+  useEffect(() => { setMounted(true) }, [])
+
+  useEffect(() => {
+    if (!mounted) return
     if (filterSaveTimer.current) clearTimeout(filterSaveTimer.current)
     filterSaveTimer.current = setTimeout(() => {
       savePageFilters(studioId, { transcripts: {
@@ -242,7 +311,7 @@ export function AnalyticsShell({ studioId, initialData, initialRange, initialDir
       {/* Analytics tab — scrollable */}
       {activeTab === 'analytics' && (
         <div key={chartKey} className="flex-1 flex flex-col min-h-0">
-          {isPending ? (
+          {isPending || initialLoading ? (
             <div className="flex-1 flex items-center justify-center">
               <Spinner />
             </div>
