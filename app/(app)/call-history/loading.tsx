@@ -1,21 +1,18 @@
-import { SkeletonTable, SkeletonToolbar } from '@/components/skeletons'
+import { SkeletonTable, SkeletonTabs, SkeletonToolbar } from '@/components/skeletons'
 
-export default function LeadsLoading() {
+export default function CallHistoryLoading() {
   return (
     <>
       <h1
         className="text-2xl font-semibold flex-shrink-0 px-5 pt-10 pb-3"
         style={{ color: 'var(--color-text-primary)' }}
       >
-        Leads
+        Call History
       </h1>
       <div className="flex flex-col flex-1 min-h-0 px-5 pb-4 gap-3">
-        {/* View tabs placeholder */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="skeleton-shimmer" style={{ height: 32, width: 70, borderRadius: 6 }} />
-          <div className="skeleton-shimmer" style={{ height: 32, width: 70, borderRadius: 6 }} />
-        </div>
-        {/* Toolbar: search + filter buttons */}
+        {/* Tabs: All Calls | Outbound | Inbound | Failed | Callbacks */}
+        <SkeletonTabs count={5} widths={[60, 65, 55, 45, 65]} />
+        {/* Toolbar: search + filter */}
         <SkeletonToolbar />
         {/* Table */}
         <SkeletonTable cols={8} rows={10} />

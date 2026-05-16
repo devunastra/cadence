@@ -1,14 +1,10 @@
-import { redirect } from 'next/navigation'
-import { getCurrentUser, getMemberships } from '@/lib/data-cache'
+'use client'
+
+import { useCurrentStudio } from '@/components/studio-context'
 import { SettingsNav } from '@/components/settings/settings-nav'
-import type { Role } from '@/lib/types'
 
-export default async function SettingsLayout({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser()
-  if (!user) redirect('/login')
-
-  const memberships = await getMemberships(user.id)
-  const role = (memberships[0]?.role ?? 'studio_staff') as Role
+export default function SettingsLayout({ children }: { children: React.ReactNode }) {
+  const { userRole } = useCurrentStudio()
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: 'var(--color-bg)' }}>
@@ -19,7 +15,7 @@ export default async function SettingsLayout({ children }: { children: React.Rea
       </div>
       {/* Two-column body */}
       <div className="flex flex-1 min-h-0" style={{ borderTop: '1px solid var(--color-border)' }}>
-        <SettingsNav role={role} />
+        <SettingsNav role={userRole} />
         <div className="flex-1 overflow-y-auto">
           <div className="px-8 pt-8 pb-20 max-w-3xl">
             {children}

@@ -15,18 +15,18 @@ export function ProgressBar() {
     setWidth(0)
     setVisible(true)
 
-    const t1 = setTimeout(() => setWidth(20), 20)
-    const t2 = setTimeout(() => setWidth(75), 200)
+    const t1 = setTimeout(() => setWidth(30), 10)
+    const t2 = setTimeout(() => setWidth(80), 80)
     // Complete
-    const t3 = setTimeout(() => setWidth(100), 800)
+    const t3 = setTimeout(() => setWidth(100), 250)
     // Fade out
-    const t4 = setTimeout(() => setOpacity(0), 1100)
+    const t4 = setTimeout(() => setOpacity(0), 400)
     // Unmount
     const t5 = setTimeout(() => {
       setVisible(false)
       setWidth(0)
       setOpacity(1)
-    }, 1400)
+    }, 600)
 
     return () => {
       clearTimeout(t1)
@@ -57,7 +57,7 @@ export function ProgressBar() {
           ? 'opacity 300ms ease'
           : width >= 100
           ? 'width 200ms ease'
-          : 'width 700ms cubic-bezier(0.1, 0.4, 0.4, 1)',
+          : 'width 400ms cubic-bezier(0.4, 0, 0.2, 1)',
       }}
     />
   )

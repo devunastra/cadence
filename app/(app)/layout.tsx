@@ -46,7 +46,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const prefs = await getUserPreferences(initialStudio.id).catch(() => null)
 
   return (
-    <StudioProvider studio={initialStudio}>
+    <StudioProvider studio={initialStudio} memberships={memberships}>
       <div className="flex h-screen" style={{ backgroundColor: 'var(--color-bg)' }}>
         <ThemeInitializer theme={prefs?.theme} />
         <ProgressBar />

@@ -42,7 +42,6 @@ export function SettingsNav({ role }: SettingsNavProps) {
               <Link
                 key={href}
                 href={href}
-                prefetch={false}
                 className="flex items-center gap-3 text-sm rounded-lg leading-none"
                 style={{
                   padding: '13px 16px',

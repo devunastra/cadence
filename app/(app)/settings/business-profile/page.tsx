@@ -1,25 +1,20 @@
-import { redirect } from 'next/navigation'
-import { getCurrentUser, getMemberships, getSelectedStudioId, getStudios } from '@/lib/data-cache'
+'use client'
+
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useCurrentStudio } from '@/components/studio-context'
 import { BusinessProfileForm } from '@/components/settings/business-profile-form'
-import type { Studio, Role } from '@/lib/types'
 
-export default async function BusinessProfilePage() {
-  const user = await getCurrentUser()
-  if (!user) redirect('/login')
+export default function BusinessProfilePage() {
+  const router = useRouter()
+  const { currentStudio, userRole } = useCurrentStudio()
+  const isOwner = userRole === 'studio_owner' || userRole === 'super_admin'
 
-  const memberships = await getMemberships(user.id)
-  const isSuper = memberships.some(m => m.role === 'super_admin')
-  const topRole: Role = isSuper ? 'super_admin' : (memberships[0]?.role ?? 'studio_staff') as Role
-  if (topRole === 'studio_staff') redirect('/settings/my-profile')
+  useEffect(() => {
+    if (!isOwner) router.replace('/settings/my-profile')
+  }, [isOwner, router])
 
-  const studioIds = memberships.map(m => m.studio_id)
-  const [studios, selectedStudioId] = await Promise.all([
-    getStudios(isSuper, studioIds),
-    getSelectedStudioId(),
-  ])
-
-  const studio = studios.find(s => s.id === selectedStudioId) ?? studios[0]
-  if (!studio) redirect('/leads')
+  if (!isOwner) return null
 
   return (
     <div className="space-y-6">
@@ -27,7 +22,7 @@ export default async function BusinessProfilePage() {
         <h2 className="text-xl font-semibold mb-1" style={{ color: 'var(--color-text-primary)' }}>Business Profile</h2>
         <p className="text-base" style={{ color: 'var(--color-text-secondary)' }}>Manage your studio details and integration credentials.</p>
       </div>
-      <BusinessProfileForm studio={studio as Studio} />
+      <BusinessProfileForm studio={currentStudio} />
     </div>
   )
 }

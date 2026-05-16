@@ -1,13 +1,17 @@
-import { redirect } from 'next/navigation'
-import { getCurrentUser, getMemberships } from '@/lib/data-cache'
+'use client'
 
-export default async function SettingsPage() {
-  const user = await getCurrentUser()
-  if (!user) redirect('/login')
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useCurrentStudio } from '@/components/studio-context'
 
-  const memberships = await getMemberships(user.id)
-  const role = memberships[0]?.role ?? 'studio_staff'
-  const isOwner = role === 'studio_owner' || role === 'super_admin'
+export default function SettingsPage() {
+  const router = useRouter()
+  const { userRole } = useCurrentStudio()
+  const isOwner = userRole === 'studio_owner' || userRole === 'super_admin'
 
-  redirect(isOwner ? '/settings/business-profile' : '/settings/my-profile')
+  useEffect(() => {
+    router.replace(isOwner ? '/settings/business-profile' : '/settings/my-profile')
+  }, [router, isOwner])
+
+  return null
 }

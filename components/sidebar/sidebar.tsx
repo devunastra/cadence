@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
     Users,
     BarChart2,
@@ -41,6 +41,11 @@ export function Sidebar({
     const pathname = usePathname();
     const { currentStudio, setCurrentStudio } = useCurrentStudio();
     const [collapsed, setCollapsed] = useState(initialCollapsed);
+    const [pendingHref, setPendingHref] = useState<string | null>(null);
+
+    // Clear pending state when pathname catches up
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => { setPendingHref(null) }, [pathname]);
 
     async function handleSwitch(studio: Studio) {
         setCurrentStudio(studio);
@@ -144,15 +149,15 @@ export function Sidebar({
 
             <nav className="flex-1 px-3 pt-3 space-y-1">
                 {NAV_ITEMS.map(({ href, label, Icon }) => {
-                    const active = pathname.startsWith(href);
+                    const active = pendingHref ? pendingHref.startsWith(href) : pathname.startsWith(href);
                     return (
                         <Link
                             key={href}
                             href={href}
-                            prefetch={false}
                             title={collapsed ? label : undefined}
                             className="flex items-center text-sm leading-none"
                             style={navStyle(active)}
+                            onClick={() => setPendingHref(href)}
                             onMouseEnter={(e) => onNavEnter(e, active)}
                             onMouseLeave={(e) => onNavLeave(e, active)}
                         >
@@ -182,16 +187,16 @@ export function Sidebar({
             >
                 <Link
                     href="/settings/business-profile"
-                    prefetch={false}
                     title={collapsed ? "Settings" : undefined}
                     className="flex items-center text-sm leading-none"
                     style={{
-                        ...navStyle(pathname.startsWith("/settings")),
+                        ...navStyle(pendingHref ? pendingHref.startsWith("/settings") : pathname.startsWith("/settings")),
                         padding: collapsed ? "13px 0" : "13px 16px",
                         justifyContent: collapsed
                             ? ("center" as const)
                             : undefined,
                     }}
+                    onClick={() => setPendingHref("/settings")}
                     onMouseEnter={(e) =>
                         onNavEnter(e, pathname.startsWith("/settings"))
                     }
