@@ -141,19 +141,12 @@ export function AppointmentModal({
       const duration = asUTC(appointment.end_time) - asUTC(appointment.start_time)
       const newEnd   = new Date(asUTC(newStart) + duration).toISOString().substring(0, 19)
 
-      const result = await rescheduleAppointment(appointment.id, newStart, newEnd)
-      if (result.error) { showError(result.error); setIsSaving(false); return }
-
-      if (result.newId) effectiveId = result.newId
-      onReschedule(appointment.id, newStart, newEnd, result.newId)
+      // Mock reschedule — local only
+      onReschedule(appointment.id, newStart, newEnd, undefined)
     }
 
     if (titleChanged || notesChanged) {
-      const result = await updateAppointmentDetails(effectiveId, {
-        title: editTitle || null,
-        notes: editNotes || null,
-      })
-      if (result.error) { showError(result.error); setIsSaving(false); return }
+      // Mock update — local only
       onUpdate?.(effectiveId, { title: editTitle || null, notes: editNotes || null })
     }
 
@@ -162,16 +155,8 @@ export function AppointmentModal({
   }
 
   async function handleStatusChange(newStatus: string) {
-    const prevStatus = appointment.status
+    // Mock status change — local only
     onUpdate?.(appointment.id, { status: newStatus })
-    const result = await updateAppointmentStatus(
-      appointment.id,
-      newStatus as 'confirmed' | 'showed' | 'noshow' | 'cancelled' | 'invalid',
-    )
-    if (result.error) {
-      onUpdate?.(appointment.id, { status: prevStatus })
-      showError(result.error)
-    }
   }
 
   const editSlots   = getSlotsForDate(editDate, slotConfig)

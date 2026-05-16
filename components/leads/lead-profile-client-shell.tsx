@@ -31,20 +31,18 @@ export function LeadProfileClientShell({
   const [fieldOptions, setFieldOptions] = useState(initialFieldOptions)
   const rightPanelRef = useRef<{ focusMessages: () => void } | null>(null)
 
-  const handleOptionAdded = useCallback(async (field: string, value: string) => {
-    return addStudioFieldOption(studioId, field, value)
-  }, [studioId])
+  const handleOptionAdded = useCallback(async (_field: string, value: string) => {
+    return { id: `mock-${Date.now()}`, value }
+  }, [])
 
   const handleOptionRenamed = useCallback((field: string, oldValue: string, newValue: string) => {
-    renameStudioFieldOption(studioId, field, oldValue, newValue).catch(console.error)
     setFieldOptions(prev => ({
       ...prev,
       [field]: (prev[field] ?? []).map(o => o.value === oldValue ? { ...o, value: newValue } : o),
     }))
-  }, [studioId])
+  }, [])
 
   const handleOptionDeleted = useCallback(async (field: string, optionId: string) => {
-    await deleteStudioFieldOption(optionId)
     setFieldOptions(prev => ({
       ...prev,
       [field]: (prev[field] ?? []).filter(o => o.id !== optionId),

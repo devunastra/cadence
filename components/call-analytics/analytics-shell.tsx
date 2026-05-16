@@ -6,6 +6,7 @@ import { Spinner } from '@/components/spinner'
 import { fetchCallsAnalytics, saveAnalyticsPreferences, savePageFilters } from '@/app/actions'
 import { createClient } from '@/lib/supabase/client'
 import { groupCallsByDay } from '@/lib/date-utils'
+import { getMockCallAnalytics } from '@/lib/mock-data'
 import { NOTION_COLORS } from '@/lib/constants'
 import type { CallAnalyticsData, DateRange, DatePreset, Call } from '@/lib/types'
 import { formatTotalDuration, getPresetRange } from '@/lib/date-utils'
@@ -84,78 +85,26 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
   const [datePickerOpen,   setDatePickerOpen]   = useState(false)
   const [datePickerAnchor, setDatePickerAnchor] = useState<DOMRect | null>(null)
 
-  // Fetch initial data on mount
+  // Fetch initial data on mount — uses mock data for SIT branch
   useEffect(() => {
-    let cancelled = false
-    const supabase = createClient()
-    supabase
-      .from('calls')
-      .select('id,retell_call_id,created_at,duration_seconds,sentiment,outcome,disconnected_reason,picked_up,transferred,voicemail,direction,transcript_summary,lead_id,quality_score,appointment_booked')
-      .eq('studio_id', studioId)
-      .gte('created_at', defaultRange.from.toISOString())
-      .lte('created_at', defaultRange.to.toISOString())
-      .order('created_at', { ascending: true })
-      .then(({ data: calls, error }) => {
-        if (cancelled || error) { if (!cancelled) setInitialLoading(false); return }
-        const rows = (calls ?? []) as Omit<Call, 'transcript'>[]
-        const totalCalls = rows.length
-        const totalDurationSeconds = rows.reduce((s, c) => s + (c.duration_seconds ?? 0), 0)
-        const appointmentsBooked = rows.filter(c => c.appointment_booked).length
-        const qualityCalls = rows.filter(c => c.quality_score != null)
-        const avgQualityScore = qualityCalls.length
-          ? Math.round(qualityCalls.reduce((s, c) => s + (c.quality_score ?? 0), 0) / qualityCalls.length * 10) / 10
-          : null
-        const successRate = totalCalls ? rows.filter(c => c.outcome === 'successful').length / totalCalls : 0
-        const pickupRate = totalCalls ? rows.filter(c => c.picked_up).length / totalCalls : 0
-        const volumeByDay = groupCallsByDay(rows)
-        const sc: Record<string, number> = {}
-        const dc: Record<string, number> = {}
-        const oc: Record<string, number> = {}
-        for (const c of rows) {
-          if (c.sentiment) sc[c.sentiment] = (sc[c.sentiment] ?? 0) + 1
-          if (c.disconnected_reason) dc[c.disconnected_reason] = (dc[c.disconnected_reason] ?? 0) + 1
-          if (c.outcome) oc[c.outcome] = (oc[c.outcome] ?? 0) + 1
-        }
-        setData({
-          calls: rows, volumeByDay, totalCalls, totalDurationSeconds,
-          appointmentsBooked, avgQualityScore, successRate, pickupRate,
-          sentimentCounts: sc, disconnectCounts: dc, outcomeCounts: oc,
-        })
-        setInitialLoading(false)
-      })
-    return () => { cancelled = true }
+    const result = getMockCallAnalytics(defaultRange.from.toISOString(), defaultRange.to.toISOString())
+    setData(result)
+    setInitialLoading(false)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (!mounted) return
-    if (filterSaveTimer.current) clearTimeout(filterSaveTimer.current)
-    filterSaveTimer.current = setTimeout(() => {
-      savePageFilters(studioId, { transcripts: {
-        direction: filters.direction,
-        sentiment: filters.sentiment,
-        outcome: filters.outcome,
-        appointmentBooked: filters.appointmentBooked,
-        disconnectedReason: filters.disconnectedReason,
-        qualityScore: filters.qualityScore,
-      }}).catch(() => {})
-    }, 1000)
-    return () => { if (filterSaveTimer.current) clearTimeout(filterSaveTimer.current) }
-  }, [studioId, filters]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Filter save — disabled for mock data branch
+  // useEffect(() => { ... }, [studioId, filters])
 
   function handleFilterChange(newFilters: TranscriptFilters) {
     setFilters(newFilters)
-    saveAnalyticsPreferences(studioId, newFilters.direction, range.preset).catch(() => {})
   }
 
   function applyRange(from: Date, to: Date, preset: DatePreset) {
     const newRange: DateRange = { from, to, preset }
     setRange(newRange)
-    saveAnalyticsPreferences(studioId, filters.direction, preset).catch(() => {})
-    startTransition(async () => {
-      const result = await fetchCallsAnalytics(studioId, from.toISOString(), to.toISOString())
-      setData(result)
-      setChartKey(k => k + 1)
-    })
+    const result = getMockCallAnalytics(from.toISOString(), to.toISOString())
+    setData(result)
+    setChartKey(k => k + 1)
   }
 
   function handleRefresh() {
@@ -165,11 +114,9 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
       setTranscriptRefreshTrigger(n => n + 1)
       return
     }
-    startTransition(async () => {
-      const result = await fetchCallsAnalytics(studioId, range.from.toISOString(), range.to.toISOString())
-      setData(result)
-      setChartKey(k => k + 1)
-    })
+    const result = getMockCallAnalytics(range.from.toISOString(), range.to.toISOString())
+    setData(result)
+    setChartKey(k => k + 1)
   }
 
   function fmtChicago(d: Date) {

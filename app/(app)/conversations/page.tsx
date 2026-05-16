@@ -19,6 +19,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { Spinner } from "@/components/spinner";
 import { ComposeBox } from "@/components/conversations/compose-box";
+import { getMockConversations, getMockMessages, MOCK_LEADS } from "@/lib/mock-data";
 import type { SentMessage } from "@/components/conversations/compose-box";
 import { ContactSidePanel } from "@/components/conversations/contact-side-panel";
 import { AppointmentModal } from "@/components/calendar/appointment-modal";
@@ -359,63 +360,27 @@ export default function ConversationsPage() {
         const revertStarred = (list: GHLConversation[]) =>
             list.map((c) => c.id === convId ? { ...c, starred: !newStarred } : c);
 
-        // Optimistic update — both lists
+        // Local-only update for mock data branch
         setConversations((prev) => applyStarred(prev));
         setSearchResults((prev) => prev ? applyStarred(prev) : prev);
-
-        try {
-            await fetch("/api/conversations", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ conversationId: convId, starred: newStarred }),
-            });
-        } catch (err) {
-            console.error("Failed to toggle star", err);
-            setConversations((prev) => revertStarred(prev));
-            setSearchResults((prev) => prev ? revertStarred(prev) : prev);
-        }
     }
 
     async function markConvRead(convId: string, read: boolean) {
-        const unreadCount = read ? 0 : 1
         setConversations(prev => prev.map(c => c.id === convId ? { ...c, unreadCount: read ? 0 : 1 } : c))
         setGlobalUnreadCount(prev => Math.max(0, prev + (read ? -1 : 1)))
-        try {
-            await fetch('/api/conversations', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ conversationId: convId, unreadCount }),
-            })
-        } catch {
-            setConversations(prev => prev.map(c => c.id === convId ? { ...c, unreadCount: read ? 1 : 0 } : c))
-            setGlobalUnreadCount(prev => Math.max(0, prev + (read ? 1 : -1)))
-        }
     }
 
     async function deleteConv(convId: string) {
-        // Find if it was unread to decrement global count
         const wasUnread = conversations.find(c => c.id === convId)?.unreadCount ? 1 : 0
         setConversations(prev => prev.filter(c => c.id !== convId))
         if (wasUnread) setGlobalUnreadCount(prev => Math.max(0, prev - 1))
-        
         if (selectedId === convId) setSelectedId(null)
-        try {
-            await fetch('/api/conversations', {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ conversationId: convId }),
-            })
-        } catch {
-            // Soft failure — GHL may not support delete; local state already removed
-        }
     }
 
     async function bulkAction(action: 'markRead' | 'markUnread' | 'star' | 'unstar' | 'delete') {
         const ids = Array.from(selectedConvIds)
-        
-        // Count how many are changing unread status to update global count
         let unreadDelta = 0;
-        
+
         if (action === 'delete') {
             ids.forEach(id => {
                 if (conversations.find(c => c.id === id)?.unreadCount) unreadDelta -= 1;
@@ -424,34 +389,26 @@ export default function ConversationsPage() {
             if (selectedId && selectedConvIds.has(selectedId)) setSelectedId(null)
             setSelectedConvIds(new Set())
             setGlobalUnreadCount(prev => Math.max(0, prev + unreadDelta))
-            await Promise.all(ids.map(id =>
-                fetch('/api/conversations', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversationId: id }) })
-            ))
             return
         }
-        
+
         const patch: Record<string, unknown> = {}
         if (action === 'markRead') patch.unreadCount = 0
         if (action === 'markUnread') patch.unreadCount = 1
         if (action === 'star') patch.starred = true
         if (action === 'unstar') patch.starred = false
-        
+
         setConversations(prev => prev.map(c => {
             if (!selectedConvIds.has(c.id)) return c
-            
             if (action === 'markRead' && c.unreadCount > 0) unreadDelta -= 1;
             if (action === 'markUnread' && c.unreadCount === 0) unreadDelta += 1;
-            
             if ('unreadCount' in patch) return { ...c, unreadCount: patch.unreadCount as number }
             if ('starred' in patch) return { ...c, starred: patch.starred as boolean }
             return c
         }))
-        
+
         setGlobalUnreadCount(prev => Math.max(0, prev + unreadDelta))
         setSelectedConvIds(new Set())
-        await Promise.all(ids.map(id =>
-            fetch('/api/conversations', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversationId: id, ...patch }) })
-        ))
     }
 
     // ── Select conversation (with auto-remove check for blank new ones) ───────
@@ -486,59 +443,43 @@ export default function ConversationsPage() {
 
     async function openApptDetails(contactId: string, msgDateAdded: string, appointmentId?: string) {
         if (!studioId) return;
-        const supabase = createClient();
 
-        let closest = null;
+        // Mock: find appointment from mock data
+        const { getMockAppointments, getMockLeadsByContactIds } = await import('@/lib/mock-data');
+        const allAppts = getMockAppointments();
+        let closest = appointmentId
+            ? allAppts.find(a => a.id === appointmentId) ?? null
+            : null;
 
-        // Direct lookup by appointmentId when available
-        if (appointmentId) {
-            const { data } = await supabase.from('appointments').select('*').eq('id', appointmentId).single();
-            closest = data ?? null;
-        }
-
-        // Fallback: pick closest by metadata timestamp (when record was last touched)
         if (!closest) {
-            const { data: appts } = await supabase
-                .from('appointments')
-                .select('*')
-                .eq('studio_id', studioId)
-                .eq('contact_id', contactId)
-                .order('updated_at', { ascending: false })
-                .limit(20);
-
-            if (!appts?.length) return;
-
-            // Pick the appointment whose updated_at/created_at is closest to when the activity was logged
+            const contactAppts = allAppts.filter(a => a.contact_id === contactId);
+            if (!contactAppts.length) return;
             const msgTs = new Date(msgDateAdded).getTime();
-            closest = appts.reduce((best: typeof appts[0], a: typeof appts[0]) => {
-                const aTs = new Date(a.updated_at || a.created_at).getTime();
-                const bestTs = new Date(best.updated_at || best.created_at).getTime();
-                const diff = Math.abs(aTs - msgTs);
-                const bestDiff = Math.abs(bestTs - msgTs);
+            closest = contactAppts.reduce((best, a) => {
+                const diff = Math.abs(new Date(a.updated_at || a.created_at).getTime() - msgTs);
+                const bestDiff = Math.abs(new Date(best.updated_at || best.created_at).getTime() - msgTs);
                 return diff < bestDiff ? a : best;
             });
         }
 
-        // Fetch slot config from studio (needed for edit mode in modal)
         if (!apptSlotConfig) {
-            const { data: studio } = await supabase
-                .from('studios')
-                .select('appointment_duration_minutes, appointment_min_advance_weeks, appointment_slots')
-                .eq('id', studioId)
-                .single();
-            if (studio) {
-                setApptSlotConfig({
-                    appointment_duration_minutes: studio.appointment_duration_minutes ?? 45,
-                    appointment_min_advance_weeks: studio.appointment_min_advance_weeks ?? 1,
-                    appointment_slots: (studio.appointment_slots as Record<string, string[]>) ?? {},
-                });
-            }
+            setApptSlotConfig({
+                appointment_duration_minutes: 45,
+                appointment_min_advance_weeks: 1,
+                appointment_slots: {
+                    '1': ['10:00', '11:00', '14:00', '15:00', '18:00', '19:00'],
+                    '2': ['10:00', '11:00', '14:00', '15:00', '18:00', '19:00'],
+                    '3': ['10:00', '11:00', '14:00', '15:00', '18:00', '19:00'],
+                    '4': ['10:00', '11:00', '14:00', '15:00', '18:00', '19:00'],
+                    '5': ['10:00', '11:00', '14:00', '15:00', '18:00', '19:00'],
+                    '6': ['10:00', '11:00', '14:00', '15:00'],
+                },
+            });
         }
 
         if (!closest) return;
 
-        // Fetch lead for the contact
-        const leadMap = await findLeadsByContactIds([contactId], studioId);
+        const leadMap = getMockLeadsByContactIds([contactId]);
         setApptLead(leadMap[contactId] ?? null);
         setSelectedAppt(closest as Appointment);
     }
@@ -546,87 +487,24 @@ export default function ConversationsPage() {
     // ── Fetch conversations ──────────────────────────────────────────────────
 
     const fetchConversations = useCallback(
-        async (cursor?: { lastDate: string; lastId: string }, statusParam?: string, qParam?: string) => {
-            if (cursor) {
-                if (loadingMoreConvsRef.current) return;
-                loadingMoreConvsRef.current = true;
-                setLoadingMoreConvs(true);
-            }
-
-            try {
-                let url = "/api/conversations?";
-                const params = new URLSearchParams();
-                if (statusParam && statusParam !== 'all') params.append('status', statusParam);
-                if (qParam) params.append('q', qParam);
-                if (cursor) {
-                    params.append('startAfterDate', cursor.lastDate);
-                    params.append('startAfterId', cursor.lastId);
-                }
-                url += params.toString();
-
-                const res = await fetch(url);
-                if (!res.ok) {
-                    const data = await res.json().catch(() => ({}));
-                    if (!cursor)
-                        setConvError(
-                            data.error ?? "Failed to load conversations",
-                        );
-                    return;
-                }
-                const data = await res.json();
-                // GHL returns fullName; normalise to contactName
-                const incoming: GHLConversation[] = (data.conversations ?? []).map((c: Record<string, unknown>) => ({
-                    ...c,
-                    contactName: (c.contactName as string) || (c.fullName as string) || '',
-                }));
-                hasMoreConvsRef.current = data.hasMore ?? false;
-
-                // Capture studioId and GHL locationId for Realtime subscriptions and links
-                if (data.studioId && !cursor) setStudioId(data.studioId);
-                if (data.locationId && !cursor) setGhlLocationId(data.locationId);
-
-                if (incoming.length > 0) {
-                    const last = incoming[incoming.length - 1];
-                    convsCursorRef.current = {
-                        lastDate: last.lastMessageDate ?? "",
-                        lastId: last.id,
-                    };
-                }
-
-                setConversations((prev) => {
-                    if (cursor) {
-                        const existingIds = new Set(prev.map((c) => c.id));
-                        const newOnes = incoming.filter(
-                            (c) => !existingIds.has(c.id),
-                        );
-                        return [...prev, ...newOnes];
-                    }
-                    // Polling: replace fresh top-25, preserve older loaded pages
-                    if (prev.length === 0) return incoming;
-                    const incomingIds = new Set(incoming.map((c) => c.id));
-                    const olderLoaded = prev.filter(
-                        (c) => !incomingIds.has(c.id),
-                    );
-                    return [...incoming, ...olderLoaded];
-                });
-
-                setConvError(null);
-            } catch {
-                if (!cursor) setConvError("Network error");
-            } finally {
-                setLoadingConvs(false);
-                if (cursor) {
-                    loadingMoreConvsRef.current = false;
-                    setLoadingMoreConvs(false);
-                }
-            }
+        async (_cursor?: { lastDate: string; lastId: string }, statusParam?: string, qParam?: string) => {
+            // Mock data — no API calls
+            const { conversations: incoming } = getMockConversations({
+                status: statusParam,
+                q: qParam,
+            });
+            hasMoreConvsRef.current = false;
+            setStudioId("studio-001");
+            setGhlLocationId("slTYdxI6vskx4r28zsIo");
+            setConversations(incoming as unknown as GHLConversation[]);
+            setConvError(null);
+            setLoadingConvs(false);
         },
         [],
     );
 
     useEffect(() => {
         fetchConversations();
-        // No polling — Supabase Realtime handles live conversation updates
     }, [fetchConversations]);
 
     // ── Auto-select conversation from ?ghlContactId= param ───────────────────
@@ -642,136 +520,49 @@ export default function ConversationsPage() {
             return;
         }
 
-        // Conversation doesn't exist yet — create it
-        fetch("/api/conversations", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contactId: ghlContactId }),
-        })
-            .then((res) => res.json())
-            .then((data) => {
-                if (data.conversation) {
-                    const conv: GHLConversation = data.conversation;
-                    setConversations((prev) =>
-                        prev.some((c) => c.id === conv.id) ? prev : [conv, ...prev],
-                    );
-                    newlyCreatedIdsRef.current.add(conv.id);
-                    setSelectedId(conv.id);
-                    router.replace("/conversations");
-                }
-            })
-            .catch(() => {});
+        // Conversation doesn't exist yet — create a mock one
+        const conv: GHLConversation = {
+            id: `conv-mock-${Date.now()}`,
+            contactId: ghlContactId,
+            contactName: 'Unknown',
+            email: null,
+            phone: null,
+            lastMessageBody: null,
+            lastMessageDate: new Date().toISOString(),
+            lastMessageType: 'SMS',
+            unreadCount: 0,
+            type: 'SMS',
+            starred: false,
+        };
+        setConversations((prev) => [conv, ...prev]);
+        newlyCreatedIdsRef.current.add(conv.id);
+        setSelectedId(conv.id);
+        router.replace("/conversations");
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loadingConvs, searchParams]);
 
     // ── Fetch messages ───────────────────────────────────────────────────────
 
     const fetchMessages = useCallback(
-        async (convId: string, loadOlder = false) => {
-            if (loadOlder) {
-                if (loadingOlderMsgsRef.current) return;
-                loadingOlderMsgsRef.current = true;
-                setLoadingOlderMsgs(true);
-                isPrependRef.current = true;
-                if (threadRef.current)
-                    prevScrollHeightRef.current =
-                        threadRef.current.scrollHeight;
-            }
+        async (convId: string, _loadOlder = false) => {
+            // Mock data — no API calls
+            const { messages: msgs } = getMockMessages(convId);
+            const sorted = [...msgs].sort(
+                (a, b) => new Date(a.dateAdded).getTime() - new Date(b.dateAdded).getTime(),
+            ) as unknown as GHLMessage[];
 
-            try {
-                let url = `/api/conversations/${convId}/messages`;
-                if (loadOlder && oldestMsgCursorRef.current) {
-                    url += `?lastMessageId=${encodeURIComponent(oldestMsgCursorRef.current)}`;
-                }
+            if (convId !== selectedIdRef.current) return;
 
-                const res = await fetch(url);
-                if (!res.ok) {
-                    const data = await res.json().catch(() => ({}));
-                    setMsgError(data.error ?? "Failed to load messages");
-                    return;
-                }
-                const data = await res.json();
-                const msgs = Array.isArray(data.messages) ? data.messages : [];
-                const sorted = [...msgs].sort(
-                    (a: GHLMessage, b: GHLMessage) =>
-                        new Date(a.dateAdded).getTime() -
-                        new Date(b.dateAdded).getTime(),
-                );
-
-                if (convId !== selectedIdRef.current) return;
-
-                const nextCursor: string | null = data.nextCursor ?? null;
-                hasMoreMsgsRef.current = data.hasMore ?? false;
-
-                // Preserve status/appointment_id enrichment already applied to existing messages
-                const mergeEnrichment = (incoming: GHLMessage[], existing: GHLMessage[]): GHLMessage[] => {
-                    const existingMap = new Map(existing.map((m) => [m.id, m]));
-                    return incoming.map((m) => {
-                        const prev = existingMap.get(m.id);
-                        if (!prev) return m;
-                        return {
-                            ...m,
-                            status: m.status ?? prev.status,
-                            appointment_id: m.appointment_id ?? prev.appointment_id,
-                        };
-                    });
-                };
-
-                if (loadOlder) {
-                    if (nextCursor) oldestMsgCursorRef.current = nextCursor;
-                    setMessages((prev) => {
-                        const existingIds = new Set(prev.map((m) => m.id));
-                        const newOlder = sorted.filter(
-                            (m) => !existingIds.has(m.id),
-                        );
-                        return [...newOlder, ...prev];
-                    });
-                } else {
-                    oldestMsgCursorRef.current = nextCursor;
-                    setMessages((prev) => {
-                        if (prev.length === 0) return sorted;
-                        const oldestInBatch = sorted[0];
-                        const olderThanBatch = oldestInBatch
-                            ? prev.filter(
-                                  (m) =>
-                                      new Date(m.dateAdded).getTime() <
-                                      new Date(
-                                          oldestInBatch.dateAdded,
-                                      ).getTime(),
-                              )
-                            : prev;
-                        const existingIds = new Set(
-                            olderThanBatch.map((m) => m.id),
-                        );
-                        const enriched = mergeEnrichment(sorted, prev);
-                        const merged = [
-                            ...olderThanBatch,
-                            ...enriched.filter((m) => !existingIds.has(m.id)),
-                        ];
-                        merged.sort(
-                            (a, b) =>
-                                new Date(a.dateAdded).getTime() -
-                                new Date(b.dateAdded).getTime(),
-                        );
-                        return merged;
-                    });
-                    messagesCache.current.set(convId, {
-                        messages: sorted,
-                        nextCursor,
-                        hasMore: data.hasMore ?? false,
-                    });
-                }
-
-                setMsgError(null);
-            } catch {
-                setMsgError("Network error");
-            } finally {
-                setLoadingMsgs(false);
-                if (loadOlder) {
-                    loadingOlderMsgsRef.current = false;
-                    setLoadingOlderMsgs(false);
-                }
-            }
+            hasMoreMsgsRef.current = false;
+            oldestMsgCursorRef.current = null;
+            setMessages(sorted);
+            messagesCache.current.set(convId, {
+                messages: sorted,
+                nextCursor: null,
+                hasMore: false,
+            });
+            setMsgError(null);
+            setLoadingMsgs(false);
         },
         [],
     );
@@ -842,155 +633,20 @@ export default function ConversationsPage() {
         return () => { observer.disconnect(); cancelAnimationFrame(rafId); };
     }, []);
 
-    // ── Conversations Realtime subscription ──────────────────────────────────
-    useEffect(() => {
-        if (!studioId) return;
-        const supabase = createClient();
-        console.log("[realtime] Subscribing to conversations for studio:", studioId);
-        
-        const channel = supabase
-            .channel("conversations-realtime")
-            .on(
-                "postgres_changes",
-                {
-                    event: "*",
-                    schema: "public",
-                    table: "conversations",
-                    filter: `studio_id=eq.${studioId}`,
-                },
-                (payload) => {
-                    console.log("[realtime] Conversation event:", payload.eventType, payload.new);
-                    if (payload.eventType === "DELETE") return;
-                    
-                    const row = payload.new as Record<string, any>;
-                    setConversations((prev) => {
-                        const idx = prev.findIndex((c) => c.id === row.id);
-                        if (idx >= 0) {
-                            const next = [...prev];
-                            const old = prev[idx];
-                            // Merge only non-null/undefined fields from the Realtime payload
-                            const updated: GHLConversation = {
-                                ...old,
-                                contactId: row.contact_id ?? old.contactId,
-                                contactName: row.contact_name || old.contactName, // Never overwrite name with empty string
-                                email: row.email ?? old.email,
-                                phone: row.phone ?? old.phone,
-                                lastMessageBody: row.last_message_body ?? old.lastMessageBody,
-                                lastMessageDate: row.last_message_date ?? old.lastMessageDate,
-                                lastMessageType: row.last_message_type ?? old.lastMessageType,
-                                unreadCount: row.unread_count ?? old.unreadCount,
-                                type: row.type ?? old.type,
-                            };
-                            next[idx] = updated;
-                            // Re-sort by lastMessageDate descending
-                            return next.sort(
-                                (a, b) =>
-                                    new Date(b.lastMessageDate ?? 0).getTime() -
-                                    new Date(a.lastMessageDate ?? 0).getTime(),
-                            );
-                        }
-                        // New conversation — map and prepend
-                        return [mapConvRow(row), ...prev];
-                    });
-                },
-            )
-            .subscribe((status) => {
-                console.log("[realtime] Conversations subscription status:", status);
-            });
-            
-        return () => {
-            supabase.removeChannel(channel);
-        };
-    }, [studioId]);
-
-    // ── Messages Realtime subscription ───────────────────────────────────────
-    useEffect(() => {
-        if (!selectedId) return;
-        const supabase = createClient();
-        console.log("[realtime] Subscribing to messages for conversation:", selectedId);
-        
-        const channel = supabase
-            .channel(`messages-realtime-${selectedId}`)
-            .on(
-                "postgres_changes",
-                {
-                    event: "INSERT",
-                    schema: "public",
-                    table: "messages",
-                    filter: `conversation_id=eq.${selectedId}`,
-                },
-                (payload) => {
-                    console.log("[realtime] New message detected:", payload.new.id);
-                    fetchMessages(selectedId);
-                },
-            )
-            .subscribe((status) => {
-                console.log("[realtime] Messages subscription status:", status);
-            });
-            
-        return () => {
-            supabase.removeChannel(channel);
-        };
-    }, [selectedId, fetchMessages]);
-
-    // ── Appointment events: real-time chip verb updates ───────────────────────
-    // When an appointment_events INSERT fires, re-fetch messages for the current conversation
-    // so the chip gets the accurate time from the GHL calendar API (server-side enrichment).
-    useEffect(() => {
-        if (!studioId) return;
-        const supabase = createClient();
-        const channel = supabase
-            .channel('appointment-events-realtime')
-            .on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'appointment_events',
-                    filter: `studio_id=eq.${studioId}`,
-                },
-                () => {
-                    if (selectedIdRef.current) {
-                        fetchMessages(selectedIdRef.current)
-                    }
-                },
-            )
-            .subscribe();
-        return () => {
-            supabase.removeChannel(channel);
-        };
-    }, [studioId, fetchMessages]);
+    // ── Realtime subscriptions — disabled for mock data branch ──────────────
 
     // ── New conversation: debounced lead search ──────────────────────────────
 
     useEffect(() => {
         if (!showNewConv || !studioId) return;
-        if (newConvDebounceRef.current)
-            clearTimeout(newConvDebounceRef.current);
-        setNewConvLoading(true);
-        newConvDebounceRef.current = setTimeout(
-            async () => {
-                const supabase = createClient();
-                let q = supabase
-                    .from("leads")
-                    .select("id, name, ghl_contact_id, phone, email")
-                    .eq("studio_id", studioId)
-                    .order("name")
-                    .limit(50);
-                if (newConvSearch.trim()) {
-                    const words = newConvSearch.trim().split(/\s+/)
-                    for (const word of words) q = q.ilike("name", `%${word}%`) as typeof q
-                }
-                const { data } = await q;
-                setNewConvLeads(data ?? []);
-                setNewConvLoading(false);
-            },
-            newConvSearch.trim() ? 250 : 0,
-        );
-        return () => {
-            if (newConvDebounceRef.current)
-                clearTimeout(newConvDebounceRef.current);
-        };
+        // Mock data — filter leads locally
+        let results = MOCK_LEADS.filter(l => l.ghl_contact_id);
+        if (newConvSearch.trim()) {
+            const words = newConvSearch.trim().toLowerCase().split(/\s+/);
+            results = results.filter(l => words.every(w => l.name.toLowerCase().includes(w)));
+        }
+        setNewConvLeads(results.slice(0, 50) as typeof newConvLeads);
+        setNewConvLoading(false);
     }, [showNewConv, newConvSearch, studioId]);
 
     async function handleNewConversation(lead: {
@@ -1001,30 +657,21 @@ export default function ConversationsPage() {
     }) {
         setNewConvCreating(lead.ghl_contact_id);
         try {
-            const res = await fetch("/api/conversations", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    contactId: lead.ghl_contact_id,
-                    contactName: lead.name,
-                    phone: lead.phone,
-                    email: lead.email,
-                }),
-            });
-            const data = await res.json();
-            if (!res.ok) {
-                alert(
-                    data.error ||
-                        data.details ||
-                        "Failed to create conversation",
-                );
-                return;
-            }
-            const conv: GHLConversation = data.conversation;
-            setConversations((prev) =>
-                prev.some((c) => c.id === conv.id) ? prev : [conv, ...prev],
-            );
-            // Track as newly created so it can be auto-removed if blank on switch-away
+            // Mock create — generate a local conversation
+            const conv: GHLConversation = {
+                id: `conv-mock-${Date.now()}`,
+                contactId: lead.ghl_contact_id,
+                contactName: lead.name,
+                email: lead.email,
+                phone: lead.phone,
+                lastMessageBody: null,
+                lastMessageDate: new Date().toISOString(),
+                lastMessageType: 'SMS',
+                unreadCount: 0,
+                type: 'SMS',
+                starred: false,
+            };
+            setConversations((prev) => [conv, ...prev]);
             newlyCreatedIdsRef.current.add(conv.id);
             setSelectedId(conv.id);
             setShowNewConv(false);
@@ -1071,15 +718,10 @@ export default function ConversationsPage() {
 
     useEffect(() => {
         if (!studioId) return;
-        fetch('/api/conversations/unread-count')
-            .then(res => res.json())
-            .then(data => {
-                if (data.total !== undefined) {
-                    setGlobalUnreadCount(data.total);
-                }
-            })
-            .catch(() => {});
-    }, [studioId]); // Fetch when studioId is available. In a real app, you might refresh this periodically or via webhook/realtime event.
+        // Mock unread count from mock conversations
+        const unread = getMockConversations({ status: 'unread' }).total;
+        setGlobalUnreadCount(unread);
+    }, [studioId]);
 
     // ── Fetch Conversations on Filter/Search Change ──────────────────────────
 

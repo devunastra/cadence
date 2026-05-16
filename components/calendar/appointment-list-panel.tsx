@@ -9,6 +9,7 @@ import { ConfirmDeleteModal } from '@/components/confirm-delete-modal'
 import { AppointmentModal } from './appointment-modal'
 import { createClient } from '@/lib/supabase/client'
 import { fetchAppointmentList, updateAppointmentStatus, deleteAppointment, findLeadsByContactIds } from '@/app/actions'
+import { MOCK_APPOINTMENTS, getMockLeadsByContactIds } from '@/lib/mock-data'
 import { useToast } from '@/components/ui/toast-provider'
 import { Spinner } from '@/components/spinner'
 import type { Appointment, Lead, Role, StudioSlotConfig } from '@/lib/types'
@@ -175,64 +176,42 @@ export function AppointmentListPanel({
   }, [search])
 
   const loadPage = useCallback((p: number) => {
-    startTransition(async () => {
-      const result = await fetchAppointmentList(
-        studioId,
-        { search: debouncedSearch, statusFilters, dateFrom, dateTo },
-        sortField,
-        sortAscending,
-        p + 1,
-        pageSize,
+    // Mock data — filter and paginate locally
+    let filtered = MOCK_APPOINTMENTS.filter(a => !a.deleted_at)
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase()
+      filtered = filtered.filter(a =>
+        a.title?.toLowerCase().includes(q) || a.contact_name?.toLowerCase().includes(q)
       )
-      setAppointments(result.appointments)
-      setTotal(result.total)
-      setPage(p)
-      pageRef.current = p
-      setSelectedIds(new Set())
-      const contactIds = [...new Set(result.appointments.map(a => a.contact_id).filter(Boolean) as string[])]
-      if (contactIds.length) {
-        findLeadsByContactIds(contactIds, studioId).then(map =>
-          setContactLeadMap(prev => ({ ...prev, ...map }))
-        )
-      }
+    }
+    if (statusFilters.length) filtered = filtered.filter(a => a.status && statusFilters.includes(a.status))
+    if (dateFrom) filtered = filtered.filter(a => a.start_time >= dateFrom)
+    if (dateTo) filtered = filtered.filter(a => a.start_time <= dateTo + 'T23:59:59')
+    filtered.sort((a, b) => {
+      const aVal = String((a as unknown as Record<string, unknown>)[sortField] ?? '')
+      const bVal = String((b as unknown as Record<string, unknown>)[sortField] ?? '')
+      const cmp = aVal.localeCompare(bVal)
+      return sortAscending ? cmp : -cmp
     })
-  }, [studioId, debouncedSearch, statusFilters, dateFrom, dateTo, sortField, sortAscending, pageSize])
+    const start = p * pageSize
+    setAppointments(filtered.slice(start, start + pageSize))
+    setTotal(filtered.length)
+    setPage(p)
+    pageRef.current = p
+    setSelectedIds(new Set())
+    const contactIds = [...new Set(filtered.slice(start, start + pageSize).map(a => a.contact_id).filter(Boolean) as string[])]
+    if (contactIds.length) {
+      const map = getMockLeadsByContactIds(contactIds)
+      setContactLeadMap(prev => ({ ...prev, ...map }))
+    }
+  }, [debouncedSearch, statusFilters, dateFrom, dateTo, sortField, sortAscending, pageSize])
 
   useEffect(() => {
     loadPage(0)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studioId, debouncedSearch, statusFilters, dateFrom, dateTo, sortField, sortAscending, pageSize])
 
-  useEffect(() => {
-    const supabase = createClient()
-    const channel = supabase
-      .channel(`appt-list:${studioId}`)
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'appointments',
-        filter: `studio_id=eq.${studioId}`,
-      }, (payload) => {
-        if (payload.eventType === 'INSERT') {
-          loadPage(pageRef.current)
-        } else if (payload.eventType === 'UPDATE') {
-          const appt = payload.new as Appointment
-          if (appt.deleted_at) {
-            setAppointments(prev => prev.filter(a => a.id !== appt.id))
-            setTotal(t => Math.max(0, t - 1))
-            setSelectedIds(prev => { const n = new Set(prev); n.delete(appt.id); return n })
-          } else {
-            setAppointments(prev => prev.map(a => a.id === appt.id ? appt : a))
-            setModalAppt(prev => prev?.id === appt.id ? appt : prev)
-          }
-        } else if (payload.eventType === 'DELETE') {
-          const id = (payload.old as { id: string }).id
-          setAppointments(prev => prev.filter(a => a.id !== id))
-          setTotal(t => Math.max(0, t - 1))
-          setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n })
-        }
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [studioId, loadPage])
+  // Realtime — disabled for mock data branch
 
   useEffect(() => {
     if (!menuOpenId) return
@@ -263,7 +242,6 @@ export function AppointmentListPanel({
   async function handleBulkDelete() {
     setDeletingBulk(true)
     const ids = [...selectedIds]
-    await Promise.all(ids.map(id => deleteAppointment(id)))
     setAppointments(prev => prev.filter(a => !ids.includes(a.id)))
     setTotal(t => Math.max(0, t - ids.length))
     setSelectedIds(new Set())
@@ -274,7 +252,6 @@ export function AppointmentListPanel({
   async function handleSingleDelete() {
     if (!deleteApptId) return
     setDeletingSingle(true)
-    await deleteAppointment(deleteApptId)
     setAppointments(prev => prev.filter(a => a.id !== deleteApptId))
     setTotal(t => Math.max(0, t - 1))
     setSelectedIds(prev => { const n = new Set(prev); n.delete(deleteApptId!); return n })
@@ -283,18 +260,8 @@ export function AppointmentListPanel({
   }
 
   async function handleStatusChange(apptId: string, newStatus: string) {
-    const prevStatus = appointments.find(a => a.id === apptId)?.status ?? null
     setAppointments(prev => prev.map(a => a.id === apptId ? { ...a, status: newStatus } : a))
     setModalAppt(prev => prev?.id === apptId ? { ...prev, status: newStatus } : prev)
-    const result = await updateAppointmentStatus(
-      apptId,
-      newStatus as 'confirmed' | 'showed' | 'noshow' | 'cancelled' | 'invalid',
-    )
-    if (result.error) {
-      setAppointments(prev => prev.map(a => a.id === apptId ? { ...a, status: prevStatus } : a))
-      setModalAppt(prev => prev?.id === apptId ? { ...prev, status: prevStatus } : prev)
-      showError(result.error)
-    }
   }
 
   function openMenu(apptId: string, btnEl: HTMLElement) {
@@ -579,7 +546,6 @@ export function AppointmentListPanel({
           lead={modalAppt.contact_id ? (contactLeadMap[modalAppt.contact_id] ?? null) : null}
           onClose={() => setModalAppt(null)}
           onDelete={async (id) => {
-            await deleteAppointment(id)
             setAppointments(prev => prev.filter(a => a.id !== id))
             setTotal(t => Math.max(0, t - 1))
           }}

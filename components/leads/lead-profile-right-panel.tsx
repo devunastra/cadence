@@ -8,6 +8,7 @@ import { TranscriptsPanel } from '@/components/call-analytics/transcripts-panel'
 import { AppointmentModal } from '@/components/calendar/appointment-modal'
 import { deleteAppointment } from '@/app/actions'
 import { createClient } from '@/lib/supabase/client'
+import { getMockAppointments, getMockMessages } from '@/lib/mock-data'
 import { Spinner } from '@/components/spinner'
 
 interface LeadProfileRightPanelProps {
@@ -40,48 +41,33 @@ export function LeadProfileRightPanel({
   const [apptSlotConfig, setApptSlotConfig] = useState<StudioSlotConfig | null>(null)
 
   async function openApptDetails(contactId: string, msgDateAdded: string, appointmentId?: string) {
-    const supabase = createClient()
-    let closest = null
+    const allAppts = getMockAppointments()
+    let closest = appointmentId ? allAppts.find(a => a.id === appointmentId) ?? null : null
 
-    if (appointmentId) {
-      const { data } = await supabase.from('appointments').select('*').eq('id', appointmentId).single()
-      closest = data ?? null
-    }
-
-    // Fallback: pick closest by metadata timestamp (when record was last touched)
     if (!closest) {
-      const { data: appts } = await supabase
-        .from('appointments')
-        .select('*')
-        .eq('studio_id', lead.studio_id)
-        .eq('contact_id', contactId)
-        .order('updated_at', { ascending: false })
-        .limit(20)
-
-      if (!appts?.length) return
+      const contactAppts = allAppts.filter(a => a.contact_id === contactId)
+      if (!contactAppts.length) return
       const msgTs = new Date(msgDateAdded).getTime()
-      closest = appts.reduce((best: typeof appts[0], a: typeof appts[0]) => {
-        const aTs = new Date(a.updated_at || a.created_at).getTime()
-        const bestTs = new Date(best.updated_at || best.created_at).getTime()
-        const diff = Math.abs(aTs - msgTs)
-        const bestDiff = Math.abs(bestTs - msgTs)
+      closest = contactAppts.reduce((best, a) => {
+        const diff = Math.abs(new Date(a.updated_at || a.created_at).getTime() - msgTs)
+        const bestDiff = Math.abs(new Date(best.updated_at || best.created_at).getTime() - msgTs)
         return diff < bestDiff ? a : best
       })
     }
 
     if (!apptSlotConfig) {
-      const { data: studio } = await supabase
-        .from('studios')
-        .select('appointment_duration_minutes, appointment_min_advance_weeks, appointment_slots')
-        .eq('id', lead.studio_id)
-        .single()
-      if (studio) {
-        setApptSlotConfig({
-          appointment_duration_minutes: studio.appointment_duration_minutes ?? 45,
-          appointment_min_advance_weeks: studio.appointment_min_advance_weeks ?? 1,
-          appointment_slots: (studio.appointment_slots as Record<string, string[]>) ?? {},
-        })
-      }
+      setApptSlotConfig({
+        appointment_duration_minutes: 45,
+        appointment_min_advance_weeks: 1,
+        appointment_slots: {
+          '1': ['10:00','11:00','14:00','15:00','18:00','19:00'],
+          '2': ['10:00','11:00','14:00','15:00','18:00','19:00'],
+          '3': ['10:00','11:00','14:00','15:00','18:00','19:00'],
+          '4': ['10:00','11:00','14:00','15:00','18:00','19:00'],
+          '5': ['10:00','11:00','14:00','15:00','18:00','19:00'],
+          '6': ['10:00','11:00','14:00','15:00'],
+        },
+      })
     }
 
     if (closest) setSelectedAppt(closest as Appointment)
@@ -98,35 +84,20 @@ export function LeadProfileRightPanel({
     }
   }, [imperativeRef])
 
-  // Bootstrap conversation: if we landed on this profile with no conversationId
-  // (conversation row didn't exist in Supabase yet), find/create it via GHL.
+  // Bootstrap conversation — mock: create a local ID if none exists
   useEffect(() => {
     if (conversationId || !lead.ghl_contact_id) return
-    fetch('/api/conversations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contactId: lead.ghl_contact_id }),
-    })
-      .then(r => r.json())
-      .then(d => {
-        if (d.conversation?.id) setConversationId(d.conversation.id)
-        else setLoadingMessages(false)
-      })
-      .catch(() => setLoadingMessages(false))
+    setConversationId(`conv-mock-${Date.now()}`)
   }, [lead.ghl_contact_id, conversationId])
 
-  // Fetch messages
+  // Fetch messages — mock data
   const fetchMessages = useCallback(async (convId: string) => {
     setLoadingMessages(true)
-    try {
-      const res = await fetch(`/api/conversations/${convId}/messages`)
-      if (!res.ok) return
-      const data = await res.json()
-      const msgs: GHLMessage[] = Array.isArray(data.messages) ? data.messages : []
-      setMessages(msgs.slice().reverse())
-    } finally {
-      setLoadingMessages(false)
-    }
+    const { messages: msgs } = getMockMessages(convId)
+    setMessages(msgs.sort((a, b) =>
+      new Date(a.dateAdded).getTime() - new Date(b.dateAdded).getTime()
+    ) as unknown as GHLMessage[])
+    setLoadingMessages(false)
   }, [])
 
   useEffect(() => {
@@ -287,8 +258,7 @@ export function LeadProfileRightPanel({
           studioId={lead.studio_id}
           slotConfig={apptSlotConfig}
           onClose={() => setSelectedAppt(null)}
-          onDelete={async (id) => {
-            await deleteAppointment(id)
+          onDelete={async () => {
             setSelectedAppt(null)
           }}
           onViewLead={() => setSelectedAppt(null)}

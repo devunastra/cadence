@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { X } from "lucide-react";
 import { createAppointment, fetchBookedSlotsForDate } from "@/app/actions";
+import { MOCK_LEADS, MOCK_APPOINTMENTS } from "@/lib/mock-data";
 import { useToast } from "@/components/ui/toast-provider";
 import { createClient } from "@/lib/supabase/client";
 import { AppointmentDatePicker } from "./appointment-date-picker";
@@ -69,7 +70,6 @@ export function CreateAppointmentModal({
     const searchInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        if (debounceRef.current) clearTimeout(debounceRef.current);
         const q = search.trim();
         if (!q) {
             setLeads([]);
@@ -77,38 +77,27 @@ export function CreateAppointmentModal({
             setLeadsLoading(false);
             return;
         }
-        setLeadsLoading(true);
-        debounceRef.current = setTimeout(() => {
-            const supabase = createClient();
-            const words = q.split(/\s+/);
-            let query = supabase
-                .from("leads")
-                .select("id, name, email, phone, ghl_contact_id", {
-                    count: "exact",
-                })
-                .eq("studio_id", studioId)
-                .order("name", { ascending: true })
-                .limit(50);
-            for (const word of words) query = query.ilike("name", `%${word}%`);
-            query.then(({ data, count }) => {
-                setLeads((data as LeadOption[]) ?? []);
-                setTotalLeads(count ?? 0);
-                setLeadsLoading(false);
-            });
-        }, 250);
-        return () => {
-            if (debounceRef.current) clearTimeout(debounceRef.current);
-        };
+        // Mock lead search
+        const words = q.toLowerCase().split(/\s+/);
+        const results = MOCK_LEADS
+            .filter(l => l.ghl_contact_id && words.every(w => l.name.toLowerCase().includes(w)))
+            .slice(0, 50)
+            .map(l => ({ id: l.id, name: l.name, email: l.email, phone: l.phone, ghl_contact_id: l.ghl_contact_id }));
+        setLeads(results as LeadOption[]);
+        setTotalLeads(results.length);
+        setLeadsLoading(false);
     }, [search, studioId]);
 
     useEffect(() => {
         if (!dateVal) { setBookedSlots([]); setTimeVal(""); return; }
-        fetchBookedSlotsForDate(studioId, dateVal).then(booked => {
-            setBookedSlots(booked);
-            const slots = getSlotsForDate(dateVal, slotConfig);
-            const first = slots?.find(s => !booked.includes(s.value));
-            setTimeVal(first?.value ?? "");
-        });
+        // Mock booked slots — derive from mock appointments for the selected date
+        const booked = MOCK_APPOINTMENTS
+            .filter(a => !a.deleted_at && a.start_time.startsWith(dateVal))
+            .map(a => a.start_time.slice(11, 16)); // "HH:MM"
+        setBookedSlots(booked);
+        const slots = getSlotsForDate(dateVal, slotConfig);
+        const first = slots?.find(s => !booked.includes(s.value));
+        setTimeVal(first?.value ?? "");
     }, [dateVal, slotConfig, studioId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const filtered = useMemo(
@@ -154,29 +143,28 @@ export function CreateAppointmentModal({
             .toISOString()
             .substring(0, 19);
 
-        const results = await Promise.all(
-            selectedContacts.map((c) =>
-                createAppointment({
-                    studioId,
-                    contactId: c.ghl_contact_id!,
-                    contactName: c.name,
-                    startTime: startISO,
-                    endTime: endISO,
-                    title: title || "Dance Appointment",
-                    notes: notes || undefined,
-                }),
-            ),
-        );
+        // Mock create — generate local appointment objects
+        const mockAppts: Appointment[] = selectedContacts.map((c) => ({
+            id: `appt-mock-${Date.now()}-${c.id}`,
+            studio_id: studioId,
+            title: title || "Dance Appointment",
+            start_time: startISO,
+            end_time: endISO,
+            status: "confirmed",
+            calendar_id: "cal-001",
+            calendar_name: "Lessons",
+            contact_id: c.ghl_contact_id!,
+            contact_name: c.name,
+            assigned_user_id: null,
+            assigned_user_name: null,
+            notes: notes || null,
+            address: "300 N Milwaukee Ave, Lincolnshire, IL 60069",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        }));
 
         setSaving(false);
-        const firstError = results.find((r) => r.error);
-        if (firstError?.error) {
-            showError(firstError.error);
-            return;
-        }
-        results.forEach((r) => {
-            if (r.appointment) onCreated(r.appointment);
-        });
+        mockAppts.forEach((a) => onCreated(a));
         onClose();
     }
 

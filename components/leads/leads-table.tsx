@@ -17,6 +17,7 @@ import { ALL_COLUMNS_VIEW } from '@/lib/views'
 import { createLeadView, deleteLeadView, updateLeadView, fetchLeadsPage, fetchLeadById, deleteLeads, bulkUpdateLeads, updateLead, saveUserPreferences, addStudioFieldOption, renameStudioFieldOption, deleteStudioFieldOption, logLeadActivity, savePageFilters } from '@/app/actions'
 import type { PageFilters } from '@/app/actions'
 import { createClient } from '@/lib/supabase/client'
+import { getMockLeads } from '@/lib/mock-data'
 import { useTheme } from 'next-themes'
 import type { FieldOption } from '@/lib/field-options'
 import type { LeadView } from '@/lib/views'
@@ -210,175 +211,23 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
   // Keep ref in sync so realtime callback always sees latest editing cell
   useEffect(() => { editingRef.current = editing }, [editing])
 
-  // Realtime subscription — syncs lead changes made by other users
-  useEffect(() => {
-    if (!studioId || !mounted) return
-    const supabase = createClient()
-    let channel: ReturnType<typeof supabase.channel> | null = null
-    let cancelled = false
-
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (cancelled || !user) return
-      // Store current user's email so handleDeleteSelected can include it in broadcasts
-      currentUserEmailRef.current = user.email ?? null
-      // For realtime authentication, we still need the session for the access token.
-      // Calling getSession after getUser is fine as the token is now validated.
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session) supabase.realtime.setAuth(session.access_token)
-      })
-      channel = supabase
-        .channel(`leads-${studioId}`)
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'leads', filter: `studio_id=eq.${studioId}` },
-          (payload) => {
-            if (payload.eventType === 'UPDATE') {
-              const updatedId = (payload.new as Lead).id
-              if (editingRef.current?.leadId === updatedId) return  // skip if user is currently editing this lead
-              // Skip Realtime echo for leads updated optimistically by this session.
-              // Decrement the counter; only let the echo through once all pending updates are accounted for.
-              const pendingCount = localUpdateCounts.current.get(updatedId) ?? 0
-              if (pendingCount > 0) {
-                if (pendingCount === 1) localUpdateCounts.current.delete(updatedId)
-                else localUpdateCounts.current.set(updatedId, pendingCount - 1)
-                return
-              }
-              // Fetch the fully resolved lead from the server to get display values, not raw UUIDs
-              fetchLeadById(updatedId).then(updated => {
-                if (!updated) return
-                setLeads(prev => prev.map(l => {
-                  if (l.id !== updated.id) return l
-                  if (editingRef.current?.leadId === l.id) return l  // re-check in case edit started during fetch
-                  return updated
-                }))
-                // Show banner now that row is updated — both appear simultaneously
-                const info = pendingUpdateInfoRef.current.get(updatedId)
-                if (info) {
-                  setUpdatedLeadNames(prev => [...prev, info])
-                  pendingUpdateInfoRef.current.delete(updatedId)
-                }
-              })
-            } else if (payload.eventType === 'INSERT') {
-              const inserted = payload.new as Lead
-              // Skip if the INSERT was confirmed by the current session already
-              if (localInsertIds.current.has(inserted.id)) {
-                localInsertIds.current.delete(inserted.id)
-                return
-              }
-              // Skip if a local create is still in-flight (Realtime arrived before HTTP response)
-              if (pendingLocalInserts.current > 0) {
-                return
-              }
-              setNewLeadNames(prev => [...prev, { name: inserted.name || 'Unknown', email: inserted.created_by_email ?? null }])
-            } else if (payload.eventType === 'DELETE') {
-              const deletedId = (payload.old as { id: string }).id
-              // If this session deleted it, remove silently — broadcast already sent the banner
-              if (localDeleteIds.current.has(deletedId)) {
-                localDeleteIds.current.delete(deletedId)
-                return
-              }
-              // Another user deleted — silently remove from view (banner comes via broadcast)
-              setLeads(prev => prev.filter(l => l.id !== deletedId))
-              setTotal(t => Math.max(0, t - 1))
-            }
-          }
-        )
-        .on(
-          'broadcast',
-          { event: 'leads_deleted' },
-          (msg: { payload: { names: string[]; deletedBy: string | null } }) => {
-            const { names, deletedBy } = msg.payload
-            setDeletedLeadNames(prev => [
-              ...prev,
-              ...names.map(name => ({ name, email: deletedBy })),
-            ])
-          }
-        )
-        .on(
-          'broadcast',
-          { event: 'leads_updated' },
-          (msg: { payload: { leads: { id: string; name: string }[]; updatedBy: string | null } }) => {
-            const { leads: updatedLeads, updatedBy } = msg.payload
-            // Ignore own broadcasts — the sender sees their optimistic update already
-            if (updatedBy === currentUserEmailRef.current) return
-            for (const { id, name } of updatedLeads) {
-              const info = { name, email: updatedBy }
-              if (pendingUpdateInfoRef.current.has(id)) {
-                // postgres_changes already ran — show banner now, row is already updated
-                setUpdatedLeadNames(prev => [...prev, info])
-                pendingUpdateInfoRef.current.delete(id)
-              } else {
-                // Wait for postgres_changes to trigger fetchLeadById before showing banner
-                pendingUpdateInfoRef.current.set(id, info)
-              }
-            }
-          }
-        )
-        .subscribe()
-      realtimeChannelRef.current = channel
-      if (cancelled) { supabase.removeChannel(channel); channel = null; realtimeChannelRef.current = null }
-    })
-
-    return () => {
-      cancelled = true
-      if (channel) supabase.removeChannel(channel)
-      realtimeChannelRef.current = null
-    }
-  }, [studioId, mounted])
+  // Realtime subscription — disabled for mock data branch
+  // useEffect(() => { ... }, [studioId, mounted])
 
   async function handleBulkUpdate(field: string, value: string | null) {
-    const ids = Array.from(selectedIds)
     const displayValue = value === '' || value === null ? null : value
-    // Look up option ID for DB storage
-    const optionId = displayValue !== null
-      ? (fieldOptions[field] ?? []).find(o => o.value === displayValue)?.id ?? null
-      : null
-    const prevValues = new Map(leads.filter(l => selectedIds.has(l.id)).map(l => [l.id, l[field as keyof Lead]]))
-    const updatedLeadEntries = leads.filter(l => selectedIds.has(l.id)).map(l => ({ id: l.id, name: l.name || 'Unknown' }))
-    // Register each ID so Realtime echoes from our own bulk write are suppressed
-    ids.forEach(id => localUpdateCounts.current.set(id, (localUpdateCounts.current.get(id) ?? 0) + 1))
     setLeads(prev => prev.map(l => selectedIds.has(l.id) ? { ...l, [field]: displayValue } : l))
     setBulkField(null)
-    // Selection is intentionally kept so the user can continue editing other fields on the same rows
-    bulkUpdateLeads(ids, field, optionId)
-      .then(() => broadcastLeadUpdated(updatedLeadEntries))
-      .catch(() => {
-        ids.forEach(id => {
-          const c = localUpdateCounts.current.get(id) ?? 0
-          if (c <= 1) localUpdateCounts.current.delete(id)
-          else localUpdateCounts.current.set(id, c - 1)
-        })
-        setLeads(prev => prev.map(l => prevValues.has(l.id) ? { ...l, [field]: prevValues.get(l.id) } : l))
-      })
   }
 
   async function handleDeleteSelected() {
     if (selectedIds.size === 0) return
     setDeleting(true)
-    const ids = Array.from(selectedIds)
-    // Capture names before the rows disappear from state
-    const deletedNames = leads.filter(l => selectedIds.has(l.id)).map(l => l.name || 'Unknown')
-    // Mark as locally deleted so the postgres_changes DELETE echo is ignored
-    ids.forEach(id => localDeleteIds.current.add(id))
-    try {
-      await deleteLeads(ids)
-      setLeads(prev => prev.filter(l => !selectedIds.has(l.id)))
-      setTotal(prev => prev - selectedIds.size)
-      setSelectedIds(new Set())
-      // Broadcast to other sessions so they can show the banner with email
-      realtimeChannelRef.current?.send({
-        type: 'broadcast',
-        event: 'leads_deleted',
-        payload: { names: deletedNames, deletedBy: currentUserEmailRef.current },
-      })
-    } catch (err) {
-      // Delete failed — remove from local tracking so Realtime isn't suppressed
-      ids.forEach(id => localDeleteIds.current.delete(id))
-      throw err
-    } finally {
-      setDeleting(false)
-      setShowConfirmDelete(false)
-    }
+    setLeads(prev => prev.filter(l => !selectedIds.has(l.id)))
+    setTotal(prev => prev - selectedIds.size)
+    setSelectedIds(new Set())
+    setDeleting(false)
+    setShowConfirmDelete(false)
   }
 
   function broadcastLeadUpdated(leads: { id: string; name: string }[]) {
@@ -441,16 +290,10 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
     setSelectedIds(new Set())
   }
 
-  // Debounced DB save when colWidths change — skip during initial load
-  useEffect(() => {
-    if (Object.keys(colWidths).length === 0 || !studioId || !mounted || initializing.current) return
-    if (prefSaveTimer.current) clearTimeout(prefSaveTimer.current)
-    prefSaveTimer.current = setTimeout(() => {
-      saveUserPreferences(studioId, colWidths, activeViewId, (theme ?? 'light') as 'light' | 'dark').catch(console.error)
-    }, 1000)
-  }, [colWidths, studioId, mounted, activeViewId, theme])
+  // Debounced DB save when colWidths change — disabled for mock data branch
+  // useEffect(() => { ... }, [colWidths, studioId, mounted, activeViewId, theme])
 
-  // Fetch a page from the server action — skip on first mount if SSR data was provided
+  // Fetch a page — uses mock data for SIT branch
   useEffect(() => {
     if (!mounted) return
     if (skipFirstFetch.current) {
@@ -458,123 +301,36 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
       return
     }
     setLoading(true)
-    fetchLeadsPage({ studioId, page, pageSize, search: debouncedSearch, statusFilter, levelFilter, actionFilter, sourceFilter, reasonFilter, sortField, sortAscending })
-      .then(({ leads: data, total: count }) => {
-        setLeads(data)
-        setTotal(count)
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false))
+    const { leads: data, total: count } = getMockLeads({ page, pageSize, search: debouncedSearch, statusFilter, levelFilter, actionFilter, sourceFilter, reasonFilter, sortField, sortAscending })
+    setLeads(data)
+    setTotal(count)
+    setLoading(false)
   }, [mounted, studioId, page, pageSize, debouncedSearch, statusFilter, levelFilter, actionFilter, sourceFilter, reasonFilter, sortField, sortAscending, refreshKey])
 
   // Reset confirm-delete state whenever the selection changes
   useEffect(() => { setShowConfirmDelete(false) }, [selectedIds])
 
-  // Fetch everything on mount via browser client
+  // Fetch everything on mount — uses mock data for SIT branch
   useEffect(() => {
     if (!studioId) return
 
-    // Fetch everything on mount via browser client
-    let cancelled = false
-    const supabase = createClient()
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (cancelled || !user) { if (!cancelled) setLoading(false); return }
-      const ENUM_JOIN = `
-        id, studio_id, created_at, name, phone, email,
-        last_contacted, first_lesson, comments, available,
-        showed, bought, old, ghl_contact_id, created_by_email,
-        status:studio_field_options!leads_status_fkey(id, value),
-        level:studio_field_options!leads_level_fkey(id, value),
-        action:studio_field_options!leads_action_fkey(id, value),
-        source:studio_field_options!leads_source_fkey(id, value),
-        reason:studio_field_options!leads_reason_fkey(id, value),
-        partnership:studio_field_options!leads_partnership_fkey(id, value)
-      `.trim()
-      type RawEnumField = { id: string; value: string } | null
-      const [viewsRes, fieldOptsRes, prefsRes, leadsRes] = await Promise.all([
-        supabase.from('lead_views').select('*').eq('studio_id', studioId).order('created_at', { ascending: true }),
-        supabase.from('studio_field_options').select('id, field, value, bg, text').eq('studio_id', studioId).order('sort_order', { ascending: true, nullsFirst: false }),
-        supabase.from('user_preferences').select('col_widths, active_view_id, theme, page_filters, notify_lead_created, notify_lead_updated, notify_lead_deleted').eq('user_id', user.id).eq('studio_id', studioId).maybeSingle(),
-        supabase.from('leads').select(ENUM_JOIN, { count: 'exact' }).eq('studio_id', studioId).order('created_at', { ascending: false }).range(0, 49),
-      ])
-      if (cancelled) return
-      // Flatten leads
-      const rawLeads = (leadsRes.data ?? []) as unknown as Array<Omit<Lead, 'status'|'level'|'action'|'source'|'reason'|'partnership'> & { status: RawEnumField; level: RawEnumField; action: RawEnumField; source: RawEnumField; reason: RawEnumField; partnership: RawEnumField }>
-      const flatLeads: Lead[] = rawLeads.map(r => ({
-        ...r,
-        status: r.status?.value ?? null,
-        level: r.level?.value ?? null,
-        action: r.action?.value ?? null,
-        source: r.source?.value ?? null,
-        reason: r.reason?.value ?? null,
-        partnership: r.partnership?.value ?? null,
-      }))
-      setLeads(flatLeads)
-      setTotal(leadsRes.count ?? 0)
-      // Views
-      const customViews = (viewsRes.data ?? []).map((v: { id: string; name: string; columns: string[] }) => ({
-        id: v.id, name: v.name, columns: v.columns,
-      }))
-      setViews([ALL_COLUMNS_VIEW, ...customViews])
-      // Preferences
-      const prefs = prefsRes.data
-      if (prefs) {
-        const t = (prefs.theme as string) === 'dark' ? 'dark' : 'light'
-        setTheme(t)
-        const cw = (prefs.col_widths ?? {}) as Record<string, number>
-        if (Object.keys(cw).length > 0) setColWidths(cw)
-        if (prefs.active_view_id) setActiveViewId(prefs.active_view_id as string)
-        // Page filters
-        const pf = (prefs.page_filters ?? {}) as PageFilters
-        if (pf.leads?.filters?.status) setStatusFilter(pf.leads.filters.status)
-        if (pf.leads?.filters?.level) setLevelFilter(pf.leads.filters.level)
-        if (pf.leads?.filters?.action) setActionFilter(pf.leads.filters.action)
-        if (pf.leads?.filters?.source) setSourceFilter(pf.leads.filters.source)
-        if (pf.leads?.filters?.reason) setReasonFilter(pf.leads.filters.reason)
-        if (pf.leads?.sort?.field) setSortField(pf.leads.sort.field)
-        if (pf.leads?.sort?.ascending != null) setSortAscending(pf.leads.sort.ascending)
-      }
-      // Field options
-      const fieldOpts: Record<string, Array<{ id: string; value: string; bg: string | null; text: string | null }>> = {}
-      for (const row of (fieldOptsRes.data ?? []) as { id: string; field: string; value: string; bg: string | null; text: string | null }[]) {
-        if (!fieldOpts[row.field]) fieldOpts[row.field] = []
-        if (fieldOpts[row.field].some(o => o.value === row.value)) continue
-        fieldOpts[row.field].push({ id: row.id, value: row.value, bg: row.bg ?? null, text: row.text ?? null })
-      }
-      const defaults: Record<string, FieldOption[]> = {}
-      for (const field of ENUM_FIELDS) defaults[field] = buildDefaultOptions(field)
-      const merged: Record<string, FieldOption[]> = {}
-      for (const field of ENUM_FIELDS) {
-        const studioRows = fieldOpts[field] ?? []
-        merged[field] = studioRows.map(({ id, value, bg, text }) => {
-          const defaultColor = defaults[field].find(o => o.value === value)
-          return { id, value, bg: bg ?? defaultColor?.bg ?? 'status-bg-default', text: text ?? defaultColor?.text ?? 'status-text-default' }
-        })
-      }
-      setFieldOptions(merged)
-      setLoading(false)
-      // Skip the next fetchLeadsPage/save triggers caused by state changes above
-      skipFirstFetch.current = true
-      // Clear initializing flag after a tick so dependent useEffects skip this batch
-      setTimeout(() => { initializing.current = false }, 0)
-    }).catch(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
+    // Load mock leads
+    const { leads: mockLeads, total: mockTotal } = getMockLeads()
+    setLeads(mockLeads)
+    setTotal(mockTotal)
+
+    // Build default field options (no studio-specific DB options in mock mode)
+    const defaults: Record<string, FieldOption[]> = {}
+    for (const field of ENUM_FIELDS) defaults[field] = buildDefaultOptions(field)
+    setFieldOptions(defaults)
+
+    setLoading(false)
+    skipFirstFetch.current = true
+    setTimeout(() => { initializing.current = false }, 0)
   }, [studioId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Persist filter + sort changes to Supabase (debounced 1s) — skip during initial load
-  useEffect(() => {
-    if (!studioId || !mounted || initializing.current) return
-    if (filterSaveTimer.current) clearTimeout(filterSaveTimer.current)
-    filterSaveTimer.current = setTimeout(() => {
-      savePageFilters(studioId, {
-        leads: {
-          filters: { status: statusFilter, level: levelFilter, action: actionFilter, source: sourceFilter, reason: reasonFilter },
-          sort: { field: sortField, ascending: sortAscending },
-        },
-      }).catch(() => {})
-    }, 1000)
-    return () => { if (filterSaveTimer.current) clearTimeout(filterSaveTimer.current) }
-  }, [studioId, mounted, statusFilter, levelFilter, actionFilter, sourceFilter, reasonFilter, sortField, sortAscending]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Persist filter + sort changes — disabled for mock data branch
+  // useEffect(() => { ... }, [studioId, mounted, statusFilter, ...])
 
   function startEdit(lead: Lead, field: keyof Lead) {
     editCommittedRef.current = false
@@ -583,67 +339,28 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
   }
 
   async function commitEdit(lead: Lead, field: keyof Lead) {
-    if (editCommittedRef.current) return  // prevent double-fire from Enter key + unmount blur
+    if (editCommittedRef.current) return
     editCommittedRef.current = true
     setEditing(null)
     const newValue = editValue === '' ? null : editValue
     const currentValue = (lead[field] === '' ? null : lead[field]) as typeof newValue
     if (newValue === currentValue) return
     setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, [field]: newValue } : l))
-    startTransition(async () => {
-      try {
-        await updateLead(lead.id, { [field]: newValue })
-        broadcastLeadUpdated([{ id: lead.id, name: lead.name || 'Unknown' }])
-      } catch {
-        setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, [field]: lead[field] } : l))
-      }
-    })
   }
 
   async function commitDateSelect(lead: Lead, field: keyof Lead, iso: string | null) {
     if (iso === lead[field]) return
     setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, [field]: iso } : l))
-    startTransition(async () => {
-      try {
-        await updateLead(lead.id, { [field]: iso })
-        broadcastLeadUpdated([{ id: lead.id, name: lead.name || 'Unknown' }])
-      } catch {
-        setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, [field]: lead[field] } : l))
-      }
-    })
   }
 
   async function commitEnumSelect(lead: Lead, field: keyof Lead, value: string | null) {
     if (value === lead[field]) return
-    // Look up the option ID from fieldOptions state (DB stores UUID, not display name)
-    const optionId = value !== null
-      ? (fieldOptions[String(field)] ?? []).find(o => o.value === value)?.id ?? null
-      : null
-    // Register the pending update so the Realtime echo is suppressed for this lead
-    localUpdateCounts.current.set(lead.id, (localUpdateCounts.current.get(lead.id) ?? 0) + 1)
     setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, [field]: value } : l))
-    startTransition(async () => {
-      try {
-        await updateLead(lead.id, { [field]: optionId })
-        broadcastLeadUpdated([{ id: lead.id, name: lead.name || 'Unknown' }])
-      } catch {
-        const c = localUpdateCounts.current.get(lead.id) ?? 0
-        if (c <= 1) localUpdateCounts.current.delete(lead.id)
-        else localUpdateCounts.current.set(lead.id, c - 1)
-        setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, [field]: lead[field] } : l))
-      }
-    })
   }
 
   async function toggleBoolean(lead: Lead, field: keyof Lead) {
     const newValue = !lead[field]
     setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, [field]: newValue } : l))
-    try {
-      await updateLead(lead.id, { [field]: newValue as boolean })
-      broadcastLeadUpdated([{ id: lead.id, name: lead.name || 'Unknown' }])
-    } catch {
-      setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, [field]: lead[field] } : l))
-    }
   }
 
   const handleOptionsChange = useCallback((field: string, options: FieldOption[]) => {
@@ -651,7 +368,6 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
   }, [])
 
   const handleOptionRenamed = useCallback((field: string, oldValue: string, newValue: string) => {
-    renameStudioFieldOption(studioId!, field, oldValue, newValue).catch(console.error)
     setLeads(prev => prev.map(l =>
       l[field as keyof Lead] === oldValue ? { ...l, [field]: newValue } : l
     ))
@@ -659,15 +375,14 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
       ...prev,
       [field]: (prev[field] ?? []).map(o => o.value === oldValue ? { ...o, value: newValue } : o),
     }))
-  }, [studioId])
+  }, [])
 
   const handleOptionAdded = useCallback((field: string, value: string): Promise<{ id: string; value: string }> => {
-    if (!studioId) return Promise.resolve({ id: '', value })
-    return addStudioFieldOption(studioId, field, value)
-  }, [studioId])
+    const id = `mock-${Date.now()}`
+    return Promise.resolve({ id, value })
+  }, [])
 
   const handleOptionDeleted = useCallback(async (field: string, optionId: string): Promise<void> => {
-    await deleteStudioFieldOption(optionId)
     setLeads(prev => prev.map(l => {
       const opt = (fieldOptions[field] ?? []).find(o => o.id === optionId)
       if (!opt) return l

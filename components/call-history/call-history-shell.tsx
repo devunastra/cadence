@@ -5,6 +5,7 @@ import { useMounted } from '@/lib/hooks'
 import { Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, ChevronDown, Check, X } from 'lucide-react'
 import { fetchCallHistory, savePageFilters } from '@/app/actions'
 import type { CallHistoryRow, CallHistoryParams } from '@/app/actions'
+import { getMockCallHistory } from '@/lib/mock-data'
 import { STATUS_COLORS, NOTION_COLORS } from '@/lib/constants'
 import { formatDateTime } from '@/lib/date-utils'
 import { createClient } from '@/lib/supabase/client'
@@ -405,52 +406,8 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
     return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
   }, [search]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Save filters (1s debounce)
-  useEffect(() => {
-    if (!mounted) return
-    const t = setTimeout(() => {
-      savePageFilters(studioId, {
-        callHistory: {
-          filters: {
-            direction: filters.direction,
-            sentiment: filters.sentiment,
-            outcome: filters.outcome,
-            appointmentBooked: filters.appointmentBooked,
-            disconnectedReason: filters.disconnectedReason,
-            qualityScore: filters.qualityScore,
-            dateFrom: filters.dateFrom,
-            dateTo: filters.dateTo,
-            callbackOnly: filters.callbackOnly,
-          },
-          sort,
-        },
-      }).catch(() => {})
-    }, 1000)
-    return () => clearTimeout(t)
-  }, [mounted, studioId, filters, sort]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Realtime subscription for new calls
-  useEffect(() => {
-    const supabase = createClient()
-    const channel = supabase
-      .channel('call-history-realtime')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'calls',
-        filter: `studio_id=eq.${studioId}`,
-      }, (payload) => {
-        // Only prepend if on page 1 of All Calls tab with no active search
-        if (tab === 'all' && page === 1 && !debouncedSearch.current && activeFilterCount(filters) === 0) {
-          const newCall = payload.new as CallHistoryRow
-          setCalls(prev => [{ ...newCall, lead_name: null, lead_phone: null }, ...prev].slice(0, pageSize))
-          setTotal(prev => prev + 1)
-        }
-      })
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [studioId, tab, page, pageSize, filters]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Save filters — disabled for mock data branch
+  // Realtime subscription — disabled for mock data branch
 
   const loadCalls = useCallback((
     t: Tab, s: string, f: CallHistoryFilters,
@@ -458,37 +415,24 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
     p: number, ps: number
   ) => {
     setLoading(true)
-    startTransition(async () => {
-      try {
-        const params: CallHistoryParams = {
-          studioId,
-          tab: t,
-          search: s,
-          filters: {
-            direction: f.direction,
-            sentiment: f.sentiment,
-            outcome: f.outcome,
-            appointmentBooked: f.appointmentBooked,
-            disconnectedReason: f.disconnectedReason,
-            qualityScore: f.qualityScore,
-            dateFrom: f.dateFrom,
-            dateTo: f.dateTo,
-            callbackOnly: f.callbackOnly,
-          },
-          page: p,
-          pageSize: ps,
-          sort: srt,
-        }
-        const result = await fetchCallHistory(params)
-        setCalls(result.calls)
-        setTotal(result.total)
-      } catch {
-        // Keep previous results visible on error
-      } finally {
-        setLoading(false)
-      }
+    const result = getMockCallHistory({
+      tab: t, search: s, page: p, pageSize: ps, sort: srt,
+      filters: {
+        direction: f.direction,
+        sentiment: f.sentiment,
+        outcome: f.outcome,
+        appointmentBooked: f.appointmentBooked,
+        disconnectedReason: f.disconnectedReason,
+        qualityScore: f.qualityScore,
+        dateFrom: f.dateFrom,
+        dateTo: f.dateTo,
+        callbackOnly: f.callbackOnly,
+      },
     })
-  }, [studioId]) // eslint-disable-line react-hooks/exhaustive-deps
+    setCalls(result.calls)
+    setTotal(result.total)
+    setLoading(false)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleTabChange(t: Tab) {
     setTab(t)

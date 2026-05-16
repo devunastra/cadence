@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, RefreshCw, Settings, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { deleteAppointment, findLeadsByContactIds, savePageFilters } from '@/app/actions'
+import { getMockAppointments, getMockLeadsByContactIds } from '@/lib/mock-data'
 import { Spinner } from '@/components/spinner'
 import { CalendarGrid } from './calendar-grid'
 import { AppointmentModal } from './appointment-modal'
@@ -81,125 +82,34 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
   const [datePickerAnchor, setDatePickerAnchor] = useState<DOMRect | null>(null)
   const mounted = useMounted()
 
-  // Fetch appointments on mount
+  // Fetch appointments on mount — uses mock data for SIT branch
   useEffect(() => {
-    let cancelled = false
-    const supabase = createClient()
     const ws = weekStart
     const we = weekEnd(ws)
-    supabase
-      .from('appointments')
-      .select('*')
-      .eq('studio_id', studioId)
-      .is('deleted_at', null)
-      .gte('start_time', ws.toISOString())
-      .lte('start_time', we.toISOString())
-      .order('start_time', { ascending: true })
-      .then(({ data }) => {
-        if (cancelled) return
-        if (data) setAppointments(data as Appointment[])
-      })
-    return () => { cancelled = true }
+    const mockAppts = getMockAppointments({ weekStart: ws, weekEnd: we })
+    setAppointments(mockAppts)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const ids = buildContactMap(appointments)
     if (!ids.length) return
-    findLeadsByContactIds(ids, studioId).then(setContactLeadMap)
+    const map = getMockLeadsByContactIds(ids)
+    setContactLeadMap(map)
   }, [appointments, studioId])
 
   // Keep a ref to weekStart so the Realtime handler always sees the current value
   const weekStartRef = useRef(weekStart)
   useEffect(() => { weekStartRef.current = weekStart }, [weekStart])
 
-  // Persist list filter + sort changes to Supabase (debounced 1s)
-  useEffect(() => {
-    if (!mounted) return
-    if (listFilterSaveTimer.current) clearTimeout(listFilterSaveTimer.current)
-    listFilterSaveTimer.current = setTimeout(() => {
-      savePageFilters(studioId, {
-        appointmentList: {
-          statusFilters: listStatusFilter,
-          dateFrom: listDateFrom,
-          dateTo: listDateTo,
-          sortField: listSortField,
-          sortAscending: listSortAscending,
-        },
-      }).catch(() => {})
-    }, 1000)
-    return () => { if (listFilterSaveTimer.current) clearTimeout(listFilterSaveTimer.current) }
-  }, [studioId, listStatusFilter, listDateFrom, listDateTo, listSortField, listSortAscending]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Filter save — disabled for mock data branch
 
-  // Direct Supabase client fetch — no Next.js server round-trip
+  // Fetch appointments — uses mock data for SIT branch
   const fetchAppointments = useCallback(async (ws: Date) => {
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('appointments')
-      .select('*')
-      .eq('studio_id', studioId)
-      .is('deleted_at', null)
-      .gte('start_time', ws.toISOString())
-      .lte('start_time', weekEnd(ws).toISOString())
-      .order('start_time', { ascending: true })
-    if (data) setAppointments(data as Appointment[])
-  }, [studioId])
+    const mockAppts = getMockAppointments({ weekStart: ws, weekEnd: weekEnd(ws) })
+    setAppointments(mockAppts)
+  }, [])
 
-  // Supabase Realtime — live appointment updates
-  useEffect(() => {
-    const supabase = createClient()
-    const channel = supabase
-      .channel(`appointments:${studioId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'appointments',
-          filter: `studio_id=eq.${studioId}`,
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const appt = payload.new as Appointment
-            const ws = weekStartRef.current
-            const we = weekEnd(ws)
-            const apptTime = new Date(appt.start_time).getTime()
-            if (apptTime >= ws.getTime() && apptTime <= we.getTime()) {
-              setAppointments(prev => {
-                if (prev.some(a => a.id === appt.id)) return prev
-                return [...prev, appt]
-              })
-              if (appt.contact_id) {
-                findLeadsByContactIds([appt.contact_id], studioId).then(map =>
-                  setContactLeadMap(p => ({ ...p, ...map }))
-                )
-              }
-            }
-          } else if (payload.eventType === 'UPDATE') {
-            const appt = payload.new as Appointment
-            if (appt.deleted_at) {
-              setAppointments(prev => prev.filter(a => a.id !== appt.id))
-              setSelected(prev => prev?.id === appt.id ? null : prev)
-            } else {
-              setAppointments(prev => prev.map(a => a.id === appt.id ? appt : a))
-              setSelected(prev => prev?.id === appt.id ? appt : prev)
-            }
-          } else if (payload.eventType === 'DELETE') {
-            const id = (payload.old as { id: string }).id
-            setAppointments(prev => prev.filter(a => a.id !== id))
-            setSelected(prev => prev?.id === id ? null : prev)
-          }
-        }
-      )
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [studioId])
-
-  // 30s polling fallback — catches any events Realtime misses
-  useEffect(() => {
-    const id = setInterval(() => fetchAppointments(weekStartRef.current), 30_000)
-    return () => clearInterval(id)
-  }, [fetchAppointments])
+  // Realtime + polling — disabled for mock data branch
 
   function navigateTo(newWeekStart: Date) {
     const ws = getWeekStart(newWeekStart)
@@ -450,7 +360,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
           lead={selected.contact_id ? (contactLeadMap[selected.contact_id] ?? null) : null}
           onClose={() => setSelected(null)}
           onDelete={async (id) => {
-            await deleteAppointment(id)
+            // Mock delete — local only
             setAppointments(prev => prev.filter(a => a.id !== id))
             setSelected(null)
           }}

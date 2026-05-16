@@ -61,7 +61,30 @@ export function NewLeadModal({ studioId, fieldOptions, onCreated, onClose, onBef
       const levelId  = level  ? (fieldOptions['level']  ?? []).find(o => o.value === level)?.id  ?? null : null
       const sourceId = source ? (fieldOptions['source'] ?? []).find(o => o.value === source)?.id ?? null : null
       const reasonId = reason ? (fieldOptions['reason'] ?? []).find(o => o.value === reason)?.id ?? null : null
-      const lead = await createLead({ studioId, name: name.trim(), phone, email, statusId, levelId, sourceId, reasonId, available, comments })
+      // Mock create — generate a local lead object
+      const lead = {
+        id: `lead-mock-${Date.now()}`,
+        studio_id: studioId,
+        created_at: new Date().toISOString(),
+        name: name.trim(),
+        status: status || null,
+        level: level || null,
+        action: null,
+        phone: phone || null,
+        email: email || null,
+        last_contacted: null,
+        first_lesson: null,
+        comments: comments || null,
+        source: source || null,
+        reason: reason || null,
+        available: available || null,
+        showed: false,
+        bought: false,
+        partnership: null,
+        old: false,
+        ghl_contact_id: null,
+        created_by_email: 'mock@amls.com',
+      } as import('@/lib/types').Lead
       onCreated(lead)
       onClose()
     } catch (err) {

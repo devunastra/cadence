@@ -177,44 +177,15 @@ export function ComposeBox({
     try {
       let convId = conversationId
 
-      // Create conversation if needed
+      // Mock create conversation if needed
       if (!convId) {
-        const res = await fetch('/api/conversations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contactId }),
-        })
-        const data = await res.json()
-        if (!res.ok || !data.conversation?.id) throw new Error(data.error ?? 'Failed to create conversation')
-        convId = data.conversation.id as string
+        convId = `conv-mock-${Date.now()}`
         onConversationCreated?.(convId)
       }
 
-      const bodyPayload: Record<string, string | undefined> = {
-        type: channel,
-        contactId,
-        message: channel === 'SMS' ? smsText.trim() : (editor?.getText() ?? ''),
-      }
-
-      if (channel === 'Email') {
-        bodyPayload.htmlBody = editor?.getHTML()
-        bodyPayload.subject = emailSubject.trim() || '(no subject)'
-        bodyPayload.emailTo = emailTo.trim() || (contactEmail ?? undefined)
-        if (showCc && emailCc.trim()) bodyPayload.emailCc = emailCc.trim()
-        if (showBcc && emailBcc.trim()) bodyPayload.emailBcc = emailBcc.trim()
-      }
-
-      const res = await fetch(`/api/conversations/${convId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bodyPayload),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Send failed')
-
-      // Optimistic message for UI
+      // Mock send — create a local message
       const optimistic: SentMessage = {
-        id: data.messageId ?? `tmp-${Date.now()}`,
+        id: `msg-mock-${Date.now()}`,
         direction: 'outbound',
         body: channel === 'SMS' ? smsText.trim() : (editor?.getText() ?? ''),
         dateAdded: new Date().toISOString(),
