@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, useCallback, useRef } from 'react'
+import { useMounted } from '@/lib/hooks'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, PanelRightOpen, Clock, User, CircleDot, Trophy, Zap, Phone, Calendar, GraduationCap, MessageSquare, Globe, Mail, Tag, AlarmClock, Users, CheckSquare, Copy, Check, Trash2, ChevronDown, X, type LucideIcon } from 'lucide-react'
 import { EnumDropdown } from './enum-dropdown'
@@ -82,14 +83,7 @@ interface EditingCell {
 }
 
 interface LeadsTableProps {
-  initialCustomViews?: LeadView[]
   studioId: string | null
-  studioName?: string | null
-  initialFieldOptions?: Record<string, Array<{ id: string; value: string; bg: string | null; text: string | null }>>
-  initialLeads?: Lead[]
-  initialTotal?: number
-  initialPrefs?: { col_widths: Record<string, number>; active_view_id: string; theme: 'light' | 'dark'; notify_lead_created?: boolean; notify_lead_updated?: boolean; notify_lead_deleted?: boolean } | null
-  initialPageFilters?: PageFilters
 }
 
 function PageInput({ page, totalPages, onJump }: { page: number; totalPages: number; onJump: (p: number) => void }) {
@@ -154,15 +148,14 @@ const ALL_COLUMNS: { key: keyof Lead; label: string; icon?: LucideIcon }[] = [
   { key: 'old',            label: 'OLD',            icon: CheckSquare },
 ]
 
-export function LeadsTable({ initialCustomViews, studioId, studioName: initialStudioName, initialFieldOptions, initialLeads, initialTotal, initialPrefs, initialPageFilters }: LeadsTableProps) {
+export function LeadsTable({ studioId }: LeadsTableProps) {
   const router = useRouter()
   const { theme, setTheme } = useTheme()
-  const [leads, setLeads] = useState<Lead[]>(initialLeads ?? [])
-  const [total, setTotal] = useState(initialTotal ?? 0)
+  const [leads, setLeads] = useState<Lead[]>([])
+  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(50)
-  const [loading, setLoading] = useState(!initialLeads)
-  const [studioName, setStudioName] = useState(initialStudioName ?? null)
+  const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<EditingCell | null>(null)
   const [newLeadNames, setNewLeadNames] = useState<{ name: string; email: string | null }[]>([])
   const [deletedLeadNames, setDeletedLeadNames] = useState<{ name: string; email: string | null }[]>([])
@@ -171,40 +164,29 @@ export function LeadsTable({ initialCustomViews, studioId, studioName: initialSt
   const [editValue, setEditValue] = useState<string>('')
   const [dropdown, setDropdown] = useState<DropdownState | null>(null)
   const [datePicker, setDatePicker] = useState<{ leadId: string; field: keyof Lead; anchorRect: DOMRect } | null>(null)
-  const [fieldOptions, setFieldOptions] = useState<Record<string, FieldOption[]>>(() => {
-    // Seed immediately from server-provided data so modal works before async prefs load
-    const seed: Record<string, FieldOption[]> = {}
-    for (const field of Object.keys(initialFieldOptions ?? {})) {
-      seed[field] = (initialFieldOptions?.[field] ?? []).map(({ id, value }) => ({
-        id, value, bg: 'bg-gray-200', text: 'text-gray-700',
-      }))
-    }
-    return seed
-  })
-  const [sortField, setSortField] = useState(initialPageFilters?.leads?.sort?.field ?? 'created_at')
-  const [sortAscending, setSortAscending] = useState(initialPageFilters?.leads?.sort?.ascending ?? false)
-  const [statusFilter, setStatusFilter] = useState<string[]>(initialPageFilters?.leads?.filters?.status ?? [])
-  const [levelFilter, setLevelFilter] = useState<string[]>(initialPageFilters?.leads?.filters?.level ?? [])
-  const [actionFilter, setActionFilter] = useState<string[]>(initialPageFilters?.leads?.filters?.action ?? [])
-  const [sourceFilter, setSourceFilter] = useState<string[]>(initialPageFilters?.leads?.filters?.source ?? [])
-  const [reasonFilter, setReasonFilter] = useState<string[]>(initialPageFilters?.leads?.filters?.reason ?? [])
-  const [views, setViews] = useState<LeadView[]>([ALL_COLUMNS_VIEW, ...(initialCustomViews ?? [])])
-  const [activeViewId, setActiveViewId] = useState(initialPrefs?.active_view_id ?? 'all')
+  const [fieldOptions, setFieldOptions] = useState<Record<string, FieldOption[]>>({})
+  const [sortField, setSortField] = useState('created_at')
+  const [sortAscending, setSortAscending] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<string[]>([])
+  const [levelFilter, setLevelFilter] = useState<string[]>([])
+  const [actionFilter, setActionFilter] = useState<string[]>([])
+  const [sourceFilter, setSourceFilter] = useState<string[]>([])
+  const [reasonFilter, setReasonFilter] = useState<string[]>([])
+  const [views, setViews] = useState<LeadView[]>([ALL_COLUMNS_VIEW])
+  const [activeViewId, setActiveViewId] = useState('all')
   const [, startTransition] = useTransition()
-  const [mounted, setMounted] = useState(false)
+  const mounted = useMounted()
   const [showNewLead, setShowNewLead] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
   const [showConfirmDelete, setShowConfirmDelete] = useState(false)
   const [bulkField, setBulkField] = useState<string | null>(null)
-  const [colWidths, setColWidths] = useState<Record<string, number>>(
-    initialPrefs?.col_widths && Object.keys(initialPrefs.col_widths).length > 0 ? initialPrefs.col_widths : {}
-  )
+  const [colWidths, setColWidths] = useState<Record<string, number>>({})
   const resizeRef = useRef<{ field: string; startX: number; startWidth: number; minWidth: number } | null>(null)
   const prefSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const filterSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const skipFirstFetch = useRef((initialLeads ?? []).length > 0)
-  const initializing = useRef(!initialLeads)
+  const skipFirstFetch = useRef(false)
+  const initializing = useRef(true)
   const editingRef = useRef<EditingCell | null>(null)
   const editCommittedRef = useRef(false)
   const localInsertIds = useRef<Set<string>>(new Set())
@@ -488,117 +470,95 @@ export function LeadsTable({ initialCustomViews, studioId, studioName: initialSt
   // Reset confirm-delete state whenever the selection changes
   useEffect(() => { setShowConfirmDelete(false) }, [selectedIds])
 
-  // Apply SSR preferences and merge field option colors — no network calls needed
+  // Fetch everything on mount via browser client
   useEffect(() => {
-    setMounted(true)
     if (!studioId) return
 
-    // If no initial data provided, fetch everything on mount via browser client
-    if (!initialLeads) {
-      let cancelled = false
-      const supabase = createClient()
-      supabase.auth.getUser().then(async ({ data: { user } }) => {
-        if (cancelled || !user) { if (!cancelled) setLoading(false); return }
-        const ENUM_JOIN = `
-          id, studio_id, created_at, name, phone, email,
-          last_contacted, first_lesson, comments, available,
-          showed, bought, old, ghl_contact_id, created_by_email,
-          status:studio_field_options!leads_status_fkey(id, value),
-          level:studio_field_options!leads_level_fkey(id, value),
-          action:studio_field_options!leads_action_fkey(id, value),
-          source:studio_field_options!leads_source_fkey(id, value),
-          reason:studio_field_options!leads_reason_fkey(id, value),
-          partnership:studio_field_options!leads_partnership_fkey(id, value)
-        `.trim()
-        type RawEnumField = { id: string; value: string } | null
-        const [viewsRes, fieldOptsRes, prefsRes, leadsRes] = await Promise.all([
-          supabase.from('lead_views').select('*').eq('studio_id', studioId).order('created_at', { ascending: true }),
-          supabase.from('studio_field_options').select('id, field, value, bg, text').eq('studio_id', studioId).order('sort_order', { ascending: true, nullsFirst: false }),
-          supabase.from('user_preferences').select('col_widths, active_view_id, theme, page_filters, notify_lead_created, notify_lead_updated, notify_lead_deleted').eq('user_id', user.id).eq('studio_id', studioId).maybeSingle(),
-          supabase.from('leads').select(ENUM_JOIN, { count: 'exact' }).eq('studio_id', studioId).order('created_at', { ascending: false }).range(0, 49),
-        ])
-        if (cancelled) return
-        // Flatten leads
-        const rawLeads = (leadsRes.data ?? []) as unknown as Array<Omit<Lead, 'status'|'level'|'action'|'source'|'reason'|'partnership'> & { status: RawEnumField; level: RawEnumField; action: RawEnumField; source: RawEnumField; reason: RawEnumField; partnership: RawEnumField }>
-        const flatLeads: Lead[] = rawLeads.map(r => ({
-          ...r,
-          status: r.status?.value ?? null,
-          level: r.level?.value ?? null,
-          action: r.action?.value ?? null,
-          source: r.source?.value ?? null,
-          reason: r.reason?.value ?? null,
-          partnership: r.partnership?.value ?? null,
-        }))
-        setLeads(flatLeads)
-        setTotal(leadsRes.count ?? 0)
-        // Views
-        const customViews = (viewsRes.data ?? []).map((v: { id: string; name: string; columns: string[] }) => ({
-          id: v.id, name: v.name, columns: v.columns,
-        }))
-        setViews([ALL_COLUMNS_VIEW, ...customViews])
-        // Preferences
-        const prefs = prefsRes.data
-        if (prefs) {
-          const t = (prefs.theme as string) === 'dark' ? 'dark' : 'light'
-          setTheme(t)
-          const cw = (prefs.col_widths ?? {}) as Record<string, number>
-          if (Object.keys(cw).length > 0) setColWidths(cw)
-          if (prefs.active_view_id) setActiveViewId(prefs.active_view_id as string)
-          // Page filters
-          const pf = (prefs.page_filters ?? {}) as PageFilters
-          if (pf.leads?.filters?.status) setStatusFilter(pf.leads.filters.status)
-          if (pf.leads?.filters?.level) setLevelFilter(pf.leads.filters.level)
-          if (pf.leads?.filters?.action) setActionFilter(pf.leads.filters.action)
-          if (pf.leads?.filters?.source) setSourceFilter(pf.leads.filters.source)
-          if (pf.leads?.filters?.reason) setReasonFilter(pf.leads.filters.reason)
-          if (pf.leads?.sort?.field) setSortField(pf.leads.sort.field)
-          if (pf.leads?.sort?.ascending != null) setSortAscending(pf.leads.sort.ascending)
-        }
-        // Field options
-        const fieldOpts: Record<string, Array<{ id: string; value: string; bg: string | null; text: string | null }>> = {}
-        for (const row of (fieldOptsRes.data ?? []) as { id: string; field: string; value: string; bg: string | null; text: string | null }[]) {
-          if (!fieldOpts[row.field]) fieldOpts[row.field] = []
-          if (fieldOpts[row.field].some(o => o.value === row.value)) continue
-          fieldOpts[row.field].push({ id: row.id, value: row.value, bg: row.bg ?? null, text: row.text ?? null })
-        }
-        const defaults: Record<string, FieldOption[]> = {}
-        for (const field of ENUM_FIELDS) defaults[field] = buildDefaultOptions(field)
-        const merged: Record<string, FieldOption[]> = {}
-        for (const field of ENUM_FIELDS) {
-          const studioRows = fieldOpts[field] ?? []
-          merged[field] = studioRows.map(({ id, value, bg, text }) => {
-            const defaultColor = defaults[field].find(o => o.value === value)
-            return { id, value, bg: bg ?? defaultColor?.bg ?? 'status-bg-default', text: text ?? defaultColor?.text ?? 'status-text-default' }
-          })
-        }
-        setFieldOptions(merged)
-        setLoading(false)
-        // Skip the next fetchLeadsPage/save triggers caused by state changes above
-        skipFirstFetch.current = true
-        // Clear initializing flag after a tick so dependent useEffects skip this batch
-        setTimeout(() => { initializing.current = false }, 0)
-      }).catch(() => { if (!cancelled) setLoading(false) })
-      return () => { cancelled = true }
-    }
-
-    if (initialPrefs?.theme) setTheme(initialPrefs.theme)
-
-    const defaults: Record<string, FieldOption[]> = {}
-    for (const field of ENUM_FIELDS) defaults[field] = buildDefaultOptions(field)
-
-    const merged: Record<string, FieldOption[]> = {}
-    for (const field of ENUM_FIELDS) {
-      const studioRows = (initialFieldOptions ?? {})[field] ?? []
-      merged[field] = studioRows.map(({ id, value, bg, text }) => {
-        const defaultColor = defaults[field].find(o => o.value === value)
-        return {
-          id, value,
-          bg:   bg   ?? defaultColor?.bg   ?? 'status-bg-default',
-          text: text ?? defaultColor?.text ?? 'status-text-default',
-        }
-      })
-    }
-    setFieldOptions(merged)
+    // Fetch everything on mount via browser client
+    let cancelled = false
+    const supabase = createClient()
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (cancelled || !user) { if (!cancelled) setLoading(false); return }
+      const ENUM_JOIN = `
+        id, studio_id, created_at, name, phone, email,
+        last_contacted, first_lesson, comments, available,
+        showed, bought, old, ghl_contact_id, created_by_email,
+        status:studio_field_options!leads_status_fkey(id, value),
+        level:studio_field_options!leads_level_fkey(id, value),
+        action:studio_field_options!leads_action_fkey(id, value),
+        source:studio_field_options!leads_source_fkey(id, value),
+        reason:studio_field_options!leads_reason_fkey(id, value),
+        partnership:studio_field_options!leads_partnership_fkey(id, value)
+      `.trim()
+      type RawEnumField = { id: string; value: string } | null
+      const [viewsRes, fieldOptsRes, prefsRes, leadsRes] = await Promise.all([
+        supabase.from('lead_views').select('*').eq('studio_id', studioId).order('created_at', { ascending: true }),
+        supabase.from('studio_field_options').select('id, field, value, bg, text').eq('studio_id', studioId).order('sort_order', { ascending: true, nullsFirst: false }),
+        supabase.from('user_preferences').select('col_widths, active_view_id, theme, page_filters, notify_lead_created, notify_lead_updated, notify_lead_deleted').eq('user_id', user.id).eq('studio_id', studioId).maybeSingle(),
+        supabase.from('leads').select(ENUM_JOIN, { count: 'exact' }).eq('studio_id', studioId).order('created_at', { ascending: false }).range(0, 49),
+      ])
+      if (cancelled) return
+      // Flatten leads
+      const rawLeads = (leadsRes.data ?? []) as unknown as Array<Omit<Lead, 'status'|'level'|'action'|'source'|'reason'|'partnership'> & { status: RawEnumField; level: RawEnumField; action: RawEnumField; source: RawEnumField; reason: RawEnumField; partnership: RawEnumField }>
+      const flatLeads: Lead[] = rawLeads.map(r => ({
+        ...r,
+        status: r.status?.value ?? null,
+        level: r.level?.value ?? null,
+        action: r.action?.value ?? null,
+        source: r.source?.value ?? null,
+        reason: r.reason?.value ?? null,
+        partnership: r.partnership?.value ?? null,
+      }))
+      setLeads(flatLeads)
+      setTotal(leadsRes.count ?? 0)
+      // Views
+      const customViews = (viewsRes.data ?? []).map((v: { id: string; name: string; columns: string[] }) => ({
+        id: v.id, name: v.name, columns: v.columns,
+      }))
+      setViews([ALL_COLUMNS_VIEW, ...customViews])
+      // Preferences
+      const prefs = prefsRes.data
+      if (prefs) {
+        const t = (prefs.theme as string) === 'dark' ? 'dark' : 'light'
+        setTheme(t)
+        const cw = (prefs.col_widths ?? {}) as Record<string, number>
+        if (Object.keys(cw).length > 0) setColWidths(cw)
+        if (prefs.active_view_id) setActiveViewId(prefs.active_view_id as string)
+        // Page filters
+        const pf = (prefs.page_filters ?? {}) as PageFilters
+        if (pf.leads?.filters?.status) setStatusFilter(pf.leads.filters.status)
+        if (pf.leads?.filters?.level) setLevelFilter(pf.leads.filters.level)
+        if (pf.leads?.filters?.action) setActionFilter(pf.leads.filters.action)
+        if (pf.leads?.filters?.source) setSourceFilter(pf.leads.filters.source)
+        if (pf.leads?.filters?.reason) setReasonFilter(pf.leads.filters.reason)
+        if (pf.leads?.sort?.field) setSortField(pf.leads.sort.field)
+        if (pf.leads?.sort?.ascending != null) setSortAscending(pf.leads.sort.ascending)
+      }
+      // Field options
+      const fieldOpts: Record<string, Array<{ id: string; value: string; bg: string | null; text: string | null }>> = {}
+      for (const row of (fieldOptsRes.data ?? []) as { id: string; field: string; value: string; bg: string | null; text: string | null }[]) {
+        if (!fieldOpts[row.field]) fieldOpts[row.field] = []
+        if (fieldOpts[row.field].some(o => o.value === row.value)) continue
+        fieldOpts[row.field].push({ id: row.id, value: row.value, bg: row.bg ?? null, text: row.text ?? null })
+      }
+      const defaults: Record<string, FieldOption[]> = {}
+      for (const field of ENUM_FIELDS) defaults[field] = buildDefaultOptions(field)
+      const merged: Record<string, FieldOption[]> = {}
+      for (const field of ENUM_FIELDS) {
+        const studioRows = fieldOpts[field] ?? []
+        merged[field] = studioRows.map(({ id, value, bg, text }) => {
+          const defaultColor = defaults[field].find(o => o.value === value)
+          return { id, value, bg: bg ?? defaultColor?.bg ?? 'status-bg-default', text: text ?? defaultColor?.text ?? 'status-text-default' }
+        })
+      }
+      setFieldOptions(merged)
+      setLoading(false)
+      // Skip the next fetchLeadsPage/save triggers caused by state changes above
+      skipFirstFetch.current = true
+      // Clear initializing flag after a tick so dependent useEffects skip this batch
+      setTimeout(() => { initializing.current = false }, 0)
+    }).catch(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [studioId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Persist filter + sort changes to Supabase (debounced 1s) — skip during initial load
@@ -1057,7 +1017,7 @@ export function LeadsTable({ initialCustomViews, studioId, studioName: initialSt
       </div>
 
       {/* New leads banner */}
-      {newLeadNames.length > 0 && (initialPrefs?.notify_lead_created ?? true) && (() => {
+      {newLeadNames.length > 0 && (() => {
         const uNames = [...new Set(newLeadNames.map(e => e.name))]
         const uEmails = [...new Set(newLeadNames.map(e => e.email).filter(Boolean))] as string[]
         return (
@@ -1095,7 +1055,7 @@ export function LeadsTable({ initialCustomViews, studioId, studioName: initialSt
       })()}
 
       {/* Leads deleted banner */}
-      {deletedLeadNames.length > 0 && (initialPrefs?.notify_lead_deleted ?? true) && (() => {
+      {deletedLeadNames.length > 0 && (() => {
         const uNames = [...new Set(deletedLeadNames.map(e => e.name))]
         const uEmails = [...new Set(deletedLeadNames.map(e => e.email).filter(Boolean))] as string[]
         return (
@@ -1127,7 +1087,7 @@ export function LeadsTable({ initialCustomViews, studioId, studioName: initialSt
       })()}
 
       {/* Lead updated banner */}
-      {updatedLeadNames.length > 0 && (initialPrefs?.notify_lead_updated ?? true) && (() => {
+      {updatedLeadNames.length > 0 && (() => {
         const uNames = [...new Set(updatedLeadNames.map(e => e.name))]
         const uEmails = [...new Set(updatedLeadNames.map(e => e.email).filter(Boolean))] as string[]
         return (

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, useRef, useCallback } from 'react'
+import { useMounted } from '@/lib/hooks'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, RefreshCw, Settings, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -20,19 +21,10 @@ const STUDIO_TZ = 'America/Chicago'
 
 interface CalendarShellProps {
   studioId: string
-  initialAppointments?: Appointment[]
-  initialWeekStart?: Date | string
   calStartHour: number
   calEndHour: number
   slotConfig: StudioSlotConfig
   userRole: Role
-  initialListFilters?: {
-    statusFilters?: string[]
-    dateFrom?: string
-    dateTo?: string
-    sortField?: string
-    sortAscending?: boolean
-  }
 }
 
 function getWeekStart(d: Date): Date {
@@ -63,22 +55,22 @@ function buildContactMap(appts: Appointment[]): string[] {
 }
 
 
-export function CalendarShell({ studioId, initialAppointments, initialWeekStart, calStartHour, calEndHour, slotConfig, userRole, initialListFilters }: CalendarShellProps) {
+export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, userRole }: CalendarShellProps) {
   const router = useRouter()
   const [tab, setTab]                        = useState<'calendar' | 'list' | 'settings'>('calendar')
-  const [weekStart, setWeekStart]            = useState<Date>(getWeekStart(initialWeekStart ? new Date(initialWeekStart) : new Date()))
-  const [appointments, setAppointments]      = useState<Appointment[]>(initialAppointments ?? [])
+  const [weekStart, setWeekStart]            = useState<Date>(getWeekStart(new Date()))
+  const [appointments, setAppointments]      = useState<Appointment[]>([])
   const [contactLeadMap, setContactLeadMap]  = useState<Record<string, Lead>>({})
   const [selected, setSelected]              = useState<Appointment | null>(null)
   const [isPending, startTransition]         = useTransition()
 
   // List tab filter state — owned here so filter bar (toolbar) and panel (content) share it
   const [listSearch,        setListSearch]        = useState('')
-  const [listStatusFilter,  setListStatusFilter]  = useState<string[]>(initialListFilters?.statusFilters ?? [])
-  const [listDateFrom,      setListDateFrom]      = useState(initialListFilters?.dateFrom ?? '')
-  const [listDateTo,        setListDateTo]        = useState(initialListFilters?.dateTo ?? '')
-  const [listSortField,     setListSortField]     = useState<'start_time' | 'title' | 'status'>((initialListFilters?.sortField as 'start_time' | 'title' | 'status') ?? 'start_time')
-  const [listSortAscending, setListSortAscending] = useState(initialListFilters?.sortAscending ?? true)
+  const [listStatusFilter,  setListStatusFilter]  = useState<string[]>([])
+  const [listDateFrom,      setListDateFrom]      = useState('')
+  const [listDateTo,        setListDateTo]        = useState('')
+  const [listSortField,     setListSortField]     = useState<'start_time' | 'title' | 'status'>('start_time')
+  const [listSortAscending, setListSortAscending] = useState(true)
   const listFilterSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [listRefreshKey,    setListRefreshKey]    = useState(0)
   const [showCreate, setShowCreate]          = useState(false)
@@ -87,13 +79,10 @@ export function CalendarShell({ studioId, initialAppointments, initialWeekStart,
   const listOnDeleteRef = useRef<(() => void) | null>(null)
   const [datePickerOpen,   setDatePickerOpen]   = useState(false)
   const [datePickerAnchor, setDatePickerAnchor] = useState<DOMRect | null>(null)
-  const [mounted, setMounted] = useState(false)
+  const mounted = useMounted()
 
-  useEffect(() => { setMounted(true) }, [])
-
-  // Fetch initial appointments on mount if not provided by server
+  // Fetch appointments on mount
   useEffect(() => {
-    if (initialAppointments) return
     let cancelled = false
     const supabase = createClient()
     const ws = weekStart

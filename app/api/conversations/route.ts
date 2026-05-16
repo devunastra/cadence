@@ -1,30 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { ghlFetch } from '@/lib/ghl'
-import { getSelectedStudioId } from '@/lib/data-cache'
-
-async function getStudio(userId: string) {
-  const serviceClient = createServiceClient()
-  const selectedStudioId = await getSelectedStudioId()
-
-  let studioQuery = serviceClient.from('studios').select('id, ghl_account_id, ghl_api_key')
-
-  if (selectedStudioId) {
-    studioQuery = studioQuery.eq('id', selectedStudioId)
-  } else {
-    const { data: memberships } = await serviceClient
-      .from('studio_users')
-      .select('studio_id')
-      .eq('user_id', userId)
-      .limit(1)
-    const firstStudioId = memberships?.[0]?.studio_id
-    if (!firstStudioId) return null
-    studioQuery = studioQuery.eq('id', firstStudioId)
-  }
-
-  const { data: studio, error } = await studioQuery.single()
-  return error ? null : studio
-}
+import { getStudio } from '@/lib/get-studio'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()

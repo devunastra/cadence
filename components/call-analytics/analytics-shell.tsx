@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useRef, useEffect } from 'react'
+import { useMounted } from '@/lib/hooks'
 import { Spinner } from '@/components/spinner'
 import { fetchCallsAnalytics, saveAnalyticsPreferences, savePageFilters } from '@/app/actions'
 import { createClient } from '@/lib/supabase/client'
@@ -37,16 +38,7 @@ const EMPTY_ANALYTICS: CallAnalyticsData = {
 
 interface AnalyticsShellProps {
   studioId: string
-  initialData?: CallAnalyticsData
-  initialRange?: DateRange
-  initialDirection?: string
-  initialFieldOptions?: Record<string, Array<{ id: string; value: string; bg: string | null; text: string | null }>>
   initialTab?: 'analytics' | 'transcripts'
-  initialTranscriptFilters?: {
-    direction?: string; sentiment?: string[]; outcome?: string
-    appointmentBooked?: string; disconnectedReason?: string[]
-    qualityScore?: { op: string; value: string }
-  }
 }
 
 type Tab = 'analytics' | 'transcripts'
@@ -71,40 +63,29 @@ const DISCONNECT_LABELS: Record<string, string> = {
   call_transfer:  'Transfer',
 }
 
-export function AnalyticsShell({ studioId, initialData, initialRange, initialDirection = 'all', initialFieldOptions = {}, initialTab, initialTranscriptFilters }: AnalyticsShellProps) {
-  const defaultRange: DateRange = initialRange ?? (() => {
+export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
+  const defaultRange: DateRange = (() => {
     const { from, to } = getPresetRange('7d' as DatePreset)
     return { from, to, preset: '7d' as DatePreset }
   })()
-  const [data,       setData]      = useState<CallAnalyticsData>(initialData ?? EMPTY_ANALYTICS)
+  const [data,       setData]      = useState<CallAnalyticsData>(EMPTY_ANALYTICS)
   const [range,      setRange]     = useState<DateRange>(defaultRange)
-  const [initialLoading, setInitialLoading] = useState(!initialData)
-  const [filters,    setFilters]   = useState<TranscriptFilters>({
-    ...DEFAULT_FILTERS,
-    direction: (initialTranscriptFilters?.direction ?? initialDirection) as TranscriptFilters['direction'],
-    sentiment: initialTranscriptFilters?.sentiment ?? [],
-    outcome: initialTranscriptFilters?.outcome ?? '',
-    appointmentBooked: initialTranscriptFilters?.appointmentBooked ?? '',
-    disconnectedReason: initialTranscriptFilters?.disconnectedReason ?? [],
-    qualityScore: initialTranscriptFilters?.qualityScore
-      ? { op: initialTranscriptFilters.qualityScore.op as TranscriptFilters['qualityScore']['op'], value: initialTranscriptFilters.qualityScore.value }
-      : DEFAULT_FILTERS.qualityScore,
-  })
+  const [initialLoading, setInitialLoading] = useState(true)
+  const [filters,    setFilters]   = useState<TranscriptFilters>({ ...DEFAULT_FILTERS })
   const filterSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [activeTab,  setActiveTab] = useState<Tab>(initialTab ?? 'analytics')
   const [isPending, startTransition] = useTransition()
   const [spinning,   setSpinning]  = useState(false)
   const [chartKey,   setChartKey]  = useState(0)
   const [transcriptRefreshTrigger, setTranscriptRefreshTrigger] = useState(0)
-  const [mounted, setMounted] = useState(false)
+  const mounted = useMounted()
 
   // Custom range picker state
   const [datePickerOpen,   setDatePickerOpen]   = useState(false)
   const [datePickerAnchor, setDatePickerAnchor] = useState<DOMRect | null>(null)
 
-  // Fetch initial data on mount if not provided by server
+  // Fetch initial data on mount
   useEffect(() => {
-    if (initialData) return
     let cancelled = false
     const supabase = createClient()
     supabase
@@ -144,9 +125,6 @@ export function AnalyticsShell({ studioId, initialData, initialRange, initialDir
       })
     return () => { cancelled = true }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Mark mounted after initial render
-  useEffect(() => { setMounted(true) }, [])
 
   useEffect(() => {
     if (!mounted) return
@@ -414,7 +392,7 @@ export function AnalyticsShell({ studioId, initialData, initialRange, initialDir
       {/* Transcripts tab — fills remaining height */}
       {activeTab === 'transcripts' && (
         <div className="flex flex-1 min-h-0">
-          <TranscriptsPanel studioId={studioId} from={fromStr} to={toStr} filters={filters} initialFieldOptions={initialFieldOptions} transcriptRefreshTrigger={transcriptRefreshTrigger} />
+          <TranscriptsPanel studioId={studioId} from={fromStr} to={toStr} filters={filters} transcriptRefreshTrigger={transcriptRefreshTrigger} />
         </div>
       )}
 
