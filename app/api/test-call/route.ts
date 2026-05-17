@@ -61,6 +61,27 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Create a test lead in the database (only on non-mock/SIT branches)
+    let leadId: string | null = null
+    if (body.name) {
+      const { data: lead } = await serviceClient
+        .from('leads')
+        .insert({
+          studio_id: studio.id,
+          name: body.name,
+          phone: body.phoneNumber,
+          email: body.email ?? null,
+          source: 'Test',
+          action: 'AI Called',
+          reason: body.reason ?? null,
+          comments: body.message ? `[Test signup] ${body.message}` : '[Test signup]',
+          created_by_email: session.user.email ?? null,
+        })
+        .select('id')
+        .single()
+      leadId = lead?.id ?? null
+    }
+
     // Build dynamic variables to pass lead info to the Retell agent
     const dynamicVars: Record<string, string> = {}
     if (body.name) dynamicVars.name = body.name
@@ -98,7 +119,7 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await res.json()
-    return NextResponse.json({ ok: true, callId: data.call_id })
+    return NextResponse.json({ ok: true, callId: data.call_id, leadId })
   } catch (err: unknown) {
     console.error('Test call exception:', err)
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal server error' }, { status: 500 })
