@@ -123,13 +123,13 @@ button, a, select, label[for], [role="button"], [role="option"], [role="menuitem
 /* Inputs */
 input, select, textarea {
   color: var(--color-text-primary);
-  background: var(--color-bg);
+  background-color: var(--color-bg);
 }
 .dark input,
 .dark select,
 .dark textarea {
   color: var(--color-text-primary);
-  background: var(--color-surface);
+  background-color: var(--color-surface);
   border-color: var(--color-border);
 }
 
