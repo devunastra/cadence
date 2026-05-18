@@ -22,7 +22,7 @@ function naiveChicagoToUtcIso(naiveLocal: string): string {
   // Build the Chicago-local ISO from parts
   const chicagoLocalIso = `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`
   // Diff between what Chicago shows for our "UTC" date vs the naive string gives the offset
-  const utcMs = dt.getTime()
+  const utcMs = dt.getTime() 
   const chicagoAsUtcMs = new Date(chicagoLocalIso + 'Z').getTime()
   const offsetMs = chicagoAsUtcMs - utcMs // e.g. +18000000 for CDT (UTC-5)
   // The real UTC time for the naive local input is: subtract offset
