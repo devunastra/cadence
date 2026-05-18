@@ -1,13 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Phone, UserPlus, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 
 type CallStatus = 'idle' | 'calling' | 'success' | 'error'
+type AgentOption = { id: string; label: string }
 
 export default function TestPage() {
+  // ── Agent list (fetched from server-side TEST_AGENTS env var) ──
+  const [agentOptions, setAgentOptions] = useState<AgentOption[]>([])
+  const [agentsLoading, setAgentsLoading] = useState(true)
+
   // ── Quick Call state ──
   const [quickPhone, setQuickPhone] = useState('')
+  const [quickAgentId, setQuickAgentId] = useState<string>('')
   const [quickStatus, setQuickStatus] = useState<CallStatus>('idle')
   const [quickError, setQuickError] = useState('')
 
@@ -18,14 +24,31 @@ export default function TestPage() {
   const [formEmail, setFormEmail] = useState('')
   const [requestingDetails, setRequestingDetails] = useState('')
   const [message, setMessage] = useState('')
+  const [formAgentId, setFormAgentId] = useState<string>('')
   const [formStatus, setFormStatus] = useState<CallStatus>('idle')
   const [formError, setFormError] = useState('')
+
+  // Load available test agents from server on mount
+  useEffect(() => {
+    fetch('/api/test-agents')
+      .then(r => r.json())
+      .then(data => {
+        const list: AgentOption[] = data?.agents ?? []
+        setAgentOptions(list)
+        if (list.length > 0) {
+          setQuickAgentId(list[0].id)
+          setFormAgentId(list[0].id)
+        }
+      })
+      .catch(err => console.error('Failed to load test agents:', err))
+      .finally(() => setAgentsLoading(false))
+  }, [])
 
   const REQUESTING_OPTIONS = ['Just for fun', 'Wedding', 'Special Occasion'] as const
 
   async function triggerCall(
     phoneNumber: string,
-    opts: { name?: string; email?: string; reason?: string; message?: string },
+    opts: { name?: string; email?: string; reason?: string; message?: string; agentId?: string },
     setStatus: (s: CallStatus) => void,
     setError: (e: string) => void,
   ) {
@@ -54,7 +77,7 @@ export default function TestPage() {
 
   function handleQuickCall() {
     if (!quickPhone.trim()) return
-    triggerCall(quickPhone.trim(), {}, setQuickStatus, setQuickError)
+    triggerCall(quickPhone.trim(), { agentId: quickAgentId }, setQuickStatus, setQuickError)
   }
 
   function handleFormSubmit(e: React.FormEvent) {
@@ -63,9 +86,65 @@ export default function TestPage() {
     const fullName = `${firstName.trim()} ${lastName.trim()}`
     triggerCall(
       formPhone.trim(),
-      { name: fullName, email: formEmail.trim(), reason: requestingDetails || undefined, message: message || undefined },
+      {
+        name: fullName,
+        email: formEmail.trim(),
+        reason: requestingDetails || undefined,
+        message: message || undefined,
+        agentId: formAgentId,
+      },
       setFormStatus,
       setFormError,
+    )
+  }
+
+  function AgentDropdown({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+    if (agentsLoading) {
+      return (
+        <div>
+          <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--color-text-primary)' }}>
+            Which agent should call?
+          </label>
+          <div className="px-3 py-2.5 rounded-lg text-sm" style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}>
+            Loading agents...
+          </div>
+        </div>
+      )
+    }
+    if (agentOptions.length === 0) {
+      return (
+        <div>
+          <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--color-text-primary)' }}>
+            Which agent should call?
+          </label>
+          <div className="px-3 py-2.5 rounded-lg text-sm" style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', color: '#C4554D' }}>
+            No agents configured. Set TEST_AGENTS env var.
+          </div>
+        </div>
+      )
+    }
+    return (
+      <div>
+        <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--color-text-primary)' }}>
+          Which agent should call?
+        </label>
+        <select
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          className="w-full px-3 py-2.5 rounded-lg text-sm outline-none transition-colors cursor-pointer"
+          style={{
+            backgroundColor: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-text-primary)',
+          }}
+        >
+          {agentOptions.map((agent: AgentOption) => (
+            <option key={agent.id} value={agent.id}>
+              {agent.label}
+            </option>
+          ))}
+        </select>
+      </div>
     )
   }
 
@@ -103,22 +182,24 @@ export default function TestPage() {
             </div>
           </div>
 
-          <div className="flex gap-3">
-            <input
-              type="tel"
-              placeholder="+1 (555) 123-4567"
-              value={quickPhone}
-              onChange={e => setQuickPhone(e.target.value)}
-              className="flex-1 px-3 py-2.5 rounded-lg text-sm outline-none transition-colors"
-              style={{
-                backgroundColor: 'var(--color-surface)',
-                border: '1px solid var(--color-border)',
-                color: 'var(--color-text-primary)',
-              }}
-            />
-            <button
-              onClick={handleQuickCall}
-              disabled={!quickPhone.trim() || quickStatus === 'calling'}
+          <div className="flex flex-col gap-3">
+            <AgentDropdown value={quickAgentId} onChange={setQuickAgentId} />
+            <div className="flex gap-3">
+              <input
+                type="tel"
+                placeholder="+1 (555) 123-4567"
+                value={quickPhone}
+                onChange={e => setQuickPhone(e.target.value)}
+                className="flex-1 px-3 py-2.5 rounded-lg text-sm outline-none transition-colors"
+                style={{
+                  backgroundColor: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+              <button
+                onClick={handleQuickCall}
+                disabled={!quickPhone.trim() || !quickAgentId || quickStatus === 'calling'}
               className="px-5 py-2.5 rounded-lg text-sm font-medium text-white flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
                 backgroundColor: quickStatus === 'success' ? '#448361' : 'var(--color-accent)',
@@ -133,10 +214,11 @@ export default function TestPage() {
                   (e.target as HTMLButtonElement).style.backgroundColor = 'var(--color-accent)'
               }}
             >
-              {quickStatus === 'calling' && <Loader2 size={16} className="animate-spin" />}
-              {quickStatus === 'success' && <CheckCircle2 size={16} />}
-              {quickStatus === 'calling' ? 'Calling...' : quickStatus === 'success' ? 'Call Initiated' : 'Call Me'}
-            </button>
+                {quickStatus === 'calling' && <Loader2 size={16} className="animate-spin" />}
+                {quickStatus === 'success' && <CheckCircle2 size={16} />}
+                {quickStatus === 'calling' ? 'Calling...' : quickStatus === 'success' ? 'Call Initiated' : 'Call Me'}
+              </button>
+            </div>
           </div>
 
           {quickStatus === 'error' && (
@@ -170,6 +252,9 @@ export default function TestPage() {
           </div>
 
           <form onSubmit={handleFormSubmit} className="flex flex-col gap-4">
+            {/* Agent picker */}
+            <AgentDropdown value={formAgentId} onChange={setFormAgentId} />
+
             {/* First Name + Last Name */}
             <div className="grid grid-cols-2 gap-3">
               <div>
