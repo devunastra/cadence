@@ -97,6 +97,28 @@ export interface Call {
   called_phone: string | null
 }
 
+export interface CallReview {
+  id: string
+  call_id: string
+  studio_id: string
+  grade: 'Pass' | 'Fail'
+  summary: string | null
+  agent_mistakes: string[]
+  user_repeats: number
+  booking_attempted: boolean | null
+  booking_successful: boolean | null
+  objections: string[]
+  callback_requested: boolean
+  follow_up_needed: boolean
+  follow_up_reason: string | null
+  topics_discussed: string[]
+  raw_ai_response: Record<string, unknown> | null
+  model_used: string
+  trigger_type: 'manual' | 'cron'
+  created_at: string
+  updated_at: string
+}
+
 export interface RetellCallEndedPayload {
   event: string
   call_id: string

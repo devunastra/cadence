@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { X, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react'
+import { X, ExternalLink, ChevronDown, ChevronUp, Sparkles, AlertTriangle, MessageSquare, Phone, Tag } from 'lucide-react'
 import type { CallHistoryRow } from '@/app/actions'
 import { formatDateTime } from '@/lib/date-utils'
 import { STATUS_COLORS, NOTION_COLORS } from '@/lib/constants'
 import { Spinner } from '@/components/spinner'
-import { fetchCallTranscriptFull } from '@/app/actions'
+import { fetchCallTranscriptFull, fetchCallReviewFull } from '@/app/actions'
 import type { RetellTranscriptItem } from '@/app/actions'
+import type { CallReview } from '@/lib/types'
 
 function formatDurationMSS(seconds: number | null): string {
   if (seconds == null) return '\u2014'
@@ -91,10 +92,13 @@ export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
   } | null>(null)
   const [loadingTranscript, setLoadingTranscript] = useState(true)
   const [summaryOpen, setSummaryOpen] = useState(true)
+  const [review, setReview] = useState<CallReview | null>(null)
+  const [reviewOpen, setReviewOpen] = useState(true)
 
   useEffect(() => {
     setLoadingTranscript(true)
     setTranscriptData(null)
+    setReview(null)
     fetchCallTranscriptFull(call.id)
       .then(data => {
         setTranscriptData({ transcript: data.transcript, toolCalls: data.transcriptWithToolCalls })
@@ -103,6 +107,10 @@ export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
         setTranscriptData({ transcript: null, toolCalls: null })
       })
       .finally(() => setLoadingTranscript(false))
+    // Fetch review separately
+    fetchCallReviewFull(call.id)
+      .then(data => setReview(data as CallReview | null))
+      .catch(() => {})
   }, [call.id])
 
   // Close on Escape
@@ -252,6 +260,105 @@ export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
               {summaryOpen && (
                 <div className="px-4 pb-3 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
                   {call.transcript_summary}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI Review */}
+          {review && (
+            <div
+              className="rounded-xl"
+              style={{
+                backgroundColor: review.grade === 'Pass'
+                  ? 'var(--color-surface)'
+                  : NOTION_COLORS.red.bg,
+                border: `1px solid ${review.grade === 'Pass' ? 'var(--color-border)' : 'rgba(196,85,77,0.2)'}`,
+              }}
+            >
+              <button
+                onClick={() => setReviewOpen(v => !v)}
+                className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold"
+                style={{ color: 'var(--color-text-primary)' }}
+              >
+                <span className="flex items-center gap-2">
+                  <Sparkles size={14} style={{ color: 'var(--color-accent)' }} />
+                  AI Review
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[review.grade]?.bg} ${STATUS_COLORS[review.grade]?.text}`}>
+                    {review.grade}
+                  </span>
+                </span>
+                {reviewOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+              {reviewOpen && (
+                <div className="px-4 pb-4 space-y-3">
+                  {/* Summary */}
+                  <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+                    {review.summary}
+                  </p>
+
+                  {/* Agent Mistakes */}
+                  {review.agent_mistakes.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium mb-1 flex items-center gap-1.5" style={{ color: 'var(--color-text-muted)' }}>
+                        <AlertTriangle size={12} /> Agent Mistakes
+                      </p>
+                      <ul className="list-disc list-inside text-sm space-y-0.5" style={{ color: 'var(--color-text-secondary)' }}>
+                        {review.agent_mistakes.map((m, i) => <li key={i}>{m}</li>)}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Objections */}
+                  {review.objections.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium mb-1 flex items-center gap-1.5" style={{ color: 'var(--color-text-muted)' }}>
+                        <MessageSquare size={12} /> Objections Raised
+                      </p>
+                      <ul className="list-disc list-inside text-sm space-y-0.5" style={{ color: 'var(--color-text-secondary)' }}>
+                        {review.objections.map((o, i) => <li key={i}>{o}</li>)}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Flags row */}
+                  <div className="flex flex-wrap gap-2">
+                    {review.booking_attempted != null && (
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${review.booking_successful ? 'status-bg-green status-text-green' : review.booking_attempted ? 'status-bg-yellow status-text-yellow' : 'status-bg-gray status-text-gray'}`}>
+                        {review.booking_successful ? 'Booking Successful' : review.booking_attempted ? 'Booking Attempted' : 'No Booking Attempt'}
+                      </span>
+                    )}
+                    {review.callback_requested && (
+                      <span className="px-2 py-0.5 rounded text-xs font-medium status-bg-orange status-text-orange">
+                        Callback Requested
+                      </span>
+                    )}
+                    {review.follow_up_needed && (
+                      <span className="px-2 py-0.5 rounded text-xs font-medium status-bg-blue status-text-blue">
+                        Follow-up Needed
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Follow-up reason */}
+                  {review.follow_up_reason && (
+                    <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                      <Phone size={11} className="inline mr-1" />
+                      {review.follow_up_reason}
+                    </p>
+                  )}
+
+                  {/* Topics */}
+                  {review.topics_discussed.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Tag size={11} style={{ color: 'var(--color-text-muted)' }} />
+                      {review.topics_discussed.map((t, i) => (
+                        <span key={i} className="px-2 py-0.5 rounded text-xs font-medium status-bg-gray status-text-gray">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

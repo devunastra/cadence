@@ -892,6 +892,14 @@ export interface PageFilters {
     }
     sort?: { field: string; ascending: boolean }
   }
+  qualityReview?: {
+    filters?: {
+      grade?: string; direction?: string; sentiment?: string[]
+      qualityScore?: { op: string; value: string }
+      dateFrom?: string; dateTo?: string
+    }
+    sort?: { field: string; ascending: boolean }
+  }
 }
 
 export async function getPageFilters(studioId: string): Promise<PageFilters> {
@@ -2047,4 +2055,365 @@ export async function updateAppointmentStatus(
   })
 
   return {}
+}
+
+// ── Call Reviews (Transcript Analyzer) ──────────────────────────────────
+
+export async function fetchCallReviewsForCalls(
+  callIds: string[]
+): Promise<Record<string, { grade: 'Pass' | 'Fail'; summary: string | null }>> {
+  if (callIds.length === 0) return {}
+  const { client } = await getAuthorizedClient()
+  const { data } = await client
+    .from('call_reviews')
+    .select('call_id, grade, summary')
+    .in('call_id', callIds)
+  const map: Record<string, { grade: 'Pass' | 'Fail'; summary: string | null }> = {}
+  for (const row of data ?? []) {
+    map[row.call_id] = { grade: row.grade, summary: row.summary }
+  }
+  return map
+}
+
+export async function fetchCallReviewFull(callId: string) {
+  const { client } = await getAuthorizedClient()
+  const { data, error } = await client
+    .from('call_reviews')
+    .select('*')
+    .eq('call_id', callId)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function fetchUnreviewedCallIds(
+  studioId: string
+): Promise<string[]> {
+  const { client } = await getAuthorizedClient()
+  const { data: allCalls } = await client
+    .from('calls')
+    .select('id')
+    .eq('studio_id', studioId)
+    .not('transcript', 'is', null)
+    .neq('voicemail', true)
+    .gt('duration_seconds', 15)
+    .order('created_at', { ascending: false })
+    .limit(200)
+
+  if (!allCalls || allCalls.length === 0) return []
+
+  const callIds = allCalls.map(c => c.id)
+  const { data: reviewed } = await client
+    .from('call_reviews')
+    .select('call_id')
+    .in('call_id', callIds)
+
+  const reviewedSet = new Set((reviewed ?? []).map(r => r.call_id))
+  return callIds.filter(id => !reviewedSet.has(id))
+}
+
+export async function triggerCallAnalysis(
+  studioId: string,
+  callIds: string[],
+  force = false
+): Promise<{ analyzed: number; skipped: number; errors: Array<{ callId: string; error: string }> }> {
+  const { client, user } = await getAuthorizedClient()
+
+  const { data: membership } = await client
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('studio_id', studioId)
+    .in('role', ['super_admin', 'studio_owner'])
+    .maybeSingle()
+
+  if (!membership) throw new Error('Access denied')
+
+  // Use a regular user client for session — service client won't have one
+  const userClient = await createClient()
+  const { data: { session } } = await userClient.auth.getSession()
+  if (!session) throw new Error('No active session')
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const response = await fetch(`${supabaseUrl}/functions/v1/analyze-call-quality`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ studio_id: studioId, call_ids: callIds, force }),
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Unknown error' }))
+    throw new Error(err.error ?? `HTTP ${response.status}`)
+  }
+
+  return response.json()
+}
+
+// ── Call Quality Review ──────────────────────────────────────────────────────
+
+export type QualityReviewRow = {
+  review_id: string
+  call_id: string
+  grade: 'Pass' | 'Fail'
+  summary: string | null
+  agent_mistakes: string[]
+  user_repeats: number
+  booking_attempted: boolean | null
+  booking_successful: boolean | null
+  follow_up_needed: boolean
+  follow_up_reason: string | null
+  topics_discussed: string[]
+  trigger_type: 'manual' | 'cron'
+  review_created_at: string
+  // call fields
+  call_created_at: string
+  duration_seconds: number | null
+  direction: 'inbound' | 'outbound' | null
+  sentiment: string | null
+  outcome: string | null
+  quality_score: number | null
+  appointment_booked: boolean | null
+  recording_url: string | null
+  lead_id: string | null
+  retell_call_id: string
+  picked_up: boolean | null
+  transferred: boolean | null
+  disconnected_reason: string | null
+  transcript_summary: string | null
+  // resolved
+  lead_name: string | null
+}
+
+export interface QualityReviewParams {
+  studioId: string
+  filters?: {
+    grade?: string
+    direction?: string
+    sentiment?: string[]
+    qualityScore?: { op: string; value: string }
+    dateFrom?: string
+    dateTo?: string
+  }
+  page?: number
+  pageSize?: number
+  sort?: { field: string; ascending: boolean }
+}
+
+export interface QualityKpis {
+  totalReviewed: number
+  totalEligible: number
+  passCount: number
+  failCount: number
+  avgUserRepeats: number
+  followUpNeededCount: number
+  bookingAttempted: number
+  bookingSuccessful: number
+  topAgentMistakes: { mistake: string; count: number }[]
+  topTopics: { topic: string; count: number }[]
+}
+
+export async function fetchQualityReviews(
+  params: QualityReviewParams
+): Promise<{ rows: QualityReviewRow[]; total: number }> {
+  const { client } = await getAuthorizedClient()
+  const {
+    studioId, filters = {},
+    page = 1, pageSize = 50,
+    sort = { field: 'review_created_at', ascending: false },
+  } = params
+  const offset = (page - 1) * pageSize
+
+  // 1. Query call_reviews with grade filter
+  let reviewQuery = client
+    .from('call_reviews')
+    .select('id, call_id, grade, summary, agent_mistakes, user_repeats, booking_attempted, booking_successful, follow_up_needed, follow_up_reason, topics_discussed, trigger_type, created_at')
+    .eq('studio_id', studioId)
+
+  if (filters.grade && filters.grade !== 'all') {
+    reviewQuery = reviewQuery.eq('grade', filters.grade)
+  }
+
+  const { data: allReviews, error: revErr } = await reviewQuery
+    .order('created_at', { ascending: false })
+    .limit(2000)
+  if (revErr) throw new Error(revErr.message)
+  if (!allReviews || allReviews.length === 0) return { rows: [], total: 0 }
+
+  // 2. Fetch matched calls
+  const callIds = allReviews.map(r => r.call_id)
+  const { data: calls } = await client
+    .from('calls')
+    .select('id, retell_call_id, created_at, duration_seconds, direction, sentiment, outcome, quality_score, appointment_booked, recording_url, lead_id, picked_up, transferred, disconnected_reason, transcript_summary')
+    .in('id', callIds)
+  const callMap = new Map((calls ?? []).map(c => [c.id, c]))
+
+  // 3. Apply call-side filters
+  let filtered = allReviews.filter(r => {
+    const c = callMap.get(r.call_id)
+    if (!c) return false
+    if (filters.direction && filters.direction !== 'all' && c.direction !== filters.direction) return false
+    if (filters.sentiment?.length && !filters.sentiment.includes(c.sentiment ?? '')) return false
+    if (filters.qualityScore?.value) {
+      const val = parseFloat(filters.qualityScore.value)
+      const score = c.quality_score
+      if (!isNaN(val) && score != null) {
+        const op = filters.qualityScore.op
+        if (op === '>=' && score < val) return false
+        if (op === '<=' && score > val) return false
+        if (op === '>' && score <= val) return false
+        if (op === '<' && score >= val) return false
+        if (op === '=' && score !== val) return false
+      } else if (score == null) return false
+    }
+    if (filters.dateFrom && c.created_at < filters.dateFrom) return false
+    if (filters.dateTo && c.created_at > filters.dateTo) return false
+    return true
+  })
+
+  // 4. Sort
+  const sortField = sort.field
+  filtered.sort((a, b) => {
+    const ca = callMap.get(a.call_id)
+    const cb = callMap.get(b.call_id)
+    let va: number | string | null = null
+    let vb: number | string | null = null
+    if (sortField === 'review_created_at') { va = a.created_at; vb = b.created_at }
+    else if (sortField === 'created_at') { va = ca?.created_at ?? ''; vb = cb?.created_at ?? '' }
+    else if (sortField === 'duration_seconds') { va = ca?.duration_seconds ?? 0; vb = cb?.duration_seconds ?? 0 }
+    else if (sortField === 'quality_score') { va = ca?.quality_score ?? 0; vb = cb?.quality_score ?? 0 }
+    else if (sortField === 'grade') { va = a.grade; vb = b.grade }
+    else { va = a.created_at; vb = b.created_at }
+    if (va == null && vb == null) return 0
+    if (va == null) return 1
+    if (vb == null) return -1
+    const cmp = va < vb ? -1 : va > vb ? 1 : 0
+    return sort.ascending ? cmp : -cmp
+  })
+
+  const total = filtered.length
+  const page_items = filtered.slice(offset, offset + pageSize)
+
+  // 5. Resolve lead names
+  const leadIds = [...new Set(page_items.map(r => callMap.get(r.call_id)?.lead_id).filter(Boolean) as string[])]
+  const leadNames: Record<string, string> = {}
+  if (leadIds.length) {
+    const { data: leads } = await client.from('leads').select('id, name').in('id', leadIds)
+    for (const l of leads ?? []) leadNames[l.id] = l.name
+  }
+
+  return {
+    rows: page_items.map(r => {
+      const c = callMap.get(r.call_id)!
+      return {
+        review_id: r.id,
+        call_id: r.call_id,
+        grade: r.grade as 'Pass' | 'Fail',
+        summary: r.summary,
+        agent_mistakes: r.agent_mistakes ?? [],
+        user_repeats: r.user_repeats ?? 0,
+        booking_attempted: r.booking_attempted,
+        booking_successful: r.booking_successful,
+        follow_up_needed: r.follow_up_needed ?? false,
+        follow_up_reason: r.follow_up_reason,
+        topics_discussed: r.topics_discussed ?? [],
+        trigger_type: r.trigger_type as 'manual' | 'cron',
+        review_created_at: r.created_at,
+        call_created_at: c.created_at,
+        duration_seconds: c.duration_seconds,
+        direction: c.direction as 'inbound' | 'outbound' | null,
+        sentiment: c.sentiment,
+        outcome: c.outcome,
+        quality_score: c.quality_score,
+        appointment_booked: c.appointment_booked,
+        recording_url: c.recording_url,
+        lead_id: c.lead_id,
+        retell_call_id: c.retell_call_id,
+        picked_up: c.picked_up,
+        transferred: c.transferred,
+        disconnected_reason: c.disconnected_reason,
+        transcript_summary: c.transcript_summary,
+        lead_name: c.lead_id ? (leadNames[c.lead_id] ?? null) : null,
+      }
+    }),
+    total,
+  }
+}
+
+export async function fetchQualityKpis(
+  studioId: string,
+  dateFrom?: string,
+  dateTo?: string,
+): Promise<QualityKpis> {
+  const { client } = await getAuthorizedClient()
+
+  // Eligible calls count
+  let eligibleQuery = client
+    .from('calls')
+    .select('id', { count: 'exact', head: true })
+    .eq('studio_id', studioId)
+    .not('transcript', 'is', null)
+    .neq('voicemail', true)
+    .gt('duration_seconds', 15)
+  if (dateFrom) eligibleQuery = eligibleQuery.gte('created_at', dateFrom)
+  if (dateTo) eligibleQuery = eligibleQuery.lte('created_at', dateTo)
+  const { count: totalEligible } = await eligibleQuery
+
+  // All reviews for aggregation
+  let reviewQuery = client
+    .from('call_reviews')
+    .select('grade, agent_mistakes, user_repeats, booking_attempted, booking_successful, follow_up_needed, topics_discussed')
+    .eq('studio_id', studioId)
+  if (dateFrom) reviewQuery = reviewQuery.gte('created_at', dateFrom)
+  if (dateTo) reviewQuery = reviewQuery.lte('created_at', dateTo)
+  const { data: reviews } = await reviewQuery
+
+  const all = reviews ?? []
+  const passCount = all.filter(r => r.grade === 'Pass').length
+  const failCount = all.filter(r => r.grade === 'Fail').length
+  const avgUserRepeats = all.length > 0
+    ? all.reduce((sum, r) => sum + (r.user_repeats ?? 0), 0) / all.length
+    : 0
+  const followUpNeededCount = all.filter(r => r.follow_up_needed).length
+  const bookingAttempted = all.filter(r => r.booking_attempted).length
+  const bookingSuccessful = all.filter(r => r.booking_successful).length
+
+  // Aggregate agent mistakes
+  const mistakeFreq: Record<string, number> = {}
+  for (const r of all) {
+    for (const m of r.agent_mistakes ?? []) {
+      mistakeFreq[m] = (mistakeFreq[m] ?? 0) + 1
+    }
+  }
+  const topAgentMistakes = Object.entries(mistakeFreq)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([mistake, count]) => ({ mistake, count }))
+
+  // Aggregate topics
+  const topicFreq: Record<string, number> = {}
+  for (const r of all) {
+    for (const t of r.topics_discussed ?? []) {
+      topicFreq[t] = (topicFreq[t] ?? 0) + 1
+    }
+  }
+  const topTopics = Object.entries(topicFreq)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([topic, count]) => ({ topic, count }))
+
+  return {
+    totalReviewed: all.length,
+    totalEligible: totalEligible ?? 0,
+    passCount,
+    failCount,
+    avgUserRepeats: Math.round(avgUserRepeats * 10) / 10,
+    followUpNeededCount,
+    bookingAttempted,
+    bookingSuccessful,
+    topAgentMistakes,
+    topTopics,
+  }
 }

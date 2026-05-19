@@ -162,6 +162,9 @@ export const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   // Call outcomes
   successful:                { bg: 'status-bg-green',   text: 'status-text-green' },
   unsuccessful:              { bg: 'status-bg-red',     text: 'status-text-red' },
+  // Call review grades
+  Pass:                      { bg: 'status-bg-green',   text: 'status-text-green' },
+  Fail:                      { bg: 'status-bg-red',     text: 'status-text-red' },
   // Call sentiment
   positive:                  { bg: 'status-bg-green',   text: 'status-text-green' },
   neutral:                   { bg: 'status-bg-blue',    text: 'status-text-blue' },

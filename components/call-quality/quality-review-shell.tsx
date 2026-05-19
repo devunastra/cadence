@@ -2,34 +2,16 @@
 
 import { useState, useEffect, useRef, useTransition, useCallback } from 'react'
 import { useMounted } from '@/lib/hooks'
-import { Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, ChevronDown, Check, X, Sparkles } from 'lucide-react'
-import { fetchCallHistory, savePageFilters, fetchCallReviewsForCalls, fetchUnreviewedCallIds, triggerCallAnalysis } from '@/app/actions'
-import type { CallHistoryRow, CallHistoryParams } from '@/app/actions'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, ChevronDown, Check, Sparkles, RefreshCw, AlertTriangle } from 'lucide-react'
+import { fetchQualityReviews, fetchQualityKpis, savePageFilters, fetchUnreviewedCallIds, triggerCallAnalysis } from '@/app/actions'
+import type { QualityReviewRow, QualityReviewParams, QualityKpis, CallHistoryRow } from '@/app/actions'
 import { STATUS_COLORS, NOTION_COLORS } from '@/lib/constants'
 import { formatDateTime } from '@/lib/date-utils'
 import { createClient } from '@/lib/supabase/client'
-import { useCurrentStudio } from '@/components/studio-context'
-import { CallDetailDrawer } from './call-detail-drawer'
+import { CallDetailDrawer } from '@/components/call-history/call-detail-drawer'
+import { StatCard } from '@/components/call-analytics/stat-card'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-type Tab = 'all' | 'outbound' | 'inbound' | 'failed' | 'callbacks'
-
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'all', label: 'All Calls' },
-  { key: 'outbound', label: 'Outbound' },
-  { key: 'inbound', label: 'Inbound' },
-  { key: 'failed', label: 'Failed' },
-  { key: 'callbacks', label: 'Callbacks' },
-]
-
-const TAB_EMPTY_MESSAGES: Record<Tab, string> = {
-  all: 'No calls have been recorded yet.',
-  outbound: 'No outbound calls found.',
-  inbound: 'No inbound calls found.',
-  failed: 'No failed calls \u2014 all calls connected successfully.',
-  callbacks: 'No callbacks recorded yet. Callbacks appear when a lead calls back after a missed outbound call.',
-}
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100]
 
@@ -66,82 +48,37 @@ function qualityScoreColor(score: number): string {
   return NOTION_COLORS.red.text
 }
 
-function formatPhone(raw: string | null): string {
-  if (!raw) return '\u2014'
-  const digits = raw.replace(/\D/g, '')
-  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-  if (digits.length === 11 && digits[0] === '1') return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
-  return raw
-}
-
-function formatTimeSince(fromDate: string | null | undefined, toDate: string): string {
-  if (!fromDate) return '\u2014'
-  const diffMs = new Date(toDate).getTime() - new Date(fromDate).getTime()
-  if (diffMs < 0) return '\u2014'
-  const mins = Math.floor(diffMs / 60000)
-  if (mins < 60) return `${mins}m`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ${mins % 60}m`
-  const days = Math.floor(hours / 24)
-  return `${days}d ${hours % 24}h`
-}
-
-function CallbackChip() {
-  return (
-    <span className="px-2 py-0.5 rounded text-sm font-medium status-bg-orange status-text-orange">
-      Callback
-    </span>
-  )
-}
-
-function ForwardedChip() {
-  return (
-    <span className="px-2 py-0.5 rounded text-sm font-medium status-bg-blue status-text-blue">
-      Forwarded
-    </span>
-  )
-}
-
 // ── Filter types ─────────────────────────────────────────────────────────────
 
-interface CallHistoryFilters {
-  direction: 'all' | 'inbound' | 'outbound'
+interface QualityFilters {
+  grade: string
+  direction: string
   sentiment: string[]
-  outcome: string
-  appointmentBooked: string
-  disconnectedReason: string[]
   qualityScore: { op: '>=' | '<=' | '>' | '<' | '='; value: string }
   dateFrom: string
   dateTo: string
-  callbackOnly: boolean
 }
 
-const DEFAULT_FILTERS: CallHistoryFilters = {
-  direction: 'all',
+const DEFAULT_FILTERS: QualityFilters = {
+  grade: '',
+  direction: '',
   sentiment: [],
-  outcome: '',
-  appointmentBooked: '',
-  disconnectedReason: [],
   qualityScore: { op: '>=', value: '' },
   dateFrom: '',
   dateTo: '',
-  callbackOnly: false,
 }
 
-function activeFilterCount(f: CallHistoryFilters): number {
+function activeFilterCount(f: QualityFilters): number {
   let n = 0
-  if (f.direction !== 'all') n++
+  if (f.grade) n++
+  if (f.direction) n++
   if (f.sentiment.length > 0) n++
-  if (f.outcome) n++
-  if (f.appointmentBooked) n++
-  if (f.disconnectedReason.length > 0) n++
   if (f.qualityScore.value !== '') n++
   if (f.dateFrom || f.dateTo) n++
-  if (f.callbackOnly) n++
   return n
 }
 
-// ── Reusable dropdown components (matching transcripts-filter-bar patterns) ──
+// ── Reusable dropdown components ──────────────────────────────────────────────
 
 interface FieldSelectOption { value: string; label: string }
 
@@ -311,7 +248,7 @@ function OpPicker({ value, onChange }: { value: Op; onChange: (op: Op) => void }
   )
 }
 
-// ── PageInput (from leads-table pattern) ────────────────────────────────────
+// ── PageInput ────────────────────────────────────────────────────────────────
 
 function PageInput({ page, totalPages, onJump }: { page: number; totalPages: number; onJump: (p: number) => void }) {
   const [editing, setEditing] = useState(false)
@@ -342,12 +279,12 @@ function PageInput({ page, totalPages, onJump }: { page: number; totalPages: num
   )
 }
 
-// ── Skeleton ────────────────────────────────────────────────────────────────
+// ── Skeleton row ──────────────────────────────────────────────────────────────
 
 function SkeletonRow() {
   return (
     <tr>
-      {Array.from({ length: 9 }).map((_, i) => (
+      {Array.from({ length: 10 }).map((_, i) => (
         <td key={i} className="px-3 py-2">
           <div className="h-10 rounded skeleton-shimmer" style={{ width: i === 0 ? '70%' : i === 1 ? '60%' : '50%' }} />
         </td>
@@ -356,39 +293,65 @@ function SkeletonRow() {
   )
 }
 
-// ── Main component ──────────────────────────────────────────────────────────
+// ── Map QualityReviewRow → CallHistoryRow for drawer ────────────────────────
 
-interface CallHistoryShellProps {
-  studioId: string
+function toCallHistoryRow(r: QualityReviewRow): CallHistoryRow {
+  return {
+    id: r.call_id,
+    retell_call_id: r.retell_call_id,
+    created_at: r.call_created_at,
+    duration_seconds: r.duration_seconds,
+    outcome: r.outcome as CallHistoryRow['outcome'],
+    sentiment: r.sentiment as CallHistoryRow['sentiment'],
+    transcript_summary: r.transcript_summary,
+    lead_id: r.lead_id,
+    direction: r.direction,
+    disconnected_reason: r.disconnected_reason as CallHistoryRow['disconnected_reason'],
+    quality_score: r.quality_score,
+    appointment_booked: r.appointment_booked,
+    recording_url: r.recording_url,
+    picked_up: r.picked_up,
+    transferred: r.transferred,
+    lead_name: r.lead_name,
+    lead_phone: null,
+  }
 }
 
-export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
-  const { userRole, isSuper } = useCurrentStudio()
+// ── Main component ──────────────────────────────────────────────────────────
+
+interface QualityReviewShellProps {
+  studioId: string
+  userRole: string
+  isSuper: boolean
+}
+
+export function QualityReviewShell({ studioId, userRole, isSuper }: QualityReviewShellProps) {
   const canAnalyze = isSuper || userRole === 'studio_owner'
-  const [tab, setTab] = useState<Tab>('all')
-  const [calls, setCalls] = useState<CallHistoryRow[]>([])
+  const [rows, setRows] = useState<QualityReviewRow[]>([])
   const [total, setTotal] = useState(0)
+  const [kpis, setKpis] = useState<QualityKpis | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
-  const [search, setSearch] = useState('')
-  const [filters, setFilters] = useState<CallHistoryFilters>(DEFAULT_FILTERS)
-  const [sort, setSort] = useState<{ field: string; ascending: boolean }>({ field: 'created_at', ascending: false })
+  const [filters, setFilters] = useState<QualityFilters>(DEFAULT_FILTERS)
+  const [sort, setSort] = useState<{ field: string; ascending: boolean }>({ field: 'review_created_at', ascending: false })
   const [loading, setLoading] = useState(true)
+  const [kpiLoading, setKpiLoading] = useState(true)
   const [selectedCall, setSelectedCall] = useState<CallHistoryRow | null>(null)
   const [filterOpen, setFilterOpen] = useState(false)
   const mounted = useMounted()
   const [, startTransition] = useTransition()
   const filterRef = useRef<HTMLDivElement>(null)
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const debouncedSearch = useRef(search)
-  // Call reviews state
-  const [reviewMap, setReviewMap] = useState<Record<string, { grade: 'Pass' | 'Fail'; summary: string | null }>>({})
   const [analyzing, setAnalyzing] = useState(false)
   const [analyzeResult, setAnalyzeResult] = useState<string | null>(null)
+  const [unreviewedCount, setUnreviewedCount] = useState<number | null>(null)
 
-  // Fetch initial data on mount
+  // Initial load
   useEffect(() => {
-    loadCalls('all', '', DEFAULT_FILTERS, { field: 'created_at', ascending: false }, 1, pageSize)
+    loadData(DEFAULT_FILTERS, { field: 'review_created_at', ascending: false }, 1, pageSize)
+    loadKpis()
+    if (canAnalyze) {
+      fetchUnreviewedCallIds(studioId).then(ids => setUnreviewedCount(ids.length)).catch(() => {})
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close filter panel on outside click
@@ -400,34 +363,19 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  // Debounced search (400ms) — skip initial mount to avoid duplicate fetch
-  useEffect(() => {
-    if (!mounted) return
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
-    searchTimerRef.current = setTimeout(() => {
-      debouncedSearch.current = search
-      setPage(1)
-      loadCalls(tab, search, filters, sort, 1, pageSize)
-    }, 400)
-    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
-  }, [search]) // eslint-disable-line react-hooks/exhaustive-deps
-
   // Save filters (1s debounce)
   useEffect(() => {
     if (!mounted) return
     const t = setTimeout(() => {
       savePageFilters(studioId, {
-        callHistory: {
+        qualityReview: {
           filters: {
+            grade: filters.grade,
             direction: filters.direction,
             sentiment: filters.sentiment,
-            outcome: filters.outcome,
-            appointmentBooked: filters.appointmentBooked,
-            disconnectedReason: filters.disconnectedReason,
             qualityScore: filters.qualityScore,
             dateFrom: filters.dateFrom,
             dateTo: filters.dateTo,
-            callbackOnly: filters.callbackOnly,
           },
           sort,
         },
@@ -436,65 +384,53 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
     return () => clearTimeout(t)
   }, [mounted, studioId, filters, sort]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Realtime subscription for new calls
+  // Realtime subscription for new reviews
   useEffect(() => {
     const supabase = createClient()
     const channel = supabase
-      .channel('call-history-realtime')
+      .channel('quality-reviews-realtime')
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
-        table: 'calls',
+        table: 'call_reviews',
         filter: `studio_id=eq.${studioId}`,
-      }, (payload) => {
-        // Only prepend if on page 1 of All Calls tab with no active search
-        if (tab === 'all' && page === 1 && !debouncedSearch.current && activeFilterCount(filters) === 0) {
-          const newCall = payload.new as CallHistoryRow
-          setCalls(prev => [{ ...newCall, lead_name: null, lead_phone: null }, ...prev].slice(0, pageSize))
-          setTotal(prev => prev + 1)
+      }, () => {
+        loadData(filters, sort, page, pageSize)
+        loadKpis()
+        if (canAnalyze) {
+          fetchUnreviewedCallIds(studioId).then(ids => setUnreviewedCount(ids.length)).catch(() => {})
         }
       })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [studioId, tab, page, pageSize, filters]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [studioId, filters, sort, page, pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadCalls = useCallback((
-    t: Tab, s: string, f: CallHistoryFilters,
+  const loadData = useCallback((
+    f: QualityFilters,
     srt: { field: string; ascending: boolean },
-    p: number, ps: number
+    p: number, ps: number,
   ) => {
     setLoading(true)
     startTransition(async () => {
       try {
-        const params: CallHistoryParams = {
+        const params: QualityReviewParams = {
           studioId,
-          tab: t,
-          search: s,
           filters: {
+            grade: f.grade,
             direction: f.direction,
             sentiment: f.sentiment,
-            outcome: f.outcome,
-            appointmentBooked: f.appointmentBooked,
-            disconnectedReason: f.disconnectedReason,
             qualityScore: f.qualityScore,
             dateFrom: f.dateFrom,
             dateTo: f.dateTo,
-            callbackOnly: f.callbackOnly,
           },
           page: p,
           pageSize: ps,
           sort: srt,
         }
-        const result = await fetchCallHistory(params)
-        setCalls(result.calls)
+        const result = await fetchQualityReviews(params)
+        setRows(result.rows)
         setTotal(result.total)
-        // Fetch reviews for these calls
-        if (result.calls.length > 0) {
-          fetchCallReviewsForCalls(result.calls.map(c => c.id))
-            .then(map => setReviewMap(prev => ({ ...prev, ...map })))
-            .catch(() => {})
-        }
       } catch {
         // Keep previous results visible on error
       } finally {
@@ -503,35 +439,44 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
     })
   }, [studioId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  function handleTabChange(t: Tab) {
-    setTab(t)
-    setPage(1)
-    setSelectedCall(null)
-    loadCalls(t, debouncedSearch.current, filters, sort, 1, pageSize)
+  function loadKpis() {
+    setKpiLoading(true)
+    fetchQualityKpis(studioId)
+      .then(data => setKpis(data))
+      .catch(() => {})
+      .finally(() => setKpiLoading(false))
   }
 
-  function handleFilterChange(f: CallHistoryFilters) {
+  function handleFilterChange(f: QualityFilters) {
     setFilters(f)
     setPage(1)
-    loadCalls(tab, debouncedSearch.current, f, sort, 1, pageSize)
+    loadData(f, sort, 1, pageSize)
   }
 
   function handleSortChange(field: string) {
     const newSort = sort.field === field ? { field, ascending: !sort.ascending } : { field, ascending: false }
     setSort(newSort)
     setPage(1)
-    loadCalls(tab, debouncedSearch.current, filters, newSort, 1, pageSize)
+    loadData(filters, newSort, 1, pageSize)
   }
 
   function handlePageChange(p: number) {
     setPage(p)
-    loadCalls(tab, debouncedSearch.current, filters, sort, p, pageSize)
+    loadData(filters, sort, p, pageSize)
   }
 
   function handlePageSizeChange(ps: number) {
     setPageSize(ps)
     setPage(1)
-    loadCalls(tab, debouncedSearch.current, filters, sort, 1, ps)
+    loadData(filters, sort, 1, ps)
+  }
+
+  function handleRefresh() {
+    loadData(filters, sort, page, pageSize)
+    loadKpis()
+    if (canAnalyze) {
+      fetchUnreviewedCallIds(studioId).then(ids => setUnreviewedCount(ids.length)).catch(() => {})
+    }
   }
 
   async function handleAnalyze() {
@@ -543,7 +488,6 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
         setAnalyzeResult('All calls are already reviewed.')
         return
       }
-      // Process in batches of 25
       const batch = unreviewed.slice(0, 25)
       const result = await triggerCallAnalysis(studioId, batch)
       const succeeded = result.analyzed - result.errors.length
@@ -555,8 +499,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
       }
       if (result.skipped > 0) msg += `, ${result.skipped} skipped`
       setAnalyzeResult(msg)
-      // Refresh the current page to show new grades
-      loadCalls(tab, debouncedSearch.current, filters, sort, page, pageSize)
+      handleRefresh()
     } catch (err) {
       setAnalyzeResult(`Error: ${(err as Error).message}`)
     } finally {
@@ -564,14 +507,17 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
     }
   }
 
+  function set<K extends keyof QualityFilters>(key: K, value: QualityFilters[K]) {
+    handleFilterChange({ ...filters, [key]: value })
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const showingFrom = total === 0 ? 0 : (page - 1) * pageSize + 1
   const showingTo = Math.min(page * pageSize, total)
   const count = activeFilterCount(filters)
 
-  function set<K extends keyof CallHistoryFilters>(key: K, value: CallHistoryFilters[K]) {
-    handleFilterChange({ ...filters, [key]: value })
-  }
+  const passRate = kpis && kpis.totalReviewed > 0 ? Math.round((kpis.passCount / kpis.totalReviewed) * 100) : 0
+  const bookingRate = kpis && kpis.bookingAttempted > 0 ? Math.round((kpis.bookingSuccessful / kpis.bookingAttempted) * 100) : 0
 
   const pillStyle: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 6,
@@ -584,204 +530,185 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
     transition: 'background var(--transition-fast), color var(--transition-fast)',
   }
 
-  // Sort indicator
   function SortIndicator({ field }: { field: string }) {
     if (sort.field !== field) return null
     return <span className="ml-1 text-xs">{sort.ascending ? '\u25B2' : '\u25BC'}</span>
   }
 
+  const COLUMNS = [
+    { key: 'created_at', label: 'Date', sortable: true },
+    { key: 'lead_name', label: 'Lead', sortable: false },
+    { key: 'direction', label: 'Direction', sortable: false },
+    { key: 'duration_seconds', label: 'Duration', sortable: true },
+    { key: 'grade', label: 'Grade', sortable: true },
+    { key: 'quality_score', label: 'Quality', sortable: true },
+    { key: 'sentiment', label: 'Sentiment', sortable: false },
+    { key: 'outcome', label: 'Outcome', sortable: false },
+    { key: 'appointment_booked', label: 'Appt', sortable: false },
+    { key: 'follow_up', label: 'Follow-up', sortable: false },
+  ]
+
   return (
     <div className="relative flex flex-col h-full px-5 pb-4 gap-3 [font-family:var(--font-inter,Inter,sans-serif)]">
-      {/* Tabs */}
-      <div className="flex items-center gap-0 flex-shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            onClick={() => handleTabChange(t.key)}
-            className="px-4 py-2.5 text-sm font-medium transition-colors relative"
-            style={{
-              color: tab === t.key ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-            }}
-            onMouseEnter={e => { if (tab !== t.key) (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)' }}
-            onMouseLeave={e => { if (tab !== t.key) (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)' }}
-          >
-            {t.label}
-            {tab === t.key && (
-              <span
-                className="absolute bottom-0 left-0 right-0 h-0.5"
-                style={{ backgroundColor: 'var(--color-accent)' }}
-              />
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* Toolbar: search + filter */}
-      <div className="flex items-center gap-3 flex-shrink-0 flex-wrap">
-        {/* Search */}
-        <div className="relative flex-1 min-w-[200px] max-w-[360px]">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-text-muted)' }} />
-          <input
-            type="text"
-            placeholder="Search by lead name or phone..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="w-full pl-9 pr-8 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-            style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }}
-          />
-          {search && (
-            <button
-              onClick={() => setSearch('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-sm"
-              style={{ color: 'var(--color-text-muted)' }}
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
-
-        {/* Filter pill */}
-        <div className="relative" ref={filterRef}>
-          <button onClick={() => setFilterOpen(o => !o)} style={pillStyle}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface-hover)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)' }}>
-            <Filter size={14} />
-            <span>Filter</span>
-            {count > 0 && (
-              <span className="flex items-center justify-center text-xs font-semibold rounded-full"
-                style={{ minWidth: 18, height: 18, padding: '0 5px', backgroundColor: 'var(--color-accent)', color: '#ffffff' }}>
-                {count}
-              </span>
-            )}
-          </button>
-
-          {filterOpen && (
-            <div className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-xl p-4"
-              style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', width: 520 }}>
-              <div className="grid grid-cols-2 gap-3">
-                <FieldSelect label="Direction"
-                  value={filters.direction === 'all' ? '' : filters.direction}
-                  onChange={v => set('direction', (v || 'all') as CallHistoryFilters['direction'])}
-                  options={[{ value: 'inbound', label: 'Inbound' }, { value: 'outbound', label: 'Outbound' }]} />
-                <MultiFieldSelect label="Sentiment" values={filters.sentiment} onChange={v => set('sentiment', v)}
-                  options={[{ value: 'positive', label: 'Positive' }, { value: 'neutral', label: 'Neutral' }, { value: 'negative', label: 'Negative' }, { value: 'unknown', label: 'Unknown' }]} />
-                <FieldSelect label="Outcome" value={filters.outcome} onChange={v => set('outcome', v)}
-                  options={[{ value: 'successful', label: 'Successful' }, { value: 'unsuccessful', label: 'Unsuccessful' }]} />
-                <FieldSelect label="Appointment Booked" value={filters.appointmentBooked} onChange={v => set('appointmentBooked', v)}
-                  options={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]} placeholder="Any" />
-                <MultiFieldSelect label="Disconnect Reason" values={filters.disconnectedReason} onChange={v => set('disconnectedReason', v)}
-                  options={[{ value: 'agent_hangup', label: 'Agent Hangup' }, { value: 'user_hangup', label: 'User Hangup' }, { value: 'voicemail', label: 'Voicemail' }, { value: 'dial_no_answer', label: 'No Answer' }, { value: 'dial_busy', label: 'Busy' }, { value: 'call_transfer', label: 'Transfer' }]} />
-                <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Quality Score</label>
-                  <div className="flex gap-2">
-                    <OpPicker value={filters.qualityScore.op} onChange={op => set('qualityScore', { ...filters.qualityScore, op })} />
-                    <input type="number" min={0} max={10} step={0.5} placeholder="0\u201310" value={filters.qualityScore.value}
-                      onChange={e => set('qualityScore', { ...filters.qualityScore, value: e.target.value })}
-                      className="flex-1 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-                      style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
-                  </div>
-                </div>
-                {/* Date range */}
-                <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Date From</label>
-                  <input type="date" value={filters.dateFrom} onChange={e => set('dateFrom', e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-                    style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Date To</label>
-                  <input type="date" value={filters.dateTo} onChange={e => set('dateTo', e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-                    style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
-                </div>
-              </div>
-              {/* Callback filter — only on All Calls and Inbound tabs */}
-              {(tab === 'all' || tab === 'inbound') && (
-                <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={filters.callbackOnly}
-                      onChange={e => set('callbackOnly', e.target.checked)}
-                      className="rounded"
-                      style={{ accentColor: 'var(--color-accent)' }}
-                    />
-                    <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                      Callbacks only
-                    </span>
-                    <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                      Show leads who called back after a missed outbound
-                    </span>
-                  </label>
-                </div>
-              )}
-              {count > 0 && (
-                <div className="flex justify-end mt-3">
-                  <button type="button" onClick={() => handleFilterChange(DEFAULT_FILTERS)} className="text-xs font-medium"
-                    style={{ color: 'var(--color-accent)', transition: 'color var(--transition-fast)' }}
-                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-accent-hover)'}
-                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-accent)'}>
-                    Clear all
-                  </button>
+      {/* KPI Dashboard */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 flex-shrink-0">
+        {kpiLoading ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="rounded-2xl h-[120px] skeleton-shimmer" style={{ border: '1px solid var(--color-border)' }} />
+          ))
+        ) : kpis ? (
+          <>
+            <StatCard
+              title="Review Coverage"
+              value={`${kpis.totalReviewed}`}
+              sub={`${kpis.totalEligible > 0 ? Math.round((kpis.totalReviewed / kpis.totalEligible) * 100) : 0}% of ${kpis.totalEligible} eligible`}
+            />
+            <StatCard
+              title="Pass Rate"
+              value={`${passRate}%`}
+              sub={`${kpis.passCount} passed / ${kpis.totalReviewed} total`}
+              valueColor={passRate >= 80 ? NOTION_COLORS.green.text : passRate >= 60 ? NOTION_COLORS.yellow.text : NOTION_COLORS.red.text}
+            />
+            <StatCard
+              title="Avg User Repeats"
+              value={`${kpis.avgUserRepeats}`}
+              sub="per call"
+            />
+            <StatCard
+              title="Follow-ups Needed"
+              value={`${kpis.followUpNeededCount}`}
+            />
+            <StatCard
+              title="Booking Success"
+              value={`${bookingRate}%`}
+              sub={`${kpis.bookingSuccessful} / ${kpis.bookingAttempted} attempted`}
+              valueColor={bookingRate >= 70 ? NOTION_COLORS.green.text : bookingRate >= 40 ? NOTION_COLORS.yellow.text : NOTION_COLORS.red.text}
+            />
+            <div className="rounded-2xl p-5 flex flex-col gap-1 h-[120px]" style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
+              <p className="text-sm font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-secondary)' }}>Top Mistakes</p>
+              {kpis.topAgentMistakes.length === 0 ? (
+                <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>No mistakes recorded</p>
+              ) : (
+                <div className="flex flex-col gap-0.5 mt-1 overflow-hidden">
+                  {kpis.topAgentMistakes.slice(0, 3).map((m, i) => (
+                    <div key={i} className="flex items-center gap-1.5 text-xs truncate" style={{ color: 'var(--color-text-primary)' }}>
+                      <AlertTriangle size={10} style={{ color: NOTION_COLORS.red.text, flexShrink: 0 }} />
+                      <span className="truncate">{m.mistake}</span>
+                      <span className="ml-auto flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>({m.count})</span>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
-          )}
-        </div>
+          </>
+        ) : null}
+      </div>
 
-        {/* Analyze button — super_admin and studio_owner only */}
+      {/* Toolbar: filter pill + actions */}
+      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap" ref={filterRef}>
+        <button
+          type="button"
+          onClick={() => setFilterOpen(o => !o)}
+          style={pillStyle}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)'; (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)' }}
+        >
+          <Filter size={14} />
+          <span>Filters</span>
+          {count > 0 && (
+            <span className="flex items-center justify-center rounded-full text-xs font-semibold" style={{ width: 18, height: 18, backgroundColor: 'var(--color-accent)', color: '#ffffff' }}>
+              {count}
+            </span>
+          )}
+        </button>
+
+        {/* Refresh */}
+        <button
+          type="button"
+          onClick={handleRefresh}
+          className="p-2 rounded-lg"
+          style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)'; (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)' }}
+          title="Refresh"
+        >
+          <RefreshCw size={14} />
+        </button>
+
+        <div className="flex-1" />
+
+        {/* Analyze button */}
         {canAnalyze && (
-          <div className="flex items-center gap-2 ml-auto">
+          <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={handleAnalyze}
               disabled={analyzing}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
               style={{
                 backgroundColor: 'var(--color-accent)',
                 color: '#ffffff',
+                cursor: analyzing ? 'wait' : 'pointer',
+                transition: 'background var(--transition-fast)',
               }}
               onMouseEnter={e => { if (!analyzing) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent-hover)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent)' }}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent)'}
             >
               <Sparkles size={14} />
               {analyzing ? 'Analyzing...' : 'Analyze Unreviewed'}
+              {unreviewedCount != null && unreviewedCount > 0 && !analyzing && (
+                <span className="flex items-center justify-center rounded-full text-xs font-semibold" style={{ width: 20, height: 20, backgroundColor: 'rgba(255,255,255,0.25)', color: '#ffffff' }}>
+                  {unreviewedCount > 99 ? '99+' : unreviewedCount}
+                </span>
+              )}
             </button>
             {analyzeResult && (
-              <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                {analyzeResult}
-              </span>
+              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{analyzeResult}</span>
             )}
           </div>
         )}
       </div>
 
-      {/* Table */}
+      {/* Filter panel */}
+      {filterOpen && (
+        <div className="flex-shrink-0 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-4 rounded-xl" style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+          <FieldSelect label="Grade" value={filters.grade} onChange={v => set('grade', v)} options={[{ value: 'Pass', label: 'Pass' }, { value: 'Fail', label: 'Fail' }]} />
+          <FieldSelect label="Direction" value={filters.direction} onChange={v => set('direction', v)} options={[{ value: 'inbound', label: 'Inbound' }, { value: 'outbound', label: 'Outbound' }]} />
+          <MultiFieldSelect label="Sentiment" values={filters.sentiment} onChange={v => set('sentiment', v)} options={[{ value: 'positive', label: 'Positive' }, { value: 'neutral', label: 'Neutral' }, { value: 'negative', label: 'Negative' }, { value: 'unknown', label: 'Unknown' }]} />
+          <div>
+            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Quality Score</label>
+            <div className="flex gap-1">
+              <OpPicker value={filters.qualityScore.op} onChange={op => set('qualityScore', { ...filters.qualityScore, op })} />
+              <input
+                type="number" min={0} max={10} step={0.1}
+                value={filters.qualityScore.value}
+                onChange={e => set('qualityScore', { ...filters.qualityScore, value: e.target.value })}
+                placeholder="0-10"
+                className="flex-1 px-3 py-2 rounded-lg text-sm"
+                style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)', outline: 'none' }}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>From</label>
+            <input type="date" value={filters.dateFrom} onChange={e => set('dateFrom', e.target.value)}
+              className="w-full px-3 py-2 rounded-lg text-sm" style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)', outline: 'none' }} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>To</label>
+            <input type="date" value={filters.dateTo} onChange={e => set('dateTo', e.target.value)}
+              className="w-full px-3 py-2 rounded-lg text-sm" style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)', outline: 'none' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Table card */}
       <div className="relative flex-1 min-h-0 rounded-xl overflow-hidden shadow-sm" style={{ border: '1px solid var(--color-border)' }}>
         <div className="h-full overflow-y-auto overflow-x-auto no-theme-transition" style={{ backgroundColor: 'var(--color-bg)' }}>
         <table className="w-full text-sm border-collapse">
           <thead className="sticky top-0 z-10" style={{ backgroundColor: 'var(--color-surface)' }}>
             <tr>
-              {(tab === 'callbacks' ? [
-                { key: 'created_at', label: 'Callback Date', sortable: true },
-                { key: 'lead_name', label: 'Lead Name', sortable: false },
-                { key: 'phone', label: 'Phone', sortable: false },
-                { key: 'time_since', label: 'Time Since Missed', sortable: false },
-                { key: 'duration_seconds', label: 'Duration', sortable: true },
-                { key: 'outcome', label: 'Outcome', sortable: false },
-                { key: 'status', label: 'Status', sortable: false },
-                { key: 'quality_score', label: 'Quality', sortable: true },
-                { key: 'grade', label: 'Grade', sortable: false },
-              ] : [
-                { key: 'created_at', label: 'Date/Time', sortable: true },
-                { key: 'lead_name', label: 'Lead Name', sortable: false },
-                { key: 'phone', label: 'Phone', sortable: false },
-                { key: 'direction', label: 'Direction', sortable: false },
-                { key: 'duration_seconds', label: 'Duration', sortable: true },
-                { key: 'sentiment', label: 'Sentiment', sortable: false },
-                { key: 'outcome', label: 'Outcome', sortable: false },
-                { key: 'quality_score', label: 'Quality', sortable: true },
-                { key: 'grade', label: 'Grade', sortable: false },
-              ]).map(col => (
+              {COLUMNS.map(col => (
                 <th
                   key={col.key}
                   className={`pl-3 pr-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${col.sortable ? 'cursor-pointer select-none' : ''}`}
@@ -801,96 +728,59 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                 <SkeletonRow />
                 <SkeletonRow />
               </>
-            ) : calls.length === 0 ? (
+            ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>
-                  {search ? 'No calls match your search' : count > 0 ? 'No calls match these filters' : TAB_EMPTY_MESSAGES[tab]}
+                <td colSpan={10} className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                  {count > 0 ? 'No reviews match these filters' : 'No call reviews yet. Use "Analyze Unreviewed" to generate reviews.'}
                 </td>
               </tr>
-            ) : tab === 'callbacks' ? (
-              calls.map(call => (
-                <tr
-                  key={call.id}
-                  className="cursor-pointer transition-colors bg-[var(--color-bg)] hover:bg-[var(--color-surface)]"
-                  style={{ borderBottom: '1px solid var(--color-border)' }}
-                  onClick={() => setSelectedCall(call)}
-                >
-                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)' }}>
-                    {formatDateTime(call.created_at)}
-                  </td>
-                  <td className="px-3 py-3 align-middle font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                    {call.lead_name ?? <span style={{ color: 'var(--color-text-muted)' }}>Unknown</span>}
-                  </td>
-                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-secondary)' }}>
-                    {formatPhone(call.lead_phone ?? null)}
-                  </td>
-                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
-                    {formatTimeSince(call.last_missed_outbound_at, call.created_at)}
-                  </td>
-                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)', fontVariantNumeric: 'tabular-nums' }}>
-                    {formatDurationMSS(call.duration_seconds)}
-                  </td>
-                  <td className="px-3 py-3 align-middle">
-                    {call.outcome ? <Badge value={call.outcome} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
-                  </td>
-                  <td className="px-3 py-3 align-middle">
-                    <div className="flex items-center gap-1.5">
-                      <CallbackChip />
-                      {call.transferred && <ForwardedChip />}
-                    </div>
-                  </td>
-                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{
-                    color: call.quality_score != null ? qualityScoreColor(call.quality_score) : 'var(--color-text-muted)',
-                    fontWeight: call.quality_score != null ? 500 : 400,
-                  }}>
-                    {call.quality_score != null ? call.quality_score : '\u2014'}
-                  </td>
-                  <td className="px-3 py-3 align-middle">
-                    {reviewMap[call.id] ? <Badge value={reviewMap[call.id].grade} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
-                  </td>
-                </tr>
-              ))
             ) : (
-              calls.map(call => (
+              rows.map(row => (
                 <tr
-                  key={call.id}
+                  key={row.review_id}
                   className="cursor-pointer transition-colors bg-[var(--color-bg)] hover:bg-[var(--color-surface)]"
                   style={{ borderBottom: '1px solid var(--color-border)' }}
-                  onClick={() => setSelectedCall(call)}
+                  onClick={() => setSelectedCall(toCallHistoryRow(row))}
                 >
                   <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)' }}>
-                    {formatDateTime(call.created_at)}
+                    {formatDateTime(row.call_created_at)}
                   </td>
                   <td className="px-3 py-3 align-middle font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                    {call.lead_name ?? <span style={{ color: 'var(--color-text-muted)' }}>Unknown contact</span>}
-                  </td>
-                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-secondary)' }}>
-                    {formatPhone(call.lead_phone ?? null)}
+                    {row.lead_name ?? <span style={{ color: 'var(--color-text-muted)' }}>Unknown</span>}
                   </td>
                   <td className="px-3 py-3 align-middle">
-                    <div className="flex items-center gap-1.5">
-                      {call.direction ? <Badge value={call.direction} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
-                      {call.is_callback && <CallbackChip />}
-                      {call.is_callback && call.transferred && <ForwardedChip />}
-                    </div>
+                    {row.direction ? <Badge value={row.direction} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
                   </td>
                   <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)', fontVariantNumeric: 'tabular-nums' }}>
-                    {formatDurationMSS(call.duration_seconds)}
+                    {formatDurationMSS(row.duration_seconds)}
                   </td>
                   <td className="px-3 py-3 align-middle">
-                    {call.sentiment ? <Badge value={call.sentiment} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
-                  </td>
-                  <td className="px-3 py-3 align-middle">
-                    {call.outcome ? <Badge value={call.outcome} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
+                    <Badge value={row.grade} />
                   </td>
                   <td className="px-3 py-3 align-middle whitespace-nowrap" style={{
-                    color: call.quality_score != null ? qualityScoreColor(call.quality_score) : 'var(--color-text-muted)',
-                    fontWeight: call.quality_score != null ? 500 : 400,
+                    color: row.quality_score != null ? qualityScoreColor(row.quality_score) : 'var(--color-text-muted)',
+                    fontWeight: row.quality_score != null ? 500 : 400,
                   }}>
-                    {call.quality_score != null ? call.quality_score : '\u2014'}
+                    {row.quality_score != null ? row.quality_score : '\u2014'}
                   </td>
                   <td className="px-3 py-3 align-middle">
-                    {reviewMap[call.id] ? <Badge value={reviewMap[call.id].grade} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
+                    {row.sentiment ? <Badge value={row.sentiment} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
+                  </td>
+                  <td className="px-3 py-3 align-middle">
+                    {row.outcome ? <Badge value={row.outcome} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
+                  </td>
+                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{
+                    color: row.appointment_booked ? NOTION_COLORS.green.text : 'var(--color-text-muted)',
+                    fontWeight: row.appointment_booked ? 500 : 400,
+                  }}>
+                    {row.appointment_booked == null ? '\u2014' : row.appointment_booked ? 'Yes' : 'No'}
+                  </td>
+                  <td className="px-3 py-3 align-middle">
+                    {row.follow_up_needed ? (
+                      <span className="px-2 py-0.5 rounded text-sm font-medium status-bg-yellow status-text-yellow">Yes</span>
+                    ) : (
+                      <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>
+                    )}
                   </td>
                 </tr>
               ))
@@ -900,9 +790,8 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
         </div>
       </div>
 
-      {/* Pagination footer — matches leads-table style */}
+      {/* Pagination footer */}
       <div className="flex-shrink-0 flex items-center justify-between px-2 py-0.5 text-sm">
-        {/* Page size */}
         <div className="flex items-center gap-1.5">
           <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Rows per page</span>
           <div className="flex">
@@ -910,9 +799,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
               <button
                 key={size}
                 onClick={() => handlePageSizeChange(size)}
-                className={`px-3 py-1.5 text-sm ${
-                  i === 0 ? 'rounded-l-md' : i === PAGE_SIZE_OPTIONS.length - 1 ? 'rounded-r-md' : ''
-                }`}
+                className={`px-3 py-1.5 text-sm ${i === 0 ? 'rounded-l-md' : i === PAGE_SIZE_OPTIONS.length - 1 ? 'rounded-r-md' : ''}`}
                 style={{
                   border: '1px solid var(--color-border)',
                   backgroundColor: pageSize === size ? 'var(--color-accent)' : 'var(--color-bg)',
@@ -923,14 +810,14 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                 }}
                 onMouseEnter={e => {
                   if (pageSize !== size) {
-                    (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'
-                    ;(e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)'
+                    (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)'
                   }
                 }}
                 onMouseLeave={e => {
                   if (pageSize !== size) {
-                    (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)'
-                    ;(e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)'
+                    (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)'
                   }
                 }}
               >
@@ -940,7 +827,6 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
           </div>
         </div>
 
-        {/* Page info + nav */}
         <div className="flex items-center gap-3">
           <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             {total === 0 ? 'No results' : `${showingFrom.toLocaleString()}\u2013${showingTo.toLocaleString()} of ${total.toLocaleString()}`}
@@ -965,13 +851,13 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                 }}
                 onMouseEnter={e => {
                   if (!disabled) {
-                    ;(e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'
-                    ;(e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)'
+                    (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)'
                   }
                 }}
                 onMouseLeave={e => {
-                  ;(e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)'
-                  ;(e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)'
+                  (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)';
+                  (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)'
                 }}
               >
                 <Icon size={16} />
@@ -997,13 +883,13 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                 }}
                 onMouseEnter={e => {
                   if (!disabled) {
-                    ;(e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'
-                    ;(e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)'
+                    (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)'
                   }
                 }}
                 onMouseLeave={e => {
-                  ;(e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)'
-                  ;(e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)'
+                  (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)';
+                  (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)'
                 }}
               >
                 <Icon size={16} />
