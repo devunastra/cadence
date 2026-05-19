@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Phone, UserPlus, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
+import { SimpleSelect } from '@/components/simple-select'
 
 type CallStatus = 'idle' | 'calling' | 'success' | 'error'
 type AgentOption = { id: string; label: string }
@@ -128,22 +129,14 @@ export default function TestPage() {
         <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--color-text-primary)' }}>
           Which agent should call?
         </label>
-        <select
+        <SimpleSelect
           value={value}
-          onChange={e => onChange(e.target.value)}
-          className="w-full px-3 py-2.5 rounded-lg text-sm outline-none transition-colors cursor-pointer"
-          style={{
-            backgroundColor: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            color: 'var(--color-text-primary)',
-          }}
-        >
-          {agentOptions.map((agent: AgentOption) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.label}
-            </option>
-          ))}
-        </select>
+          onChange={onChange}
+          options={agentOptions.map(a => ({ value: a.id, label: a.label }))}
+          placeholder="Select agent…"
+          fullWidth
+          clearable={false}
+        />
       </div>
     )
   }
