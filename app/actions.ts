@@ -898,6 +898,13 @@ export interface PageFilters {
     }
     sort?: { field: string; ascending: boolean }
   }
+  followUps?: {
+    filters?: {
+      direction?: string; grade?: string; sentiment?: string[]
+      dateFrom?: string; dateTo?: string
+    }
+    sort?: { field: string; ascending: boolean }
+  }
 }
 
 export async function getPageFilters(studioId: string): Promise<PageFilters> {
@@ -2163,6 +2170,7 @@ export type QualityReviewRow = {
   booking_successful: boolean | null
   follow_up_needed: boolean
   follow_up_reason: string | null
+  callback_requested: boolean
   topics_discussed: string[]
   trigger_type: 'manual' | 'cron'
   review_created_at: string
@@ -2195,6 +2203,8 @@ export interface QualityReviewParams {
     qualityScore?: { op: string; value: string }
     dateFrom?: string
     dateTo?: string
+    followUpNeeded?: boolean
+    callbackRequested?: boolean
   }
   page?: number
   pageSize?: number
@@ -2228,11 +2238,17 @@ export async function fetchQualityReviews(
   // 1. Query call_reviews with grade filter
   let reviewQuery = client
     .from('call_reviews')
-    .select('id, call_id, grade, summary, agent_mistakes, user_repeats, booking_attempted, booking_successful, follow_up_needed, follow_up_reason, topics_discussed, trigger_type, created_at')
+    .select('id, call_id, grade, summary, agent_mistakes, user_repeats, booking_attempted, booking_successful, follow_up_needed, follow_up_reason, callback_requested, topics_discussed, trigger_type, created_at')
     .eq('studio_id', studioId)
 
   if (filters.grade && filters.grade !== 'all') {
     reviewQuery = reviewQuery.eq('grade', filters.grade)
+  }
+  if (filters.followUpNeeded) {
+    reviewQuery = reviewQuery.eq('follow_up_needed', true)
+  }
+  if (filters.callbackRequested) {
+    reviewQuery = reviewQuery.eq('callback_requested', true)
   }
 
   const { data: allReviews, error: revErr } = await reviewQuery
@@ -2330,6 +2346,7 @@ export async function fetchQualityReviews(
         booking_successful: r.booking_successful,
         follow_up_needed: r.follow_up_needed ?? false,
         follow_up_reason: r.follow_up_reason,
+        callback_requested: r.callback_requested ?? false,
         topics_discussed: r.topics_discussed ?? [],
         trigger_type: r.trigger_type as 'manual' | 'cron',
         review_created_at: r.created_at,
@@ -2428,4 +2445,31 @@ export async function fetchQualityKpis(
     topAgentMistakes,
     topTopics,
   }
+}
+
+// ── Follow-ups KPIs ──────────────────────────────────────────────────────────
+
+export interface FollowUpKpis {
+  followUpCount: number
+  callbackCount: number
+  passRate: number
+}
+
+export async function fetchFollowUpKpis(studioId: string): Promise<FollowUpKpis> {
+  const { client } = await getAuthorizedClient()
+
+  const { data: reviews } = await client
+    .from('call_reviews')
+    .select('grade, follow_up_needed, callback_requested')
+    .eq('studio_id', studioId)
+
+  const all = reviews ?? []
+  const followUpCount = all.filter(r => r.follow_up_needed).length
+  const callbackCount = all.filter(r => r.callback_requested).length
+  const followUpRows = all.filter(r => r.follow_up_needed || r.callback_requested)
+  const passRate = followUpRows.length > 0
+    ? Math.round((followUpRows.filter(r => r.grade === 'Pass').length / followUpRows.length) * 100)
+    : 0
+
+  return { followUpCount, callbackCount, passRate }
 }
