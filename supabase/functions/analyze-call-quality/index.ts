@@ -11,8 +11,8 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 
-const MAX_BATCH = 25
-const CONCURRENCY = 2
+const MAX_BATCH = 10
+const CONCURRENCY = 5
 const MIN_DURATION_SECONDS = 15
 
 const SYSTEM_PROMPT = `You are a call quality analyst for a dance studio. Analyze this call transcript between an AI voice agent (powered by Retell AI) and a potential or existing dance student.

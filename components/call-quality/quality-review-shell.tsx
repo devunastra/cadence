@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useTransition, useCallback } from 'react'
 import { useMounted } from '@/lib/hooks'
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, ChevronDown, Check, Sparkles, RefreshCw, AlertTriangle } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, ChevronDown, Check, Sparkles, RefreshCw, AlertTriangle, X } from 'lucide-react'
 import { fetchQualityReviews, fetchQualityKpis, savePageFilters, fetchUnreviewedCallIds, triggerCallAnalysis } from '@/app/actions'
 import type { QualityReviewRow, QualityReviewParams, QualityKpis, CallHistoryRow } from '@/app/actions'
 import { STATUS_COLORS, NOTION_COLORS } from '@/lib/constants'
@@ -48,12 +48,24 @@ function qualityScoreColor(score: number): string {
   return NOTION_COLORS.red.text
 }
 
+function getCallResult(row: { disconnected_reason: string | null; picked_up: boolean | null; transferred: boolean | null; appointment_booked: boolean | null }): string | null {
+  if (row.disconnected_reason === 'voicemail') return 'Voicemail'
+  if (row.disconnected_reason === 'dial_no_answer') return 'No Answer'
+  if (row.disconnected_reason === 'dial_busy') return 'Busy'
+  if (row.transferred) return 'Transferred'
+  if (row.appointment_booked) return 'Booked'
+  if (row.disconnected_reason === 'user_hangup') return 'Hung Up'
+  if (row.picked_up === true) return 'Completed'
+  return null
+}
+
 // ── Filter types ─────────────────────────────────────────────────────────────
 
 interface QualityFilters {
   grade: string
   direction: string
   sentiment: string[]
+  result: string[]
   qualityScore: { op: '>=' | '<=' | '>' | '<' | '='; value: string }
   dateFrom: string
   dateTo: string
@@ -63,16 +75,28 @@ const DEFAULT_FILTERS: QualityFilters = {
   grade: '',
   direction: '',
   sentiment: [],
+  result: [],
   qualityScore: { op: '>=', value: '' },
   dateFrom: '',
   dateTo: '',
 }
+
+const RESULT_OPTIONS = [
+  { value: 'Voicemail', label: 'Voicemail' },
+  { value: 'No Answer', label: 'No Answer' },
+  { value: 'Busy', label: 'Busy' },
+  { value: 'Transferred', label: 'Transferred' },
+  { value: 'Booked', label: 'Booked' },
+  { value: 'Hung Up', label: 'Hung Up' },
+  { value: 'Completed', label: 'Completed' },
+]
 
 function activeFilterCount(f: QualityFilters): number {
   let n = 0
   if (f.grade) n++
   if (f.direction) n++
   if (f.sentiment.length > 0) n++
+  if (f.result.length > 0) n++
   if (f.qualityScore.value !== '') n++
   if (f.dateFrom || f.dateTo) n++
   return n
@@ -284,7 +308,7 @@ function PageInput({ page, totalPages, onJump }: { page: number; totalPages: num
 function SkeletonRow() {
   return (
     <tr>
-      {Array.from({ length: 10 }).map((_, i) => (
+      {Array.from({ length: 9 }).map((_, i) => (
         <td key={i} className="px-3 py-2">
           <div className="h-10 rounded skeleton-shimmer" style={{ width: i === 0 ? '70%' : i === 1 ? '60%' : '50%' }} />
         </td>
@@ -373,6 +397,7 @@ export function QualityReviewShell({ studioId, userRole, isSuper }: QualityRevie
             grade: filters.grade,
             direction: filters.direction,
             sentiment: filters.sentiment,
+            result: filters.result,
             qualityScore: filters.qualityScore,
             dateFrom: filters.dateFrom,
             dateTo: filters.dateTo,
@@ -390,7 +415,7 @@ export function QualityReviewShell({ studioId, userRole, isSuper }: QualityRevie
     const channel = supabase
       .channel('quality-reviews-realtime')
       .on('postgres_changes', {
-        event: 'INSERT',
+        event: '*',
         schema: 'public',
         table: 'call_reviews',
         filter: `studio_id=eq.${studioId}`,
@@ -420,6 +445,7 @@ export function QualityReviewShell({ studioId, userRole, isSuper }: QualityRevie
             grade: f.grade,
             direction: f.direction,
             sentiment: f.sentiment,
+            result: f.result,
             qualityScore: f.qualityScore,
             dateFrom: f.dateFrom,
             dateTo: f.dateTo,
@@ -486,20 +512,35 @@ export function QualityReviewShell({ studioId, userRole, isSuper }: QualityRevie
       const unreviewed = await fetchUnreviewedCallIds(studioId)
       if (unreviewed.length === 0) {
         setAnalyzeResult('All calls are already reviewed.')
+        setAnalyzing(false)
         return
       }
-      const batch = unreviewed.slice(0, 25)
-      const result = await triggerCallAnalysis(studioId, batch)
-      const succeeded = result.analyzed - result.errors.length
-      const failed = result.errors.length
-      let msg = `Done: ${succeeded} analyzed`
-      if (failed > 0) {
-        const firstErr = result.errors[0]?.error ?? 'Unknown'
-        msg += `, ${failed} errors (${firstErr})`
+
+      const BATCH_SIZE = 10
+      const total = unreviewed.length
+      let processed = 0
+      let totalFailed = 0
+
+      for (let i = 0; i < total; i += BATCH_SIZE) {
+        const batch = unreviewed.slice(i, i + BATCH_SIZE)
+        setAnalyzeResult(`Analyzing... ${Math.min(processed + batch.length, total)}/${total}`)
+        try {
+          const result = await triggerCallAnalysis(studioId, batch)
+          processed += result.analyzed
+          totalFailed += result.errors.length
+        } catch {
+          totalFailed += batch.length
+        }
+        setUnreviewedCount(Math.max(0, total - processed - totalFailed))
+        // Refresh table and KPIs after each batch so new reviews appear immediately
+        loadData(filters, sort, page, pageSize)
+        loadKpis()
       }
-      if (result.skipped > 0) msg += `, ${result.skipped} skipped`
+
+      let msg = `Done: ${processed} analyzed`
+      if (totalFailed > 0) msg += `, ${totalFailed} failed`
       setAnalyzeResult(msg)
-      handleRefresh()
+      fetchUnreviewedCallIds(studioId).then(ids => setUnreviewedCount(ids.length)).catch(() => {})
     } catch (err) {
       setAnalyzeResult(`Error: ${(err as Error).message}`)
     } finally {
@@ -538,13 +579,12 @@ export function QualityReviewShell({ studioId, userRole, isSuper }: QualityRevie
   const COLUMNS = [
     { key: 'created_at', label: 'Date', sortable: true },
     { key: 'lead_name', label: 'Lead', sortable: false },
-    { key: 'direction', label: 'Direction', sortable: false },
     { key: 'duration_seconds', label: 'Duration', sortable: true },
     { key: 'grade', label: 'Grade', sortable: true },
     { key: 'quality_score', label: 'Quality', sortable: true },
+    { key: 'issues', label: 'Issues', sortable: true },
+    { key: 'result', label: 'Result', sortable: false },
     { key: 'sentiment', label: 'Sentiment', sortable: false },
-    { key: 'outcome', label: 'Outcome', sortable: false },
-    { key: 'appointment_booked', label: 'Appt', sortable: false },
     { key: 'follow_up', label: 'Follow-up', sortable: false },
   ]
 
@@ -605,22 +645,61 @@ export function QualityReviewShell({ studioId, userRole, isSuper }: QualityRevie
       </div>
 
       {/* Toolbar: filter pill + actions */}
-      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap" ref={filterRef}>
+      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+        <div className="relative" ref={filterRef}>
         <button
           type="button"
           onClick={() => setFilterOpen(o => !o)}
           style={pillStyle}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)' }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)'; (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface-hover)' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)' }}
         >
           <Filter size={14} />
-          <span>Filters</span>
+          <span>Filter</span>
           {count > 0 && (
-            <span className="flex items-center justify-center rounded-full text-xs font-semibold" style={{ width: 18, height: 18, backgroundColor: 'var(--color-accent)', color: '#ffffff' }}>
+            <span className="flex items-center justify-center text-xs font-semibold rounded-full" style={{ minWidth: 18, height: 18, padding: '0 5px', backgroundColor: 'var(--color-accent)', color: '#ffffff' }}>
               {count}
             </span>
           )}
         </button>
+
+        {filterOpen && (
+          <div className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-xl p-4"
+            style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', width: 520 }}>
+            <div className="grid grid-cols-2 gap-3">
+              <FieldSelect label="Grade" value={filters.grade} onChange={v => set('grade', v)} options={[{ value: 'Pass', label: 'Pass' }, { value: 'Fail', label: 'Fail' }]} />
+              <FieldSelect label="Direction" value={filters.direction} onChange={v => set('direction', v)} options={[{ value: 'inbound', label: 'Inbound' }, { value: 'outbound', label: 'Outbound' }]} />
+              <MultiFieldSelect label="Sentiment" values={filters.sentiment} onChange={v => set('sentiment', v)} options={[{ value: 'positive', label: 'Positive' }, { value: 'neutral', label: 'Neutral' }, { value: 'negative', label: 'Negative' }, { value: 'unknown', label: 'Unknown' }]} />
+              <MultiFieldSelect label="Result" values={filters.result} onChange={v => set('result', v)} options={RESULT_OPTIONS} />
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Quality Score</label>
+                <div className="flex gap-2">
+                  <OpPicker value={filters.qualityScore.op} onChange={op => set('qualityScore', { ...filters.qualityScore, op })} />
+                  <input
+                    type="number" min={0} max={10} step={0.1}
+                    value={filters.qualityScore.value}
+                    onChange={e => set('qualityScore', { ...filters.qualityScore, value: e.target.value })}
+                    placeholder="e.g. 7.5"
+                    className="flex-1 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                    style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }}
+                  />
+                </div>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Date Range</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" value={filters.dateFrom} onChange={e => set('dateFrom', e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                    style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
+                  <input type="date" value={filters.dateTo} onChange={e => set('dateTo', e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                    style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        </div>
 
         {/* Refresh */}
         <button
@@ -657,48 +736,35 @@ export function QualityReviewShell({ studioId, userRole, isSuper }: QualityRevie
               <Sparkles size={14} />
               {analyzing ? 'Analyzing...' : 'Analyze Unreviewed'}
               {unreviewedCount != null && unreviewedCount > 0 && !analyzing && (
-                <span className="flex items-center justify-center rounded-full text-xs font-semibold" style={{ width: 20, height: 20, backgroundColor: 'rgba(255,255,255,0.25)', color: '#ffffff' }}>
-                  {unreviewedCount > 99 ? '99+' : unreviewedCount}
+                <span className="flex items-center justify-center rounded-full text-xs font-semibold" style={{ minWidth: 20, height: 20, padding: '0 6px', backgroundColor: 'rgba(255,255,255,0.25)', color: '#ffffff' }}>
+                  {unreviewedCount}
                 </span>
               )}
             </button>
-            {analyzeResult && (
-              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{analyzeResult}</span>
-            )}
           </div>
         )}
       </div>
 
-      {/* Filter panel */}
-      {filterOpen && (
-        <div className="flex-shrink-0 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-4 rounded-xl" style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-          <FieldSelect label="Grade" value={filters.grade} onChange={v => set('grade', v)} options={[{ value: 'Pass', label: 'Pass' }, { value: 'Fail', label: 'Fail' }]} />
-          <FieldSelect label="Direction" value={filters.direction} onChange={v => set('direction', v)} options={[{ value: 'inbound', label: 'Inbound' }, { value: 'outbound', label: 'Outbound' }]} />
-          <MultiFieldSelect label="Sentiment" values={filters.sentiment} onChange={v => set('sentiment', v)} options={[{ value: 'positive', label: 'Positive' }, { value: 'neutral', label: 'Neutral' }, { value: 'negative', label: 'Negative' }, { value: 'unknown', label: 'Unknown' }]} />
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Quality Score</label>
-            <div className="flex gap-1">
-              <OpPicker value={filters.qualityScore.op} onChange={op => set('qualityScore', { ...filters.qualityScore, op })} />
-              <input
-                type="number" min={0} max={10} step={0.1}
-                value={filters.qualityScore.value}
-                onChange={e => set('qualityScore', { ...filters.qualityScore, value: e.target.value })}
-                placeholder="0-10"
-                className="flex-1 px-3 py-2 rounded-lg text-sm"
-                style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)', outline: 'none' }}
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>From</label>
-            <input type="date" value={filters.dateFrom} onChange={e => set('dateFrom', e.target.value)}
-              className="w-full px-3 py-2 rounded-lg text-sm" style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)', outline: 'none' }} />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>To</label>
-            <input type="date" value={filters.dateTo} onChange={e => set('dateTo', e.target.value)}
-              className="w-full px-3 py-2 rounded-lg text-sm" style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)', outline: 'none' }} />
-          </div>
+      {/* Analyze status banner */}
+      {analyzeResult && (
+        <div
+          className="flex items-center justify-between px-4 py-2.5 rounded-lg text-sm flex-shrink-0"
+          style={{
+            backgroundColor: 'var(--color-accent-subtle)',
+            color: 'var(--color-accent)',
+            border: '1px solid var(--color-accent)',
+            borderColor: 'rgba(35,131,226,0.2)',
+          }}
+        >
+          <span>{analyzeResult}</span>
+          <button
+            type="button"
+            onClick={() => setAnalyzeResult(null)}
+            className="flex items-center justify-center rounded-md p-0.5 transition-opacity hover:opacity-70"
+            style={{ color: 'var(--color-accent)' }}
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
 
@@ -730,7 +796,7 @@ export function QualityReviewShell({ studioId, userRole, isSuper }: QualityRevie
               </>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={10} className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                <td colSpan={9} className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>
                   {count > 0 ? 'No reviews match these filters' : 'No call reviews yet. Use "Analyze Unreviewed" to generate reviews.'}
                 </td>
               </tr>
@@ -748,9 +814,6 @@ export function QualityReviewShell({ studioId, userRole, isSuper }: QualityRevie
                   <td className="px-3 py-3 align-middle font-medium" style={{ color: 'var(--color-text-primary)' }}>
                     {row.lead_name ?? <span style={{ color: 'var(--color-text-muted)' }}>Unknown</span>}
                   </td>
-                  <td className="px-3 py-3 align-middle">
-                    {row.direction ? <Badge value={row.direction} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
-                  </td>
                   <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)', fontVariantNumeric: 'tabular-nums' }}>
                     {formatDurationMSS(row.duration_seconds)}
                   </td>
@@ -763,17 +826,18 @@ export function QualityReviewShell({ studioId, userRole, isSuper }: QualityRevie
                   }}>
                     {row.quality_score != null ? row.quality_score : '\u2014'}
                   </td>
+                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{
+                    color: row.agent_mistakes.length > 0 ? NOTION_COLORS.red.text : 'var(--color-text-muted)',
+                    fontWeight: row.agent_mistakes.length > 0 ? 500 : 400,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    {row.agent_mistakes.length > 0 ? `${row.agent_mistakes.length} issue${row.agent_mistakes.length !== 1 ? 's' : ''}` : '\u2014'}
+                  </td>
+                  <td className="px-3 py-3 align-middle">
+                    {(() => { const r = getCallResult(row); return r ? <Badge value={r} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span> })()}
+                  </td>
                   <td className="px-3 py-3 align-middle">
                     {row.sentiment ? <Badge value={row.sentiment} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
-                  </td>
-                  <td className="px-3 py-3 align-middle">
-                    {row.outcome ? <Badge value={row.outcome} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
-                  </td>
-                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{
-                    color: row.appointment_booked ? NOTION_COLORS.green.text : 'var(--color-text-muted)',
-                    fontWeight: row.appointment_booked ? 500 : 400,
-                  }}>
-                    {row.appointment_booked == null ? '\u2014' : row.appointment_booked ? 'Yes' : 'No'}
                   </td>
                   <td className="px-3 py-3 align-middle">
                     {row.follow_up_needed ? (

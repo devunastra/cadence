@@ -884,9 +884,7 @@ export interface PageFilters {
   }
   callHistory?: {
     filters?: {
-      direction?: string; sentiment?: string[]; outcome?: string
-      appointmentBooked?: string; disconnectedReason?: string[]
-      qualityScore?: { op: string; value: string }
+      direction?: string; sentiment?: string[]; result?: string[]
       dateFrom?: string; dateTo?: string
       callbackOnly?: boolean
     }
@@ -894,7 +892,7 @@ export interface PageFilters {
   }
   qualityReview?: {
     filters?: {
-      grade?: string; direction?: string; sentiment?: string[]
+      grade?: string; direction?: string; sentiment?: string[]; result?: string[]
       qualityScore?: { op: string; value: string }
       dateFrom?: string; dateTo?: string
     }
@@ -2193,6 +2191,7 @@ export interface QualityReviewParams {
     grade?: string
     direction?: string
     sentiment?: string[]
+    result?: string[]
     qualityScore?: { op: string; value: string }
     dateFrom?: string
     dateTo?: string
@@ -2256,6 +2255,18 @@ export async function fetchQualityReviews(
     if (!c) return false
     if (filters.direction && filters.direction !== 'all' && c.direction !== filters.direction) return false
     if (filters.sentiment?.length && !filters.sentiment.includes(c.sentiment ?? '')) return false
+    if (filters.result?.length) {
+      const dr = c.disconnected_reason as string | null
+      let result: string | null = null
+      if (dr === 'voicemail') result = 'Voicemail'
+      else if (dr === 'dial_no_answer') result = 'No Answer'
+      else if (dr === 'dial_busy') result = 'Busy'
+      else if (c.transferred) result = 'Transferred'
+      else if (c.appointment_booked) result = 'Booked'
+      else if (dr === 'user_hangup') result = 'Hung Up'
+      else if (c.picked_up) result = 'Completed'
+      if (!result || !filters.result.includes(result)) return false
+    }
     if (filters.qualityScore?.value) {
       const val = parseFloat(filters.qualityScore.value)
       const score = c.quality_score
@@ -2285,6 +2296,7 @@ export async function fetchQualityReviews(
     else if (sortField === 'duration_seconds') { va = ca?.duration_seconds ?? 0; vb = cb?.duration_seconds ?? 0 }
     else if (sortField === 'quality_score') { va = ca?.quality_score ?? 0; vb = cb?.quality_score ?? 0 }
     else if (sortField === 'grade') { va = a.grade; vb = b.grade }
+    else if (sortField === 'issues') { va = (a.agent_mistakes ?? []).length; vb = (b.agent_mistakes ?? []).length }
     else { va = a.created_at; vb = b.created_at }
     if (va == null && vb == null) return 0
     if (va == null) return 1
