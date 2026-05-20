@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useRef, useTransition, useCallback } from 'react'
 import { useMounted } from '@/lib/hooks'
-import { Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, ChevronDown, Check, X, Sparkles } from 'lucide-react'
-import { fetchCallHistory, savePageFilters, fetchCallReviewsForCalls, fetchUnreviewedCallIds, triggerCallAnalysis } from '@/app/actions'
+import { Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, ChevronDown, Check, X } from 'lucide-react'
+import { fetchCallHistory, savePageFilters } from '@/app/actions'
 import type { CallHistoryRow, CallHistoryParams } from '@/app/actions'
-import { STATUS_COLORS, NOTION_COLORS } from '@/lib/constants'
+import { STATUS_COLORS } from '@/lib/constants'
 import { formatDateTime } from '@/lib/date-utils'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentStudio } from '@/components/studio-context'
@@ -60,10 +60,16 @@ function Badge({ value }: { value: string }) {
   )
 }
 
-function qualityScoreColor(score: number): string {
-  if (score >= 8) return NOTION_COLORS.green.text
-  if (score >= 6) return NOTION_COLORS.yellow.text
-  return NOTION_COLORS.red.text
+
+function getCallResult(call: CallHistoryRow): string | null {
+  if (call.disconnected_reason === 'voicemail') return 'Voicemail'
+  if (call.disconnected_reason === 'dial_no_answer') return 'No Answer'
+  if (call.disconnected_reason === 'dial_busy') return 'Busy'
+  if (call.transferred) return 'Transferred'
+  if (call.appointment_booked) return 'Booked'
+  if (call.disconnected_reason === 'user_hangup') return 'Hung Up'
+  if (call.picked_up === true) return 'Completed'
+  return null
 }
 
 function formatPhone(raw: string | null): string {
@@ -107,10 +113,7 @@ function ForwardedChip() {
 interface CallHistoryFilters {
   direction: 'all' | 'inbound' | 'outbound'
   sentiment: string[]
-  outcome: string
-  appointmentBooked: string
-  disconnectedReason: string[]
-  qualityScore: { op: '>=' | '<=' | '>' | '<' | '='; value: string }
+  result: string[]
   dateFrom: string
   dateTo: string
   callbackOnly: boolean
@@ -119,23 +122,46 @@ interface CallHistoryFilters {
 const DEFAULT_FILTERS: CallHistoryFilters = {
   direction: 'all',
   sentiment: [],
-  outcome: '',
-  appointmentBooked: '',
-  disconnectedReason: [],
-  qualityScore: { op: '>=', value: '' },
+  result: [],
   dateFrom: '',
   dateTo: '',
   callbackOnly: false,
+}
+
+const RESULT_OPTIONS = [
+  { value: 'Voicemail', label: 'Voicemail' },
+  { value: 'No Answer', label: 'No Answer' },
+  { value: 'Busy', label: 'Busy' },
+  { value: 'Transferred', label: 'Transferred' },
+  { value: 'Booked', label: 'Booked' },
+  { value: 'Hung Up', label: 'Hung Up' },
+  { value: 'Completed', label: 'Completed' },
+]
+
+// Map result filter values back to server-side outcome + disconnectedReason filters
+function resultToServerFilters(results: string[]): { outcome: string; appointmentBooked: string; disconnectedReason: string[] } {
+  const disconnectedReason: string[] = []
+  const outcome = ''
+  let appointmentBooked = ''
+
+  for (const r of results) {
+    if (r === 'Voicemail') disconnectedReason.push('voicemail')
+    if (r === 'No Answer') disconnectedReason.push('dial_no_answer')
+    if (r === 'Busy') disconnectedReason.push('dial_busy')
+    if (r === 'Transferred') disconnectedReason.push('call_transfer')
+    if (r === 'Booked') appointmentBooked = 'yes'
+    if (r === 'Hung Up') disconnectedReason.push('user_hangup')
+    if (r === 'Completed') disconnectedReason.push('agent_hangup')
+  }
+
+  return { outcome, appointmentBooked, disconnectedReason }
 }
 
 function activeFilterCount(f: CallHistoryFilters): number {
   let n = 0
   if (f.direction !== 'all') n++
   if (f.sentiment.length > 0) n++
-  if (f.outcome) n++
-  if (f.appointmentBooked) n++
-  if (f.disconnectedReason.length > 0) n++
-  if (f.qualityScore.value !== '') n++
+  if (f.result.length > 0) n++
   if (f.dateFrom || f.dateTo) n++
   if (f.callbackOnly) n++
   return n
@@ -276,41 +302,6 @@ function MultiFieldSelect({ label, values, onChange, options, placeholder = 'All
   )
 }
 
-const OPS = ['>=', '<=', '>', '<', '='] as const
-type Op = typeof OPS[number]
-
-function OpPicker({ value, onChange }: { value: Op; onChange: (op: Op) => void }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    function handleClick(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
-  return (
-    <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen(o => !o)} className="flex items-center justify-center px-2 py-2 rounded-lg text-sm font-medium"
-        style={{ border: '1px solid var(--color-border)', boxShadow: open ? '0 0 0 2px var(--color-accent)' : 'none', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)', width: 52, transition: 'background var(--transition-fast)' }}
-        onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)'}
-        onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'}>
-        {value}
-      </button>
-      {open && (
-        <div className="absolute left-0 top-full mt-1 z-[100] rounded-xl py-1 overflow-hidden" style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', boxShadow: '0 8px 24px rgba(0,0,0,0.10)', minWidth: 52 }}>
-          {OPS.map(op => (
-            <button key={op} type="button" onClick={() => { onChange(op); setOpen(false) }} className="w-full text-center px-2 py-2 text-sm font-medium"
-              style={{ backgroundColor: value === op ? 'var(--color-accent)' : 'transparent', color: value === op ? '#ffffff' : 'var(--color-text-primary)', transition: 'none' }}
-              onMouseEnter={e => { if (value !== op) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface-hover)' }}
-              onMouseLeave={e => { if (value !== op) (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}>
-              {op}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── PageInput (from leads-table pattern) ────────────────────────────────────
 
 function PageInput({ page, totalPages, onJump }: { page: number; totalPages: number; onJump: (p: number) => void }) {
@@ -347,7 +338,7 @@ function PageInput({ page, totalPages, onJump }: { page: number; totalPages: num
 function SkeletonRow() {
   return (
     <tr>
-      {Array.from({ length: 9 }).map((_, i) => (
+      {Array.from({ length: 7 }).map((_, i) => (
         <td key={i} className="px-3 py-2">
           <div className="h-10 rounded skeleton-shimmer" style={{ width: i === 0 ? '70%' : i === 1 ? '60%' : '50%' }} />
         </td>
@@ -364,7 +355,7 @@ interface CallHistoryShellProps {
 
 export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
   const { userRole, isSuper } = useCurrentStudio()
-  const canAnalyze = isSuper || userRole === 'studio_owner'
+
   const [tab, setTab] = useState<Tab>('all')
   const [calls, setCalls] = useState<CallHistoryRow[]>([])
   const [total, setTotal] = useState(0)
@@ -381,10 +372,12 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
   const filterRef = useRef<HTMLDivElement>(null)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const debouncedSearch = useRef(search)
-  // Call reviews state
-  const [reviewMap, setReviewMap] = useState<Record<string, { grade: 'Pass' | 'Fail'; summary: string | null }>>({})
-  const [analyzing, setAnalyzing] = useState(false)
-  const [analyzeResult, setAnalyzeResult] = useState<string | null>(null)
+  // Cache tab results to avoid re-fetching on tab switch
+  const tabCache = useRef<Record<string, { calls: CallHistoryRow[]; total: number }>>({})
+
+  function cacheKey(t: Tab, s: string, f: CallHistoryFilters, srt: { field: string; ascending: boolean }, p: number, ps: number) {
+    return JSON.stringify({ t, s, f, srt, p, ps })
+  }
 
   // Fetch initial data on mount
   useEffect(() => {
@@ -421,10 +414,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
           filters: {
             direction: filters.direction,
             sentiment: filters.sentiment,
-            outcome: filters.outcome,
-            appointmentBooked: filters.appointmentBooked,
-            disconnectedReason: filters.disconnectedReason,
-            qualityScore: filters.qualityScore,
+            result: filters.result,
             dateFrom: filters.dateFrom,
             dateTo: filters.dateTo,
             callbackOnly: filters.callbackOnly,
@@ -447,6 +437,8 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
         table: 'calls',
         filter: `studio_id=eq.${studioId}`,
       }, (payload) => {
+        // Invalidate tab cache when new data arrives
+        tabCache.current = {}
         // Only prepend if on page 1 of All Calls tab with no active search
         if (tab === 'all' && page === 1 && !debouncedSearch.current && activeFilterCount(filters) === 0) {
           const newCall = payload.new as CallHistoryRow
@@ -464,6 +456,13 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
     srt: { field: string; ascending: boolean },
     p: number, ps: number
   ) => {
+    const key = cacheKey(t, s, f, srt, p, ps)
+    const cached = tabCache.current[key]
+    if (cached) {
+      setCalls(cached.calls)
+      setTotal(cached.total)
+      return
+    }
     setLoading(true)
     startTransition(async () => {
       try {
@@ -474,10 +473,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
           filters: {
             direction: f.direction,
             sentiment: f.sentiment,
-            outcome: f.outcome,
-            appointmentBooked: f.appointmentBooked,
-            disconnectedReason: f.disconnectedReason,
-            qualityScore: f.qualityScore,
+            ...resultToServerFilters(f.result),
             dateFrom: f.dateFrom,
             dateTo: f.dateTo,
             callbackOnly: f.callbackOnly,
@@ -487,14 +483,9 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
           sort: srt,
         }
         const result = await fetchCallHistory(params)
+        tabCache.current[key] = result
         setCalls(result.calls)
         setTotal(result.total)
-        // Fetch reviews for these calls
-        if (result.calls.length > 0) {
-          fetchCallReviewsForCalls(result.calls.map(c => c.id))
-            .then(map => setReviewMap(prev => ({ ...prev, ...map })))
-            .catch(() => {})
-        }
       } catch {
         // Keep previous results visible on error
       } finally {
@@ -534,35 +525,6 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
     loadCalls(tab, debouncedSearch.current, filters, sort, 1, ps)
   }
 
-  async function handleAnalyze() {
-    setAnalyzing(true)
-    setAnalyzeResult(null)
-    try {
-      const unreviewed = await fetchUnreviewedCallIds(studioId)
-      if (unreviewed.length === 0) {
-        setAnalyzeResult('All calls are already reviewed.')
-        return
-      }
-      // Process in batches of 25
-      const batch = unreviewed.slice(0, 25)
-      const result = await triggerCallAnalysis(studioId, batch)
-      const succeeded = result.analyzed - result.errors.length
-      const failed = result.errors.length
-      let msg = `Done: ${succeeded} analyzed`
-      if (failed > 0) {
-        const firstErr = result.errors[0]?.error ?? 'Unknown'
-        msg += `, ${failed} errors (${firstErr})`
-      }
-      if (result.skipped > 0) msg += `, ${result.skipped} skipped`
-      setAnalyzeResult(msg)
-      // Refresh the current page to show new grades
-      loadCalls(tab, debouncedSearch.current, filters, sort, page, pageSize)
-    } catch (err) {
-      setAnalyzeResult(`Error: ${(err as Error).message}`)
-    } finally {
-      setAnalyzing(false)
-    }
-  }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const showingFrom = total === 0 ? 0 : (page - 1) * pageSize + 1
@@ -665,34 +627,18 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                   options={[{ value: 'inbound', label: 'Inbound' }, { value: 'outbound', label: 'Outbound' }]} />
                 <MultiFieldSelect label="Sentiment" values={filters.sentiment} onChange={v => set('sentiment', v)}
                   options={[{ value: 'positive', label: 'Positive' }, { value: 'neutral', label: 'Neutral' }, { value: 'negative', label: 'Negative' }, { value: 'unknown', label: 'Unknown' }]} />
-                <FieldSelect label="Outcome" value={filters.outcome} onChange={v => set('outcome', v)}
-                  options={[{ value: 'successful', label: 'Successful' }, { value: 'unsuccessful', label: 'Unsuccessful' }]} />
-                <FieldSelect label="Appointment Booked" value={filters.appointmentBooked} onChange={v => set('appointmentBooked', v)}
-                  options={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]} placeholder="Any" />
-                <MultiFieldSelect label="Disconnect Reason" values={filters.disconnectedReason} onChange={v => set('disconnectedReason', v)}
-                  options={[{ value: 'agent_hangup', label: 'Agent Hangup' }, { value: 'user_hangup', label: 'User Hangup' }, { value: 'voicemail', label: 'Voicemail' }, { value: 'dial_no_answer', label: 'No Answer' }, { value: 'dial_busy', label: 'Busy' }, { value: 'call_transfer', label: 'Transfer' }]} />
-                <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Quality Score</label>
-                  <div className="flex gap-2">
-                    <OpPicker value={filters.qualityScore.op} onChange={op => set('qualityScore', { ...filters.qualityScore, op })} />
-                    <input type="number" min={0} max={10} step={0.5} placeholder="0\u201310" value={filters.qualityScore.value}
-                      onChange={e => set('qualityScore', { ...filters.qualityScore, value: e.target.value })}
-                      className="flex-1 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                <MultiFieldSelect label="Result" values={filters.result} onChange={v => set('result', v)}
+                  options={RESULT_OPTIONS} />
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Date Range</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="date" value={filters.dateFrom} onChange={e => set('dateFrom', e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                      style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
+                    <input type="date" value={filters.dateTo} onChange={e => set('dateTo', e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
                       style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
                   </div>
-                </div>
-                {/* Date range */}
-                <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Date From</label>
-                  <input type="date" value={filters.dateFrom} onChange={e => set('dateFrom', e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-                    style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Date To</label>
-                  <input type="date" value={filters.dateTo} onChange={e => set('dateTo', e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-                    style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
                 </div>
               </div>
               {/* Callback filter — only on All Calls and Inbound tabs */}
@@ -729,30 +675,6 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
           )}
         </div>
 
-        {/* Analyze button — super_admin and studio_owner only */}
-        {canAnalyze && (
-          <div className="flex items-center gap-2 ml-auto">
-            <button
-              onClick={handleAnalyze}
-              disabled={analyzing}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                backgroundColor: 'var(--color-accent)',
-                color: '#ffffff',
-              }}
-              onMouseEnter={e => { if (!analyzing) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent-hover)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent)' }}
-            >
-              <Sparkles size={14} />
-              {analyzing ? 'Analyzing...' : 'Analyze Unreviewed'}
-            </button>
-            {analyzeResult && (
-              <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                {analyzeResult}
-              </span>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Table */}
@@ -767,10 +689,8 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                 { key: 'phone', label: 'Phone', sortable: false },
                 { key: 'time_since', label: 'Time Since Missed', sortable: false },
                 { key: 'duration_seconds', label: 'Duration', sortable: true },
-                { key: 'outcome', label: 'Outcome', sortable: false },
+                { key: 'result', label: 'Result', sortable: false },
                 { key: 'status', label: 'Status', sortable: false },
-                { key: 'quality_score', label: 'Quality', sortable: true },
-                { key: 'grade', label: 'Grade', sortable: false },
               ] : [
                 { key: 'created_at', label: 'Date/Time', sortable: true },
                 { key: 'lead_name', label: 'Lead Name', sortable: false },
@@ -778,9 +698,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                 { key: 'direction', label: 'Direction', sortable: false },
                 { key: 'duration_seconds', label: 'Duration', sortable: true },
                 { key: 'sentiment', label: 'Sentiment', sortable: false },
-                { key: 'outcome', label: 'Outcome', sortable: false },
-                { key: 'quality_score', label: 'Quality', sortable: true },
-                { key: 'grade', label: 'Grade', sortable: false },
+                { key: 'result', label: 'Result', sortable: false },
               ]).map(col => (
                 <th
                   key={col.key}
@@ -803,7 +721,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
               </>
             ) : calls.length === 0 ? (
               <tr>
-                <td colSpan={9} className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                <td colSpan={7} className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>
                   {search ? 'No calls match your search' : count > 0 ? 'No calls match these filters' : TAB_EMPTY_MESSAGES[tab]}
                 </td>
               </tr>
@@ -831,22 +749,13 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                     {formatDurationMSS(call.duration_seconds)}
                   </td>
                   <td className="px-3 py-3 align-middle">
-                    {call.outcome ? <Badge value={call.outcome} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
+                    {(() => { const r = getCallResult(call); return r ? <Badge value={r} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span> })()}
                   </td>
                   <td className="px-3 py-3 align-middle">
                     <div className="flex items-center gap-1.5">
                       <CallbackChip />
                       {call.transferred && <ForwardedChip />}
                     </div>
-                  </td>
-                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{
-                    color: call.quality_score != null ? qualityScoreColor(call.quality_score) : 'var(--color-text-muted)',
-                    fontWeight: call.quality_score != null ? 500 : 400,
-                  }}>
-                    {call.quality_score != null ? call.quality_score : '\u2014'}
-                  </td>
-                  <td className="px-3 py-3 align-middle">
-                    {reviewMap[call.id] ? <Badge value={reviewMap[call.id].grade} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
                   </td>
                 </tr>
               ))
@@ -881,16 +790,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                     {call.sentiment ? <Badge value={call.sentiment} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
                   </td>
                   <td className="px-3 py-3 align-middle">
-                    {call.outcome ? <Badge value={call.outcome} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
-                  </td>
-                  <td className="px-3 py-3 align-middle whitespace-nowrap" style={{
-                    color: call.quality_score != null ? qualityScoreColor(call.quality_score) : 'var(--color-text-muted)',
-                    fontWeight: call.quality_score != null ? 500 : 400,
-                  }}>
-                    {call.quality_score != null ? call.quality_score : '\u2014'}
-                  </td>
-                  <td className="px-3 py-3 align-middle">
-                    {reviewMap[call.id] ? <Badge value={reviewMap[call.id].grade} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
+                    {(() => { const r = getCallResult(call); return r ? <Badge value={r} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span> })()}
                   </td>
                 </tr>
               ))
