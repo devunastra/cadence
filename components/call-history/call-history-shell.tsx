@@ -62,7 +62,7 @@ function Badge({ value }: { value: string }) {
 
 
 function getCallResult(call: CallHistoryRow): string | null {
-  if (call.disconnected_reason === 'voicemail') return 'Voicemail'
+  if (call.disconnected_reason === 'voicemail') return call.voicemail_left ? 'Left Voicemail' : 'Voicemail Reached'
   if (call.disconnected_reason === 'dial_no_answer') return 'No Answer'
   if (call.disconnected_reason === 'dial_busy') return 'Busy'
   if (call.transferred) return 'Transferred'

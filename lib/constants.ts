@@ -182,6 +182,8 @@ export const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   call_transfer:             { bg: 'status-bg-blue',    text: 'status-text-blue' },
   // Call results (derived)
   Voicemail:                 { bg: 'status-bg-orange',  text: 'status-text-orange' },
+  'Left Voicemail':          { bg: 'status-bg-blue',    text: 'status-text-blue' },
+  'Voicemail Reached':       { bg: 'status-bg-orange',  text: 'status-text-orange' },
   'No Answer':               { bg: 'status-bg-yellow',  text: 'status-text-yellow' },
   Busy:                      { bg: 'status-bg-red',     text: 'status-text-red' },
   Transferred:               { bg: 'status-bg-blue',    text: 'status-text-blue' },

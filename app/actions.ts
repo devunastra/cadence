@@ -1234,6 +1234,7 @@ export type CallHistoryRow = Pick<Call,
   lead_phone: string | null
   is_callback?: boolean
   last_missed_outbound_at?: string | null
+  voicemail_left?: boolean | null
 }
 
 export interface CallHistoryParams {
@@ -1392,6 +1393,26 @@ export async function fetchCallHistory(params: CallHistoryParams): Promise<{ cal
     }
   }
 
+  // For voicemail rows, fetch transcripts and detect whether agent actually left a message.
+  // Heuristic: agent took ≥2 turns AND user side had at least one turn (the voicemail
+  // greeting capture). One agent turn = greeting only, agent bailed on detection.
+  const voicemailLeftMap: Record<string, boolean> = {}
+  const voicemailIds = rows.filter(c => c.disconnected_reason === 'voicemail').map(c => c.id)
+  if (voicemailIds.length > 0) {
+    const { data: vmRows } = await client
+      .from('calls')
+      .select('id,transcript')
+      .in('id', voicemailIds)
+    for (const v of vmRows ?? []) {
+      const t = v.transcript as string | null
+      if (!t) { voicemailLeftMap[v.id] = false; continue }
+      const lines = t.split('\n')
+      const agentTurns = lines.reduce((n, l) => l.startsWith('Agent:') ? n + 1 : n, 0)
+      const hasUserTurn = lines.some(l => l.startsWith('User:'))
+      voicemailLeftMap[v.id] = agentTurns >= 2 && hasUserTurn
+    }
+  }
+
   // For callbacks, fetch the last missed outbound date per lead
   const lastMissedMap: Record<string, string> = {}
   if ((tab === 'callbacks' || needCallbackDetection) && callbackLeadIdsForFlag && callbackLeadIdsForFlag.size > 0) {
@@ -1420,6 +1441,7 @@ export async function fetchCallHistory(params: CallHistoryParams): Promise<{ cal
         lead_phone: c.lead_id ? (leadPhones[c.lead_id] ?? null) : null,
         is_callback: isCallback,
         last_missed_outbound_at: isCallback && c.lead_id ? (lastMissedMap[c.lead_id] ?? null) : null,
+        voicemail_left: c.disconnected_reason === 'voicemail' ? (voicemailLeftMap[c.id] ?? false) : null,
       }
     }) as CallHistoryRow[],
     total: count ?? 0,
