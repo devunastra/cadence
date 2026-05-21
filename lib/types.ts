@@ -97,6 +97,21 @@ export interface Call {
   called_phone: string | null
 }
 
+// ── Scheduled Callbacks (n8n AI Callback queue) ─────────────────────────────
+
+export interface ScheduledCallback {
+  n8n_row_id: number          // n8n data table assigns integer row IDs
+  first_name: string | null
+  last_name: string | null
+  phone_number: string        // normalized E.164 by server action
+  email: string | null
+  dance_interest: string | null
+  reason: string | null
+  callback_time: string       // ISO timestamp
+  lead_id: string             // every visible row must have a matching lead
+  studio_id: string
+}
+
 export interface CallReview {
   id: string
   call_id: string

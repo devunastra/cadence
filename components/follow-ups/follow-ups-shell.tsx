@@ -10,14 +10,16 @@ import { formatDateTime } from '@/lib/date-utils'
 import { createClient } from '@/lib/supabase/client'
 import { CallDetailDrawer } from '@/components/call-history/call-detail-drawer'
 import { StatCard } from '@/components/call-analytics/stat-card'
+import { ScheduledCallbacksTable } from '@/components/follow-ups/scheduled-callbacks-table'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-type Tab = 'follow_ups' | 'callbacks'
+type Tab = 'follow_ups' | 'callbacks' | 'scheduled_callbacks'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'follow_ups', label: 'Follow-ups' },
   { key: 'callbacks', label: 'Callback Requests' },
+  { key: 'scheduled_callbacks', label: 'Scheduled Callbacks' },
 ]
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100]
@@ -305,6 +307,7 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
   const [kpiLoading, setKpiLoading] = useState(true)
   const [selectedCall, setSelectedCall] = useState<CallHistoryRow | null>(null)
   const [filterOpen, setFilterOpen] = useState(false)
+  const [scheduledRefreshTrigger, setScheduledRefreshTrigger] = useState(0)
   const mounted = useMounted()
   const [, startTransition] = useTransition()
   const filterRef = useRef<HTMLDivElement>(null)
@@ -438,6 +441,10 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
   }
 
   function handleRefresh() {
+    if (tab === 'scheduled_callbacks') {
+      setScheduledRefreshTrigger(t => t + 1)
+      return
+    }
     loadData(tab, filters, sort, page, pageSize)
     loadKpis()
   }
@@ -539,45 +546,47 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
 
       {/* Toolbar: filter + refresh */}
       <div className="flex items-center gap-2 flex-shrink-0">
-        <div className="relative" ref={filterRef}>
-          <button
-            type="button"
-            onClick={() => setFilterOpen(o => !o)}
-            style={pillStyle}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface-hover)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)' }}
-          >
-            <Filter size={14} />
-            <span>Filter</span>
-            {count > 0 && (
-              <span className="flex items-center justify-center text-xs font-semibold rounded-full" style={{ minWidth: 18, height: 18, padding: '0 5px', backgroundColor: 'var(--color-accent)', color: '#ffffff' }}>
-                {count}
-              </span>
-            )}
-          </button>
+        {tab !== 'scheduled_callbacks' && (
+          <div className="relative" ref={filterRef}>
+            <button
+              type="button"
+              onClick={() => setFilterOpen(o => !o)}
+              style={pillStyle}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface-hover)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)' }}
+            >
+              <Filter size={14} />
+              <span>Filter</span>
+              {count > 0 && (
+                <span className="flex items-center justify-center text-xs font-semibold rounded-full" style={{ minWidth: 18, height: 18, padding: '0 5px', backgroundColor: 'var(--color-accent)', color: '#ffffff' }}>
+                  {count}
+                </span>
+              )}
+            </button>
 
-          {filterOpen && (
-            <div className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-xl p-4"
-              style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', width: 520 }}>
-              <div className="grid grid-cols-2 gap-3">
-                <FieldSelect label="Direction" value={filters.direction} onChange={v => set('direction', v)} options={[{ value: 'inbound', label: 'Inbound' }, { value: 'outbound', label: 'Outbound' }]} />
-                <FieldSelect label="Grade" value={filters.grade} onChange={v => set('grade', v)} options={[{ value: 'Pass', label: 'Pass' }, { value: 'Fail', label: 'Fail' }]} />
-                <MultiFieldSelect label="Sentiment" values={filters.sentiment} onChange={v => set('sentiment', v)} options={[{ value: 'positive', label: 'Positive' }, { value: 'neutral', label: 'Neutral' }, { value: 'negative', label: 'Negative' }, { value: 'unknown', label: 'Unknown' }]} />
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Date Range</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input type="date" value={filters.dateFrom} onChange={e => set('dateFrom', e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-                      style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
-                    <input type="date" value={filters.dateTo} onChange={e => set('dateTo', e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-                      style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
+            {filterOpen && (
+              <div className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-xl p-4"
+                style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', width: 520 }}>
+                <div className="grid grid-cols-2 gap-3">
+                  <FieldSelect label="Direction" value={filters.direction} onChange={v => set('direction', v)} options={[{ value: 'inbound', label: 'Inbound' }, { value: 'outbound', label: 'Outbound' }]} />
+                  <FieldSelect label="Grade" value={filters.grade} onChange={v => set('grade', v)} options={[{ value: 'Pass', label: 'Pass' }, { value: 'Fail', label: 'Fail' }]} />
+                  <MultiFieldSelect label="Sentiment" values={filters.sentiment} onChange={v => set('sentiment', v)} options={[{ value: 'positive', label: 'Positive' }, { value: 'neutral', label: 'Neutral' }, { value: 'negative', label: 'Negative' }, { value: 'unknown', label: 'Unknown' }]} />
+                  <div className="col-span-2">
+                    <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Date Range</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="date" value={filters.dateFrom} onChange={e => set('dateFrom', e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                        style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
+                      <input type="date" value={filters.dateTo} onChange={e => set('dateTo', e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                        style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
         <button
           type="button"
@@ -592,6 +601,9 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
         </button>
       </div>
 
+      {tab === 'scheduled_callbacks' ? (
+        <ScheduledCallbacksTable refreshTrigger={scheduledRefreshTrigger} />
+      ) : (<>
       {/* Table card */}
       <div className="relative flex-1 min-h-0 rounded-xl overflow-hidden shadow-sm" style={{ border: '1px solid var(--color-border)' }}>
         <div className="h-full overflow-y-auto overflow-x-auto no-theme-transition" style={{ backgroundColor: 'var(--color-bg)' }}>
@@ -783,6 +795,7 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
           </div>
         </div>
       </div>
+      </>)}
 
       {/* Detail drawer */}
       {selectedCall && (

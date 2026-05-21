@@ -4,7 +4,7 @@ import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { createGHLContact, updateGHLContact, deleteGHLContact, deleteGHLAppointment, updateGHLAppointment, createGHLAppointment, patchGHLAppointmentDetails } from '@/lib/ghl'
-import type { Lead, StudioSlotConfig } from '@/lib/types'
+import type { Lead, ScheduledCallback, StudioSlotConfig } from '@/lib/types'
 import type { FieldOption } from '@/lib/field-options'
 
 // Converts a naive Chicago-local ISO string ("2026-05-08T17:00:00") to a UTC ISO string
@@ -2494,4 +2494,189 @@ export async function fetchFollowUpKpis(studioId: string): Promise<FollowUpKpis>
     : 0
 
   return { followUpCount, callbackCount, passRate }
+}
+
+// ── Scheduled Callbacks (n8n AI Callback queue) ──────────────────────────────
+
+function normalizePhone(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const digits = raw.replace(/\D/g, '')
+  if (digits.length === 10) return `+1${digits}`
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+  if (raw.startsWith('+') && digits.length >= 10) return `+${digits}`
+  return null
+}
+
+interface N8nCallbackRow {
+  id: number
+  first_name: string | null
+  last_name: string | null
+  phone_number: string | null
+  email: string | null
+  dance_interest: string | null
+  reason: string | null
+  callback_time: string | null
+  called_at: string | null
+}
+
+async function callN8nCallbacksWebhook<T>(url: string | undefined, body: object): Promise<T> {
+  if (!url) throw new Error('Scheduled Callbacks webhook URL not configured')
+  const secret = process.env.N8N_SCHEDULED_CALLBACKS_SECRET
+  if (!secret) throw new Error('Scheduled Callbacks webhook secret not configured')
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Callbacks-Secret': secret,
+    },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+  })
+
+  const raw = await res.text().catch(() => '')
+
+  if (!res.ok) {
+    throw new Error(`Scheduled Callbacks webhook ${res.status}: ${raw.slice(0, 200) || '(empty body)'}`)
+  }
+  if (!raw.trim()) {
+    throw new Error(
+      `Scheduled Callbacks webhook returned empty body (status ${res.status}). ` +
+      `Check that the n8n workflow is ACTIVE and the Respond to Webhook node is reached. URL: ${url}`,
+    )
+  }
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    throw new Error(`Scheduled Callbacks webhook returned non-JSON body: ${raw.slice(0, 200)}`)
+  }
+}
+
+export async function fetchScheduledCallbacks(): Promise<ScheduledCallback[]> {
+  const { client, user } = await getAuthorizedClient()
+
+  const { data: memberships } = await client
+    .from('studio_users')
+    .select('studio_id, role')
+    .eq('user_id', user.id)
+  const isSuper = memberships?.some(m => m.role === 'super_admin') ?? false
+  const userStudioIds = (memberships ?? []).map(m => m.studio_id)
+  if (!isSuper && userStudioIds.length === 0) return []
+
+  const response = await callN8nCallbacksWebhook<{ rows: N8nCallbackRow[] }>(
+    process.env.N8N_SCHEDULED_CALLBACKS_LIST_URL,
+    {},
+  )
+  const n8nRows = response.rows ?? []
+  if (n8nRows.length === 0) return []
+
+  const normalizedSet = new Set<string>()
+  for (const row of n8nRows) {
+    const norm = normalizePhone(row.phone_number)
+    if (norm) normalizedSet.add(norm)
+  }
+  if (normalizedSet.size === 0) return []
+
+  // Paginate the leads fetch because Supabase enforces a project-level max_rows cap
+  // (default 1000) that overrides .limit(). Pagination via .range() bypasses this.
+  // Phone matching has to happen in JS via normalizePhone (handles format drift like
+  // "(224) 469-0382" vs "+12244690382") — most stored phones aren't clean E.164.
+  // Early-exit once every n8n phone has a lead match.
+  const PAGE = 1000
+  const targetMatches = normalizedSet.size
+  const leadByPhone = new Map<string, { id: string; studio_id: string }>()
+  let offset = 0
+  while (true) {
+    let q = client
+      .from('leads')
+      .select('id, studio_id, phone')
+      .order('id', { ascending: true })
+      .range(offset, offset + PAGE - 1)
+    if (!isSuper) q = q.in('studio_id', userStudioIds)
+    const { data, error } = await q
+    if (error) throw new Error(`Leads query failed: ${error.message}`)
+    if (!data || data.length === 0) break
+    for (const lead of data) {
+      const norm = normalizePhone(lead.phone)
+      if (norm && normalizedSet.has(norm) && !leadByPhone.has(norm)) {
+        leadByPhone.set(norm, { id: lead.id, studio_id: lead.studio_id })
+      }
+    }
+    if (leadByPhone.size === targetMatches) break
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+
+  const enriched: ScheduledCallback[] = []
+  for (const row of n8nRows) {
+    const norm = normalizePhone(row.phone_number)
+    if (!norm) continue
+    const lead = leadByPhone.get(norm)
+    if (!lead) continue   // orphan — drop
+    enriched.push({
+      n8n_row_id: row.id,
+      first_name: row.first_name,
+      last_name: row.last_name,
+      phone_number: norm,
+      email: row.email,
+      dance_interest: row.dance_interest,
+      reason: row.reason,
+      callback_time: row.callback_time ?? '',
+      lead_id: lead.id,
+      studio_id: lead.studio_id,
+    })
+  }
+
+  enriched.sort((a, b) => a.callback_time.localeCompare(b.callback_time))
+  return enriched
+}
+
+export async function fetchMostRecentCallForLead(
+  leadId: string,
+  studioId: string,
+): Promise<CallHistoryRow | null> {
+  const { client } = await getAuthorizedClient()
+
+  const [{ data: lead }, { data: call, error }] = await Promise.all([
+    client.from('leads').select('name, phone').eq('id', leadId).maybeSingle(),
+    client
+      .from('calls')
+      .select('id, retell_call_id, created_at, duration_seconds, outcome, sentiment, transcript_summary, lead_id, direction, disconnected_reason, quality_score, appointment_booked, recording_url, picked_up, transferred')
+      .eq('studio_id', studioId)
+      .eq('lead_id', leadId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
+
+  if (error) throw new Error(error.message)
+  if (!call) return null
+
+  return {
+    ...call,
+    lead_name: lead?.name ?? null,
+    lead_phone: lead?.phone ?? null,
+  } as CallHistoryRow
+}
+
+export async function cancelScheduledCallback(
+  n8nRowId: number,
+): Promise<{ success: true; rowsUpdated: number }> {
+  // Visibility check: caller can only cancel rows they're allowed to see.
+  // Reuses the same studio-filtering + orphan-drop logic as the list view.
+  const visible = await fetchScheduledCallbacks()
+  const target = visible.find(r => r.n8n_row_id === n8nRowId)
+  if (!target) throw new Error('Callback not found or not authorized to cancel')
+
+  // n8n's data table node can't filter on the auto-generated `id` column (not in
+  // schema), so the cancel webhook filters on phone_number + called_at IS NULL.
+  // Per spec edge case #3, multiple pending rows for the same phone all get
+  // neutralized — acceptable because a lead has at most one pending callback in
+  // practice.
+  const response = await callN8nCallbacksWebhook<{ success?: boolean; rowsUpdated?: number }>(
+    process.env.N8N_SCHEDULED_CALLBACKS_CANCEL_URL,
+    { phone_number: target.phone_number },
+  )
+
+  return { success: true, rowsUpdated: response.rowsUpdated ?? 0 }
 }
