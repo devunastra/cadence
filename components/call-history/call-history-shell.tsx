@@ -555,33 +555,35 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
   return (
     <div className="relative flex flex-col h-full px-5 pb-4 gap-3 [font-family:var(--font-inter,Inter,sans-serif)]">
       {/* Tabs */}
-      <div className="flex items-center gap-0 flex-shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            onClick={() => handleTabChange(t.key)}
-            className="px-4 py-2.5 text-sm font-medium transition-colors relative"
-            style={{
-              color: tab === t.key ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-            }}
-            onMouseEnter={e => { if (tab !== t.key) (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)' }}
-            onMouseLeave={e => { if (tab !== t.key) (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)' }}
-          >
-            {t.label}
-            {tab === t.key && (
-              <span
-                className="absolute bottom-0 left-0 right-0 h-0.5"
-                style={{ backgroundColor: 'var(--color-accent)' }}
-              />
-            )}
-          </button>
-        ))}
+      <div className="flex-shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
+        <div className="flex items-center gap-0 overflow-x-auto">
+          {TABS.map(t => (
+            <button
+              key={t.key}
+              onClick={() => handleTabChange(t.key)}
+              className="px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap"
+              style={{
+                color: tab === t.key ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+              }}
+              onMouseEnter={e => { if (tab !== t.key) (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)' }}
+              onMouseLeave={e => { if (tab !== t.key) (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)' }}
+            >
+              {t.label}
+              {tab === t.key && (
+                <span
+                  className="absolute bottom-0 left-0 right-0 h-0.5"
+                  style={{ backgroundColor: 'var(--color-accent)' }}
+                />
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Toolbar: search + filter */}
       <div className="flex items-center gap-3 flex-shrink-0 flex-wrap">
         {/* Search */}
-        <div className="relative flex-1 min-w-[200px] max-w-[360px]">
+        <div className="relative w-full md:flex-1 md:min-w-[200px] md:max-w-[360px]">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-text-muted)' }} />
           <input
             type="text"
@@ -618,8 +620,8 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
           </button>
 
           {filterOpen && (
-            <div className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-xl p-4"
-              style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', width: 520 }}>
+            <div className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-xl p-4 w-[520px] max-w-[calc(100vw-2.5rem)]"
+              style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
               <div className="grid grid-cols-2 gap-3">
                 <FieldSelect label="Direction"
                   value={filters.direction === 'all' ? '' : filters.direction}
@@ -815,7 +817,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
       </div>
 
       {/* Pagination footer — matches leads-table style */}
-      <div className="flex-shrink-0 flex items-center justify-between px-2 py-0.5 text-sm">
+      <div className="flex-shrink-0 flex flex-col md:flex-row items-center justify-between gap-2 md:gap-0 px-2 py-1 md:py-0.5 text-sm">
         {/* Page size */}
         <div className="flex items-center gap-1.5">
           <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Rows per page</span>

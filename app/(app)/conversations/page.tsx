@@ -1212,7 +1212,7 @@ export default function ConversationsPage() {
                 style={{ backgroundColor: "var(--color-bg)" }}
             >
                 <div
-                    className="px-5 pt-10 pb-5 flex-shrink-0"
+                    className="px-5 pt-5 md:pt-10 pb-5 flex-shrink-0"
                     style={{ borderBottom: "1px solid var(--color-border)" }}
                 >
                     <h1
@@ -1237,7 +1237,7 @@ export default function ConversationsPage() {
             style={{ backgroundColor: "var(--color-bg)" }}
         >
             <div
-                className="px-5 pt-10 pb-5 flex-shrink-0"
+                className="px-5 pt-5 md:pt-10 pb-5 flex-shrink-0"
                 style={{ borderBottom: "1px solid var(--color-border)" }}
             >
                 <h1

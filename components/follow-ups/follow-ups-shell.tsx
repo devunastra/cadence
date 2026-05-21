@@ -521,17 +521,18 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-0 flex-shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            onClick={() => handleTabChange(t.key)}
-            className="px-4 py-2.5 text-sm font-medium transition-colors relative"
-            style={{
-              color: tab === t.key ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-            }}
-            onMouseEnter={e => { if (tab !== t.key) (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)' }}
-            onMouseLeave={e => { if (tab !== t.key) (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)' }}
+      <div className="flex-shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
+        <div className="flex items-center gap-0 overflow-x-auto">
+          {TABS.map(t => (
+            <button
+              key={t.key}
+              onClick={() => handleTabChange(t.key)}
+              className="px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap"
+              style={{
+                color: tab === t.key ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+              }}
+              onMouseEnter={e => { if (tab !== t.key) (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)' }}
+              onMouseLeave={e => { if (tab !== t.key) (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)' }}
           >
             {t.label}
             {tab === t.key && (
@@ -540,12 +541,13 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
                 style={{ backgroundColor: 'var(--color-accent)' }}
               />
             )}
-          </button>
-        ))}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Toolbar: filter + refresh */}
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
         {tab !== 'scheduled_callbacks' && (
           <div className="relative" ref={filterRef}>
             <button
@@ -565,8 +567,8 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
             </button>
 
             {filterOpen && (
-              <div className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-xl p-4"
-                style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', width: 520 }}>
+              <div className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-xl p-4 w-[520px] max-w-[calc(100vw-2.5rem)]"
+                style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
                 <div className="grid grid-cols-2 gap-3">
                   <FieldSelect label="Direction" value={filters.direction} onChange={v => set('direction', v)} options={[{ value: 'inbound', label: 'Inbound' }, { value: 'outbound', label: 'Outbound' }]} />
                   <FieldSelect label="Grade" value={filters.grade} onChange={v => set('grade', v)} options={[{ value: 'Pass', label: 'Pass' }, { value: 'Fail', label: 'Fail' }]} />
@@ -688,7 +690,7 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
       </div>
 
       {/* Pagination footer */}
-      <div className="flex-shrink-0 flex items-center justify-between px-2 py-0.5 text-sm">
+      <div className="flex-shrink-0 flex flex-col md:flex-row items-center justify-between gap-2 md:gap-0 px-2 py-1 md:py-0.5 text-sm">
         <div className="flex items-center gap-1.5">
           <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Rows per page</span>
           <div className="flex">

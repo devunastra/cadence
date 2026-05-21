@@ -316,9 +316,8 @@ export function LeadsFilterBar({
 
                 {filterOpen && (
                     <div
-                        className="absolute top-full left-0 mt-2 z-40 rounded-xl p-4"
+                        className="absolute top-full left-0 mt-2 z-40 rounded-xl p-4 w-[480px] max-w-[calc(100vw-2.5rem)]"
                         style={{
-                            width: 480,
                             backgroundColor: "var(--color-bg)",
                             border: "1px solid var(--color-border)",
                             boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
@@ -482,14 +481,14 @@ export function LeadsFilterBar({
                 )}
             </div>
 
-            {/* ── Search — fixed 240px, swaps between pill and input ── */}
-            <div style={{ width: 240, flexShrink: 0 }}>
+            {/* ── Search — 240px on desktop, full-width on mobile ── */}
+            <div className="basis-full md:basis-auto md:w-60 md:shrink-0">
                 {searchOpen ? (
                     <div
-                        className="flex items-center gap-2 px-3 py-1.5 w-full"
+                        className="flex items-center gap-2 px-3 w-full"
                         style={{
-                            border: '1px solid var(--color-border)',
-                            boxShadow: searchFocused ? '0 0 0 2px var(--color-accent)' : 'none',
+                            height: 36,
+                            border: searchFocused ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
                             borderRadius: 8,
                             backgroundColor: "var(--color-bg)",
                         }}
@@ -541,8 +540,9 @@ export function LeadsFilterBar({
                 ) : (
                     <button
                         onClick={() => setSearchOpen(true)}
-                        className="w-full flex items-center gap-1.5 px-3 py-1.5"
+                        className="w-full flex items-center gap-1.5 px-3"
                         style={{
+                            height: 36,
                             fontSize: 14,
                             fontWeight: 500,
                             borderRadius: 8,

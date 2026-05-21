@@ -855,7 +855,7 @@ export function QualityReviewShell({ studioId, userRole, isSuper }: QualityRevie
       </div>
 
       {/* Pagination footer */}
-      <div className="flex-shrink-0 flex items-center justify-between px-2 py-0.5 text-sm">
+      <div className="flex-shrink-0 flex flex-col md:flex-row items-center justify-between gap-2 md:gap-0 px-2 py-1 md:py-0.5 text-sm">
         <div className="flex items-center gap-1.5">
           <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Rows per page</span>
           <div className="flex">

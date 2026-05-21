@@ -925,11 +925,10 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
     )}
     <div className="relative flex flex-col h-full px-5 pb-4 gap-3 [font-family:var(--font-inter,Inter,sans-serif)]">
       {/* Header */}
-      <div className="flex-shrink-0">
-        {/* Toolbar — filter bar | views (scrollable) | action button, never wraps */}
-        <div className="flex items-stretch">
-          {/* Filter bar: pinned left, shrinks to content */}
-          <div className="shrink-0 flex items-center pr-3">
+      <div className="flex-shrink-0 space-y-2">
+        {/* Toolbar row: filter bar + action button */}
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
             <LeadsFilterBar
               onSearchChange={handleDebouncedSearch}
               statusFilter={statusFilter}
@@ -950,28 +949,8 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
             />
           </div>
 
-          {/* Views tab strip: takes remaining space, scrollable */}
-          <div className="flex-1 min-w-0">
-            <ViewsSelector
-              views={views}
-              activeViewId={activeViewId}
-              onViewChange={v => {
-                setActiveViewId(v.id)
-                if (studioId) {
-                  if (prefSaveTimer.current) clearTimeout(prefSaveTimer.current)
-                  prefSaveTimer.current = setTimeout(() => {
-                    saveUserPreferences(studioId, colWidths, v.id, (theme ?? 'light') as 'light' | 'dark').catch(console.error)
-                  }, 1000)
-                }
-              }}
-              onCreateView={handleCreateView}
-              onEditView={handleEditView}
-              onDeleteView={handleDeleteView}
-            />
-          </div>
-
-          {/* Right side: Delete + count when rows selected, New Lead otherwise — pinned right */}
-          <div className="shrink-0 flex items-center gap-2.5 pl-3">
+          {/* Right side — desktop only, inline with toolbar */}
+          <div className="hidden md:flex shrink-0 items-center gap-2.5 ml-auto">
             {selectedIds.size > 0 ? (
               <>
                 <span className="text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
@@ -979,13 +958,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
                 </span>
                 <button
                   onClick={() => setShowConfirmDelete(true)}
-                  className="px-3 py-1.5 text-sm font-medium text-white rounded-lg"
-                  style={{
-                    backgroundColor: '#dc2626',
-                    transition: `background var(--transition-fast)`,
-                  }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#b91c1c'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#dc2626'}
+                  className="px-3 py-1.5 text-sm font-medium text-white rounded-lg bg-red-600 hover:bg-red-700 transition-colors"
                 >
                   Delete
                 </button>
@@ -994,25 +967,63 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
               studioId && (
                 <button
                   onClick={() => setShowNewLead(true)}
-                  className="px-3 py-1.5 text-sm font-medium text-white rounded-lg"
-                  style={{
-                    backgroundColor: 'var(--color-accent)',
-                    transition: `background var(--transition-fast), transform var(--transition-fast)`,
-                  }}
-                  onMouseEnter={e => {
-                    ;(e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent-hover)'
-                    ;(e.currentTarget as HTMLElement).style.transform = 'scale(1.02)'
-                  }}
-                  onMouseLeave={e => {
-                    ;(e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent)'
-                    ;(e.currentTarget as HTMLElement).style.transform = 'scale(1)'
-                  }}
+                  className="px-3 py-1.5 text-sm font-medium text-white rounded-lg transition-colors hover:scale-[1.02]"
+                  style={{ backgroundColor: 'var(--color-accent)' }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent-hover)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent)'}
                 >
                   + New Lead
                 </button>
               )
             )}
           </div>
+        </div>
+
+        {/* Mobile-only action row */}
+        <div className="flex md:hidden items-center gap-2.5">
+          {selectedIds.size > 0 ? (
+            <>
+              <span className="text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
+                {selectedIds.size} selected
+              </span>
+              <button
+                onClick={() => setShowConfirmDelete(true)}
+                className="px-3 py-1.5 text-sm font-medium text-white rounded-lg bg-red-600 hover:bg-red-700 transition-colors"
+              >
+                Delete
+              </button>
+            </>
+          ) : (
+            studioId && (
+              <button
+                onClick={() => setShowNewLead(true)}
+                className="px-3 py-1.5 text-sm font-medium text-white rounded-lg"
+                style={{ backgroundColor: 'var(--color-accent)' }}
+              >
+                + New Lead
+              </button>
+            )
+          )}
+        </div>
+
+        {/* Views tab strip */}
+        <div className="min-w-0 overflow-x-auto">
+          <ViewsSelector
+            views={views}
+            activeViewId={activeViewId}
+            onViewChange={v => {
+              setActiveViewId(v.id)
+              if (studioId) {
+                if (prefSaveTimer.current) clearTimeout(prefSaveTimer.current)
+                prefSaveTimer.current = setTimeout(() => {
+                  saveUserPreferences(studioId, colWidths, v.id, (theme ?? 'light') as 'light' | 'dark').catch(console.error)
+                }, 1000)
+              }
+            }}
+            onCreateView={handleCreateView}
+            onEditView={handleEditView}
+            onDeleteView={handleDeleteView}
+          />
         </div>
       </div>
 
@@ -1203,7 +1214,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
       </div>
 
       {/* Pagination footer */}
-      <div className="flex-shrink-0 flex items-center justify-between px-2 py-0.5 text-sm">
+      <div className="flex-shrink-0 flex flex-col md:flex-row items-center justify-between gap-2 md:gap-0 px-2 py-1 md:py-0.5 text-sm">
         {/* Page size */}
         <div className="flex items-center gap-1.5">
           <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Rows per page</span>

@@ -1,8 +1,7 @@
 import { redirect } from 'next/navigation'
-import { Sidebar } from '@/components/sidebar/sidebar'
 import { ProgressBar } from '@/components/progress-bar'
 import { ThemeInitializer } from '@/components/theme-initializer'
-import { ErrorBoundary } from '@/components/error-boundary'
+import { AppShell } from '@/components/app-shell'
 import { StudioProvider } from '@/components/studio-context'
 import { getCurrentUser, getMemberships, getSelectedStudioId, getStudios } from '@/lib/data-cache'
 import { getUserPreferences } from '@/app/actions'
@@ -50,12 +49,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <div className="flex h-screen" style={{ backgroundColor: 'var(--color-bg)' }}>
         <ThemeInitializer theme={prefs?.theme} />
         <ProgressBar />
-        <Sidebar studios={studios} initialStudioId={initialStudio.id} initialCollapsed={prefs?.nav_collapsed ?? false} />
-        <div className="flex-1 flex flex-col overflow-hidden relative">
-          <main className="flex-1 flex flex-col overflow-hidden">
-            <ErrorBoundary>{children}</ErrorBoundary>
-          </main>
-        </div>
+        <AppShell
+          studios={studios}
+          initialStudioId={initialStudio.id}
+          initialCollapsed={prefs?.nav_collapsed ?? false}
+        >
+          {children}
+        </AppShell>
       </div>
     </StudioProvider>
   )

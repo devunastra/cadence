@@ -143,7 +143,7 @@ export default function TestPage() {
 
   return (
     <div className="flex-1 flex flex-col overflow-y-auto" style={{ backgroundColor: 'var(--color-bg)' }}>
-      <div className="px-5 pt-10 pb-3 flex-shrink-0">
+      <div className="px-5 pt-5 md:pt-10 pb-3 flex-shrink-0">
         <h1 className="text-2xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           Test Call Center
         </h1>

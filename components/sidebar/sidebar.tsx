@@ -37,21 +37,27 @@ interface SidebarProps {
     studios: Studio[];
     initialStudioId: string;
     initialCollapsed?: boolean;
+    isMobile?: boolean;
+    mobileOpen?: boolean;
+    onMobileClose?: () => void;
 }
 
 export function Sidebar({
     studios,
     initialStudioId,
     initialCollapsed = false,
+    isMobile = false,
+    mobileOpen = false,
+    onMobileClose,
 }: SidebarProps) {
     const pathname = usePathname();
     const { currentStudio, setCurrentStudio } = useCurrentStudio();
     const [collapsed, setCollapsed] = useState(initialCollapsed);
     const [pendingHref, setPendingHref] = useState<string | null>(null);
 
-    // Clear pending state when pathname catches up
+    // Close mobile drawer on navigation
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    useEffect(() => { setPendingHref(null) }, [pathname]);
+    useEffect(() => { setPendingHref(null); if (isMobile) onMobileClose?.() }, [pathname]);
 
     async function handleSwitch(studio: Studio) {
         setCurrentStudio(studio);
@@ -68,9 +74,9 @@ export function Sidebar({
     // Shared nav link style helper
     function navStyle(active: boolean) {
         return {
-            gap: collapsed ? undefined : "12px",
-            padding: collapsed ? "13px 0" : "13px 16px",
-            justifyContent: collapsed ? ("center" as const) : undefined,
+            gap: isCollapsed ? undefined : "12px",
+            padding: isCollapsed ? "13px 0" : "13px 16px",
+            justifyContent: isCollapsed ? ("center" as const) : undefined,
             backgroundColor: active
                 ? "var(--color-surface-hover)"
                 : "transparent",
@@ -101,30 +107,23 @@ export function Sidebar({
         }
     }
 
-    return (
-        <aside
-            className="relative z-[60] flex-shrink-0 flex flex-col h-screen sticky top-0 transition-all duration-200"
-            style={{
-                width: collapsed
-                    ? "var(--sidebar-width-collapsed)"
-                    : "var(--sidebar-width)",
-                backgroundColor: "var(--sidebar-bg)",
-                borderRight: "1px solid var(--color-border)",
-            }}
-        >
-            {/* Logo — always rendered so nav icons never shift position */}
+    // On mobile, sidebar is always expanded (never collapsed)
+    const isCollapsed = isMobile ? false : collapsed;
+
+    const sidebarContent = (
+        <>
+            {/* Logo */}
             <div
-                className={`${collapsed ? "px-2" : "px-5"} pt-8 pb-5 flex items-center justify-center`}
+                className={`${isCollapsed ? "px-2" : "px-5"} pt-8 pb-5 flex items-center justify-center`}
             >
                 <div className="h-9 relative w-full">
-                    {/* Both images always in DOM — opacity crossfade prevents load glitch */}
                     <Image
                         src="/AMLogoNew.svg"
                         alt="Arthur Murray"
                         fill
                         priority
                         className="object-contain object-center logo-am"
-                        style={{ opacity: collapsed ? 0 : 1, pointerEvents: collapsed ? 'none' : 'auto' }}
+                        style={{ opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? 'none' : 'auto' }}
                     />
                     <Image
                         src="/AMLogoNew-icon.svg"
@@ -132,18 +131,18 @@ export function Sidebar({
                         fill
                         priority
                         className="object-contain object-center logo-am"
-                        style={{ opacity: collapsed ? 1 : 0, pointerEvents: collapsed ? 'auto' : 'none' }}
+                        style={{ opacity: isCollapsed ? 1 : 0, pointerEvents: isCollapsed ? 'auto' : 'none' }}
                     />
                 </div>
             </div>
 
             {/* Studio switcher */}
-            <div className={`${collapsed ? "px-2" : "px-3"} pb-3`}>
+            <div className={`${isCollapsed ? "px-2" : "px-3"} pb-3`}>
                 <StudioSwitcher
                     studios={studios}
                     currentStudio={currentStudio}
                     onSwitch={handleSwitch}
-                    collapsed={collapsed}
+                    collapsed={isCollapsed}
                 />
                 <div
                     className="mx-1 mt-4 h-px"
@@ -152,7 +151,6 @@ export function Sidebar({
             </div>
 
             {/* Nav items */}
-
             <nav className="flex-1 px-3 pt-3 space-y-1">
                 {NAV_ITEMS.map(({ href, label, Icon }) => {
                     const active = pendingHref ? pendingHref.startsWith(href) : pathname.startsWith(href);
@@ -160,7 +158,7 @@ export function Sidebar({
                         <Link
                             key={href}
                             href={href}
-                            title={collapsed ? label : undefined}
+                            title={isCollapsed ? label : undefined}
                             className="flex items-center text-sm leading-none"
                             style={navStyle(active)}
                             onClick={() => setPendingHref(href)}
@@ -168,13 +166,13 @@ export function Sidebar({
                             onMouseLeave={(e) => onNavLeave(e, active)}
                         >
                             <Icon size={20} className="flex-shrink-0" />
-                            {!collapsed && label}
+                            {!isCollapsed && label}
                         </Link>
                     );
                 })}
             </nav>
 
-            {/* Horizontal divider — sits above Settings, independently moveable */}
+            {/* Divider above Settings */}
             <div
                 style={{
                     borderTop: "1px solid var(--color-border)",
@@ -193,15 +191,9 @@ export function Sidebar({
             >
                 <Link
                     href="/settings/business-profile"
-                    title={collapsed ? "Settings" : undefined}
+                    title={isCollapsed ? "Settings" : undefined}
                     className="flex items-center text-sm leading-none"
-                    style={{
-                        ...navStyle(pendingHref ? pendingHref.startsWith("/settings") : pathname.startsWith("/settings")),
-                        padding: collapsed ? "13px 0" : "13px 16px",
-                        justifyContent: collapsed
-                            ? ("center" as const)
-                            : undefined,
-                    }}
+                    style={navStyle(pendingHref ? pendingHref.startsWith("/settings") : pathname.startsWith("/settings"))}
                     onClick={() => setPendingHref("/settings")}
                     onMouseEnter={(e) =>
                         onNavEnter(e, pathname.startsWith("/settings"))
@@ -211,40 +203,87 @@ export function Sidebar({
                     }
                 >
                     <Settings size={20} className="flex-shrink-0" />
-                    {!collapsed && "Settings"}
+                    {!isCollapsed && "Settings"}
                 </Link>
             </div>
 
-            {/* Collapse toggle — blue circle on right edge, vertically centered with Settings row */}
-            <button
-                onClick={toggleCollapse}
-                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-                className="absolute flex items-center justify-center transition-colors"
-                style={{
-                    right: -10,
-                    bottom: 26,
-                    width: 20,
-                    height: 20,
-                    borderRadius: "50%",
-                    backgroundColor: "var(--color-accent)",
-                    color: "#ffffff",
-                    zIndex: 10,
-                }}
-                onMouseEnter={(e) =>
-                    ((e.currentTarget as HTMLElement).style.backgroundColor =
-                        "var(--color-accent-hover)")
-                }
-                onMouseLeave={(e) =>
-                    ((e.currentTarget as HTMLElement).style.backgroundColor =
-                        "var(--color-accent)")
-                }
-            >
-                {collapsed ? (
-                    <ChevronRight size={11} strokeWidth={2.5} />
-                ) : (
-                    <ChevronLeft size={11} strokeWidth={2.5} />
-                )}
-            </button>
+            {/* Collapse toggle — desktop only */}
+            {!isMobile && (
+                <button
+                    onClick={toggleCollapse}
+                    aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                    className="absolute flex items-center justify-center transition-colors"
+                    style={{
+                        right: -10,
+                        bottom: 26,
+                        width: 20,
+                        height: 20,
+                        borderRadius: "50%",
+                        backgroundColor: "var(--color-accent)",
+                        color: "#ffffff",
+                        zIndex: 10,
+                    }}
+                    onMouseEnter={(e) =>
+                        ((e.currentTarget as HTMLElement).style.backgroundColor =
+                            "var(--color-accent-hover)")
+                    }
+                    onMouseLeave={(e) =>
+                        ((e.currentTarget as HTMLElement).style.backgroundColor =
+                            "var(--color-accent)")
+                    }
+                >
+                    {collapsed ? (
+                        <ChevronRight size={11} strokeWidth={2.5} />
+                    ) : (
+                        <ChevronLeft size={11} strokeWidth={2.5} />
+                    )}
+                </button>
+            )}
+        </>
+    );
+
+    // Mobile: overlay drawer
+    if (isMobile) {
+        return (
+            <>
+                {/* Backdrop */}
+                <div
+                    className="fixed inset-0 z-[60] transition-opacity duration-200"
+                    style={{
+                        backgroundColor: 'rgba(0,0,0,0.4)',
+                        opacity: mobileOpen ? 1 : 0,
+                        pointerEvents: mobileOpen ? 'auto' : 'none',
+                    }}
+                    onClick={onMobileClose}
+                />
+                <aside
+                    className="fixed inset-y-0 left-0 z-[61] flex flex-col transition-transform duration-200"
+                    style={{
+                        width: 'min(var(--sidebar-width), calc(100vw - 56px))',
+                        backgroundColor: 'var(--sidebar-bg)',
+                        borderRight: '1px solid var(--color-border)',
+                        transform: mobileOpen ? 'translateX(0)' : 'translateX(-100%)',
+                    }}
+                >
+                    {sidebarContent}
+                </aside>
+            </>
+        );
+    }
+
+    // Desktop: static sidebar
+    return (
+        <aside
+            className="relative z-[60] flex-shrink-0 flex flex-col h-screen sticky top-0 transition-all duration-200"
+            style={{
+                width: collapsed
+                    ? "var(--sidebar-width-collapsed)"
+                    : "var(--sidebar-width)",
+                backgroundColor: "var(--sidebar-bg)",
+                borderRight: "1px solid var(--color-border)",
+            }}
+        >
+            {sidebarContent}
         </aside>
     );
 }

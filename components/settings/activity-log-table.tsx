@@ -147,7 +147,7 @@ export function ActivityLogTable({ initialLogs, studioId, role }: ActivityLogTab
   return (
     <div className="space-y-3">
       {/* Pagination bar — above the table */}
-      <div className="flex items-center justify-between px-1">
+      <div className="flex flex-col md:flex-row items-center justify-between gap-2 md:gap-0 px-1">
         {/* Rows per page */}
         <div className="flex items-center gap-2">
           <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Rows per page</span>
