@@ -2048,3 +2048,87 @@ export async function updateAppointmentStatus(
 
   return {}
 }
+
+// ── Call Quality Review (types only — data comes from mock-data.ts in SIT) ──
+
+export type QualityReviewRow = {
+  review_id: string
+  call_id: string
+  grade: 'Pass' | 'Fail'
+  summary: string | null
+  agent_mistakes: string[]
+  user_repeats: number
+  booking_attempted: boolean | null
+  booking_successful: boolean | null
+  follow_up_needed: boolean
+  follow_up_reason: string | null
+  callback_requested: boolean
+  topics_discussed: string[]
+  trigger_type: 'manual' | 'cron'
+  review_created_at: string
+  // call fields
+  call_created_at: string
+  duration_seconds: number | null
+  direction: 'inbound' | 'outbound' | null
+  sentiment: string | null
+  outcome: string | null
+  quality_score: number | null
+  appointment_booked: boolean | null
+  recording_url: string | null
+  lead_id: string | null
+  retell_call_id: string
+  picked_up: boolean | null
+  transferred: boolean | null
+  disconnected_reason: string | null
+  transcript_summary: string | null
+  // resolved
+  lead_name: string | null
+}
+
+export interface QualityReviewParams {
+  studioId: string
+  filters?: {
+    grade?: string
+    direction?: string
+    sentiment?: string[]
+    result?: string[]
+    qualityScore?: { op: string; value: string }
+    dateFrom?: string
+    dateTo?: string
+    followUpNeeded?: boolean
+    callbackRequested?: boolean
+  }
+  page?: number
+  pageSize?: number
+  sort?: { field: string; ascending: boolean }
+}
+
+export interface QualityKpis {
+  totalReviewed: number
+  totalEligible: number
+  passCount: number
+  failCount: number
+  avgUserRepeats: number
+  followUpNeededCount: number
+  bookingAttempted: number
+  bookingSuccessful: number
+  topAgentMistakes: { mistake: string; count: number }[]
+  topTopics: { topic: string; count: number }[]
+}
+
+export interface FollowUpKpis {
+  followUpCount: number
+  callbackCount: number
+  passRate: number
+}
+
+export async function fetchCallReviewFull(callId: string) {
+  const { client } = await getAuthorizedClient()
+  const { data, error } = await client
+    .from('call_reviews')
+    .select('*')
+    .eq('call_id', callId)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  return data
+}

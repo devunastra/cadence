@@ -170,6 +170,9 @@ export const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   // Call direction
   inbound:                   { bg: 'status-bg-blue',    text: 'status-text-blue' },
   outbound:                  { bg: 'status-bg-purple',  text: 'status-text-purple' },
+  // Call review grades
+  Pass:                      { bg: 'status-bg-green',   text: 'status-text-green' },
+  Fail:                      { bg: 'status-bg-red',     text: 'status-text-red' },
   // Disconnect reasons
   agent_hangup:              { bg: 'status-bg-green',   text: 'status-text-green' },
   user_hangup:               { bg: 'status-bg-green',   text: 'status-text-green' },
@@ -177,4 +180,12 @@ export const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   dial_no_answer:            { bg: 'status-bg-yellow',  text: 'status-text-yellow' },
   dial_busy:                 { bg: 'status-bg-red',     text: 'status-text-red' },
   call_transfer:             { bg: 'status-bg-blue',    text: 'status-text-blue' },
+  // Call results (derived)
+  Voicemail:                 { bg: 'status-bg-orange',  text: 'status-text-orange' },
+  'No Answer':               { bg: 'status-bg-yellow',  text: 'status-text-yellow' },
+  Busy:                      { bg: 'status-bg-red',     text: 'status-text-red' },
+  Transferred:               { bg: 'status-bg-blue',    text: 'status-text-blue' },
+  Booked:                    { bg: 'status-bg-green',   text: 'status-text-green' },
+  'Hung Up':                 { bg: 'status-bg-pink',    text: 'status-text-pink' },
+  Completed:                 { bg: 'status-bg-green',   text: 'status-text-green' },
 }

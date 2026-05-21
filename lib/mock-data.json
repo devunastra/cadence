@@ -4,7 +4,6 @@
     "name": "Arthur Murray Lincolnshire",
     "ghl_account_id": "slTYdxI6vskx4r28zsIo"
   },
-
   "leads": [
     {
       "id": "lead-001",
@@ -237,7 +236,6 @@
       "created_by_email": "staff@amls.com"
     }
   ],
-
   "conversations": [
     {
       "id": "conv-001",
@@ -247,7 +245,7 @@
       "phone": "+18475551001",
       "email": "sarah.mitchell@email.com",
       "type": "SMS",
-      "last_message_body": "Great! See you Monday at 10am for your first lesson 💃",
+      "last_message_body": "Great! See you Monday at 10am for your first lesson \ud83d\udc83",
       "last_message_date": "2026-05-15T14:35:00Z",
       "unread_count": 0,
       "updated_at": "2026-05-15T14:35:00Z"
@@ -286,7 +284,7 @@
       "phone": "+18475551007",
       "email": "rachel.kim@email.com",
       "type": "SMS",
-      "last_message_body": "Absolutely! Your friend is welcome to join. We have a group intro class on Saturdays at 2pm 🙂",
+      "last_message_body": "Absolutely! Your friend is welcome to join. We have a group intro class on Saturdays at 2pm \ud83d\ude42",
       "last_message_date": "2026-05-16T12:10:00Z",
       "unread_count": 2,
       "updated_at": "2026-05-16T12:10:00Z"
@@ -318,7 +316,6 @@
       "updated_at": "2026-05-14T11:45:00Z"
     }
   ],
-
   "messages": [
     {
       "id": "msg-001",
@@ -336,7 +333,7 @@
       "conversation_id": "conv-001",
       "studio_id": "studio-001",
       "direction": "inbound",
-      "body": "Yes! My fiancé and I would love that. When are you available?",
+      "body": "Yes! My fianc\u00e9 and I would love that. When are you available?",
       "date_added": "2026-05-13T09:15:00Z",
       "message_type": "SMS",
       "status": null,
@@ -369,7 +366,7 @@
       "conversation_id": "conv-001",
       "studio_id": "studio-001",
       "direction": "outbound",
-      "body": "Great! See you Monday at 10am for your first lesson 💃",
+      "body": "Great! See you Monday at 10am for your first lesson \ud83d\udc83",
       "date_added": "2026-05-15T14:35:00Z",
       "message_type": "SMS",
       "status": "delivered",
@@ -424,7 +421,7 @@
       "conversation_id": "conv-004",
       "studio_id": "studio-001",
       "direction": "outbound",
-      "body": "Absolutely! Your friend is welcome to join. We have a group intro class on Saturdays at 2pm 🙂",
+      "body": "Absolutely! Your friend is welcome to join. We have a group intro class on Saturdays at 2pm \ud83d\ude42",
       "date_added": "2026-05-16T12:10:00Z",
       "message_type": "SMS",
       "status": "delivered",
@@ -453,7 +450,6 @@
       "appointment_id": null
     }
   ],
-
   "appointments": [
     {
       "id": "appt-prev-01",
@@ -468,7 +464,7 @@
       "contact_name": null,
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Sunday group intro class — open to walk-ins",
+      "notes": "Sunday group intro class \u2014 open to walk-ins",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-01T08:00:00Z",
       "updated_at": "2026-05-01T08:00:00Z",
@@ -478,7 +474,7 @@
     {
       "id": "appt-prev-02",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — James Rodriguez",
+      "title": "Bronze 1 \u2014 James Rodriguez",
       "start_time": "2026-05-10T11:00:00-05:00",
       "end_time": "2026-05-10T11:45:00-05:00",
       "status": "confirmed",
@@ -498,7 +494,7 @@
     {
       "id": "appt-prev-03",
       "studio_id": "studio-001",
-      "title": "Couples Waltz — Sarah Mitchell",
+      "title": "Couples Waltz \u2014 Sarah Mitchell",
       "start_time": "2026-05-11T10:00:00-05:00",
       "end_time": "2026-05-11T10:45:00-05:00",
       "status": "confirmed",
@@ -508,7 +504,7 @@
       "contact_name": "Sarah Mitchell",
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Consultation — discussing wedding waltz options.",
+      "notes": "Consultation \u2014 discussing wedding waltz options.",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-07T14:00:00Z",
       "updated_at": "2026-05-07T14:00:00Z",
@@ -518,7 +514,7 @@
     {
       "id": "appt-prev-04",
       "studio_id": "studio-001",
-      "title": "Bronze 2 — David Park",
+      "title": "Bronze 2 \u2014 David Park",
       "start_time": "2026-05-11T11:00:00-05:00",
       "end_time": "2026-05-11T11:45:00-05:00",
       "status": "no_show",
@@ -528,7 +524,7 @@
       "contact_name": "David Park",
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "No showed — work conflict. Rescheduled to next week.",
+      "notes": "No showed \u2014 work conflict. Rescheduled to next week.",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-08T09:00:00Z",
       "updated_at": "2026-05-11T12:00:00Z",
@@ -538,7 +534,7 @@
     {
       "id": "appt-prev-05",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — James Rodriguez",
+      "title": "Bronze 1 \u2014 James Rodriguez",
       "start_time": "2026-05-11T18:00:00-05:00",
       "end_time": "2026-05-11T18:45:00-05:00",
       "status": "confirmed",
@@ -558,7 +554,7 @@
     {
       "id": "appt-prev-06",
       "studio_id": "studio-001",
-      "title": "Couples Intro — Tom & Linda Nguyen",
+      "title": "Couples Intro \u2014 Tom & Linda Nguyen",
       "start_time": "2026-05-12T19:00:00-05:00",
       "end_time": "2026-05-12T19:45:00-05:00",
       "status": "confirmed",
@@ -588,7 +584,7 @@
       "contact_name": null,
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Weekly Tuesday salsa group — all levels welcome",
+      "notes": "Weekly Tuesday salsa group \u2014 all levels welcome",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-01T08:00:00Z",
       "updated_at": "2026-05-01T08:00:00Z",
@@ -598,7 +594,7 @@
     {
       "id": "appt-prev-08",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — James Rodriguez",
+      "title": "Bronze 1 \u2014 James Rodriguez",
       "start_time": "2026-05-12T18:00:00-05:00",
       "end_time": "2026-05-12T18:45:00-05:00",
       "status": "confirmed",
@@ -618,7 +614,7 @@
     {
       "id": "appt-prev-09",
       "studio_id": "studio-001",
-      "title": "Intro Lesson — Emily Chen",
+      "title": "Intro Lesson \u2014 Emily Chen",
       "start_time": "2026-05-12T10:00:00-05:00",
       "end_time": "2026-05-12T10:45:00-05:00",
       "status": "confirmed",
@@ -638,7 +634,7 @@
     {
       "id": "appt-prev-10",
       "studio_id": "studio-001",
-      "title": "Couples Waltz — Sarah Mitchell",
+      "title": "Couples Waltz \u2014 Sarah Mitchell",
       "start_time": "2026-05-13T14:00:00-05:00",
       "end_time": "2026-05-13T14:45:00-05:00",
       "status": "confirmed",
@@ -648,7 +644,7 @@
       "contact_name": "Sarah Mitchell",
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Waltz lesson 2 — basic box step.",
+      "notes": "Waltz lesson 2 \u2014 basic box step.",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-11T10:00:00Z",
       "updated_at": "2026-05-11T10:00:00Z",
@@ -658,7 +654,7 @@
     {
       "id": "appt-prev-11",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — James Rodriguez",
+      "title": "Bronze 1 \u2014 James Rodriguez",
       "start_time": "2026-05-13T18:00:00-05:00",
       "end_time": "2026-05-13T18:45:00-05:00",
       "status": "confirmed",
@@ -678,7 +674,7 @@
     {
       "id": "appt-prev-12",
       "studio_id": "studio-001",
-      "title": "Intro Lesson — Patricia Alvarez",
+      "title": "Intro Lesson \u2014 Patricia Alvarez",
       "start_time": "2026-05-13T10:00:00-05:00",
       "end_time": "2026-05-13T10:45:00-05:00",
       "status": "no_show",
@@ -698,7 +694,7 @@
     {
       "id": "appt-prev-13",
       "studio_id": "studio-001",
-      "title": "Couples Foxtrot — Tom & Linda Nguyen",
+      "title": "Couples Foxtrot \u2014 Tom & Linda Nguyen",
       "start_time": "2026-05-14T19:00:00-05:00",
       "end_time": "2026-05-14T19:45:00-05:00",
       "status": "confirmed",
@@ -708,7 +704,7 @@
       "contact_name": "Tom & Linda Nguyen",
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Foxtrot week 1 — basic step and hold.",
+      "notes": "Foxtrot week 1 \u2014 basic step and hold.",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-12T19:30:00Z",
       "updated_at": "2026-05-12T19:30:00Z",
@@ -728,7 +724,7 @@
       "contact_name": null,
       "assigned_user_id": "user-instructor-02",
       "assigned_user_name": "Alex Turner",
-      "notes": "Thursday group class — beginner ballroom mix",
+      "notes": "Thursday group class \u2014 beginner ballroom mix",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-01T08:00:00Z",
       "updated_at": "2026-05-01T08:00:00Z",
@@ -738,7 +734,7 @@
     {
       "id": "appt-prev-15",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — James Rodriguez",
+      "title": "Bronze 1 \u2014 James Rodriguez",
       "start_time": "2026-05-14T18:00:00-05:00",
       "end_time": "2026-05-14T18:45:00-05:00",
       "status": "confirmed",
@@ -758,7 +754,7 @@
     {
       "id": "appt-prev-16",
       "studio_id": "studio-001",
-      "title": "Intro Lesson — Ashley Williams",
+      "title": "Intro Lesson \u2014 Ashley Williams",
       "start_time": "2026-05-14T15:00:00-05:00",
       "end_time": "2026-05-14T15:45:00-05:00",
       "status": "confirmed",
@@ -778,7 +774,7 @@
     {
       "id": "appt-prev-17",
       "studio_id": "studio-001",
-      "title": "Couples Waltz — Sarah Mitchell",
+      "title": "Couples Waltz \u2014 Sarah Mitchell",
       "start_time": "2026-05-15T10:00:00-05:00",
       "end_time": "2026-05-15T10:45:00-05:00",
       "status": "confirmed",
@@ -788,7 +784,7 @@
       "contact_name": "Sarah Mitchell",
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Waltz lesson 3 — progressive step.",
+      "notes": "Waltz lesson 3 \u2014 progressive step.",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-13T14:00:00Z",
       "updated_at": "2026-05-13T14:00:00Z",
@@ -798,7 +794,7 @@
     {
       "id": "appt-prev-18",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — James Rodriguez",
+      "title": "Bronze 1 \u2014 James Rodriguez",
       "start_time": "2026-05-15T18:00:00-05:00",
       "end_time": "2026-05-15T18:45:00-05:00",
       "status": "confirmed",
@@ -818,7 +814,7 @@
     {
       "id": "appt-prev-19",
       "studio_id": "studio-001",
-      "title": "Bronze 2 — David Park",
+      "title": "Bronze 2 \u2014 David Park",
       "start_time": "2026-05-15T11:00:00-05:00",
       "end_time": "2026-05-15T11:45:00-05:00",
       "status": "confirmed",
@@ -838,7 +834,7 @@
     {
       "id": "appt-prev-20",
       "studio_id": "studio-001",
-      "title": "Couples Foxtrot — Tom & Linda Nguyen",
+      "title": "Couples Foxtrot \u2014 Tom & Linda Nguyen",
       "start_time": "2026-05-15T19:00:00-05:00",
       "end_time": "2026-05-15T19:45:00-05:00",
       "status": "confirmed",
@@ -848,7 +844,7 @@
       "contact_name": "Tom & Linda Nguyen",
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Foxtrot week 2 — promenade.",
+      "notes": "Foxtrot week 2 \u2014 promenade.",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-12T19:30:00Z",
       "updated_at": "2026-05-12T19:30:00Z",
@@ -868,7 +864,7 @@
       "contact_name": null,
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Saturday group intro class — open to walk-ins",
+      "notes": "Saturday group intro class \u2014 open to walk-ins",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-01T08:00:00Z",
       "updated_at": "2026-05-01T08:00:00Z",
@@ -878,7 +874,7 @@
     {
       "id": "appt-prev-22",
       "studio_id": "studio-001",
-      "title": "Intro Lesson — Rachel Kim",
+      "title": "Intro Lesson \u2014 Rachel Kim",
       "start_time": "2026-05-16T10:00:00-05:00",
       "end_time": "2026-05-16T10:45:00-05:00",
       "status": "confirmed",
@@ -898,7 +894,7 @@
     {
       "id": "appt-001",
       "studio_id": "studio-001",
-      "title": "Intro Lesson — Sarah Mitchell",
+      "title": "Intro Lesson \u2014 Sarah Mitchell",
       "start_time": "2026-05-18T10:00:00-05:00",
       "end_time": "2026-05-18T10:45:00-05:00",
       "status": "confirmed",
@@ -918,7 +914,7 @@
     {
       "id": "appt-002",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — James Rodriguez",
+      "title": "Bronze 1 \u2014 James Rodriguez",
       "start_time": "2026-05-18T18:00:00-05:00",
       "end_time": "2026-05-18T18:45:00-05:00",
       "status": "confirmed",
@@ -938,7 +934,7 @@
     {
       "id": "appt-003",
       "studio_id": "studio-001",
-      "title": "Intro Lesson — Ashley Williams",
+      "title": "Intro Lesson \u2014 Ashley Williams",
       "start_time": "2026-05-17T15:00:00-05:00",
       "end_time": "2026-05-17T15:45:00-05:00",
       "status": "new",
@@ -968,7 +964,7 @@
       "contact_name": null,
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Sunday group intro class — open to walk-ins",
+      "notes": "Sunday group intro class \u2014 open to walk-ins",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-01T08:00:00Z",
       "updated_at": "2026-05-01T08:00:00Z",
@@ -978,7 +974,7 @@
     {
       "id": "appt-005",
       "studio_id": "studio-001",
-      "title": "Bronze 2 — David Park",
+      "title": "Bronze 2 \u2014 David Park",
       "start_time": "2026-05-18T11:00:00-05:00",
       "end_time": "2026-05-18T11:45:00-05:00",
       "status": "confirmed",
@@ -998,7 +994,7 @@
     {
       "id": "appt-006",
       "studio_id": "studio-001",
-      "title": "Couples Waltz — Sarah Mitchell",
+      "title": "Couples Waltz \u2014 Sarah Mitchell",
       "start_time": "2026-05-18T14:00:00-05:00",
       "end_time": "2026-05-18T14:45:00-05:00",
       "status": "confirmed",
@@ -1008,7 +1004,7 @@
       "contact_name": "Sarah Mitchell",
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Second lesson same day — wedding crash course.",
+      "notes": "Second lesson same day \u2014 wedding crash course.",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-16T10:00:00Z",
       "updated_at": "2026-05-16T10:00:00Z",
@@ -1018,7 +1014,7 @@
     {
       "id": "appt-007",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — Rachel Kim",
+      "title": "Bronze 1 \u2014 Rachel Kim",
       "start_time": "2026-05-19T10:00:00-05:00",
       "end_time": "2026-05-19T10:45:00-05:00",
       "status": "confirmed",
@@ -1038,7 +1034,7 @@
     {
       "id": "appt-008",
       "studio_id": "studio-001",
-      "title": "Couples Foxtrot — Tom & Linda Nguyen",
+      "title": "Couples Foxtrot \u2014 Tom & Linda Nguyen",
       "start_time": "2026-05-19T19:00:00-05:00",
       "end_time": "2026-05-19T19:45:00-05:00",
       "status": "confirmed",
@@ -1058,7 +1054,7 @@
     {
       "id": "appt-009",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — James Rodriguez",
+      "title": "Bronze 1 \u2014 James Rodriguez",
       "start_time": "2026-05-19T18:00:00-05:00",
       "end_time": "2026-05-19T18:45:00-05:00",
       "status": "confirmed",
@@ -1088,7 +1084,7 @@
       "contact_name": null,
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Weekly Tuesday salsa group — all levels welcome",
+      "notes": "Weekly Tuesday salsa group \u2014 all levels welcome",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-01T08:00:00Z",
       "updated_at": "2026-05-01T08:00:00Z",
@@ -1098,7 +1094,7 @@
     {
       "id": "appt-011",
       "studio_id": "studio-001",
-      "title": "Intro Lesson — Michael Thompson",
+      "title": "Intro Lesson \u2014 Michael Thompson",
       "start_time": "2026-05-20T10:00:00-05:00",
       "end_time": "2026-05-20T10:45:00-05:00",
       "status": "confirmed",
@@ -1108,7 +1104,7 @@
       "contact_name": "Michael Thompson",
       "assigned_user_id": "user-instructor-02",
       "assigned_user_name": "Alex Turner",
-      "notes": "First lesson — followed up from AI call. Interested in swing.",
+      "notes": "First lesson \u2014 followed up from AI call. Interested in swing.",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-16T14:00:00Z",
       "updated_at": "2026-05-16T14:00:00Z",
@@ -1118,7 +1114,7 @@
     {
       "id": "appt-012",
       "studio_id": "studio-001",
-      "title": "Couples Waltz — Sarah Mitchell",
+      "title": "Couples Waltz \u2014 Sarah Mitchell",
       "start_time": "2026-05-20T14:00:00-05:00",
       "end_time": "2026-05-20T14:45:00-05:00",
       "status": "confirmed",
@@ -1128,7 +1124,7 @@
       "contact_name": "Sarah Mitchell",
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Wedding waltz — working on turns.",
+      "notes": "Wedding waltz \u2014 working on turns.",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-16T10:00:00Z",
       "updated_at": "2026-05-16T10:00:00Z",
@@ -1138,7 +1134,7 @@
     {
       "id": "appt-013",
       "studio_id": "studio-001",
-      "title": "Bronze 2 — David Park",
+      "title": "Bronze 2 \u2014 David Park",
       "start_time": "2026-05-20T11:00:00-05:00",
       "end_time": "2026-05-20T11:45:00-05:00",
       "status": "confirmed",
@@ -1148,7 +1144,7 @@
       "contact_name": "David Park",
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Bronze 2 review — tango basics.",
+      "notes": "Bronze 2 review \u2014 tango basics.",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-15T09:00:00Z",
       "updated_at": "2026-05-15T09:00:00Z",
@@ -1158,7 +1154,7 @@
     {
       "id": "appt-014",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — Ashley Williams",
+      "title": "Bronze 1 \u2014 Ashley Williams",
       "start_time": "2026-05-20T15:00:00-05:00",
       "end_time": "2026-05-20T15:45:00-05:00",
       "status": "confirmed",
@@ -1178,7 +1174,7 @@
     {
       "id": "appt-015",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — James Rodriguez",
+      "title": "Bronze 1 \u2014 James Rodriguez",
       "start_time": "2026-05-20T18:00:00-05:00",
       "end_time": "2026-05-20T18:45:00-05:00",
       "status": "confirmed",
@@ -1198,7 +1194,7 @@
     {
       "id": "appt-016",
       "studio_id": "studio-001",
-      "title": "Couples Foxtrot — Tom & Linda Nguyen",
+      "title": "Couples Foxtrot \u2014 Tom & Linda Nguyen",
       "start_time": "2026-05-21T19:00:00-05:00",
       "end_time": "2026-05-21T19:45:00-05:00",
       "status": "confirmed",
@@ -1208,7 +1204,7 @@
       "contact_name": "Tom & Linda Nguyen",
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Foxtrot week 3 — promenade and sway.",
+      "notes": "Foxtrot week 3 \u2014 promenade and sway.",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-15T10:30:00Z",
       "updated_at": "2026-05-15T10:30:00Z",
@@ -1218,7 +1214,7 @@
     {
       "id": "appt-017",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — Rachel Kim",
+      "title": "Bronze 1 \u2014 Rachel Kim",
       "start_time": "2026-05-21T10:00:00-05:00",
       "end_time": "2026-05-21T10:45:00-05:00",
       "status": "confirmed",
@@ -1238,7 +1234,7 @@
     {
       "id": "appt-018",
       "studio_id": "studio-001",
-      "title": "Intro Lesson — Michael Thompson",
+      "title": "Intro Lesson \u2014 Michael Thompson",
       "start_time": "2026-05-21T14:00:00-05:00",
       "end_time": "2026-05-21T14:45:00-05:00",
       "status": "confirmed",
@@ -1268,7 +1264,7 @@
       "contact_name": null,
       "assigned_user_id": "user-instructor-02",
       "assigned_user_name": "Alex Turner",
-      "notes": "Thursday group class — beginner ballroom mix",
+      "notes": "Thursday group class \u2014 beginner ballroom mix",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-01T08:00:00Z",
       "updated_at": "2026-05-01T08:00:00Z",
@@ -1278,7 +1274,7 @@
     {
       "id": "appt-020",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — James Rodriguez",
+      "title": "Bronze 1 \u2014 James Rodriguez",
       "start_time": "2026-05-22T18:00:00-05:00",
       "end_time": "2026-05-22T18:45:00-05:00",
       "status": "confirmed",
@@ -1298,7 +1294,7 @@
     {
       "id": "appt-021",
       "studio_id": "studio-001",
-      "title": "Couples Waltz — Sarah Mitchell",
+      "title": "Couples Waltz \u2014 Sarah Mitchell",
       "start_time": "2026-05-22T10:00:00-05:00",
       "end_time": "2026-05-22T10:45:00-05:00",
       "status": "confirmed",
@@ -1308,7 +1304,7 @@
       "contact_name": "Sarah Mitchell",
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Wedding waltz — full routine run-through.",
+      "notes": "Wedding waltz \u2014 full routine run-through.",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-16T10:00:00Z",
       "updated_at": "2026-05-16T10:00:00Z",
@@ -1318,7 +1314,7 @@
     {
       "id": "appt-022",
       "studio_id": "studio-001",
-      "title": "Bronze 2 — David Park",
+      "title": "Bronze 2 \u2014 David Park",
       "start_time": "2026-05-22T11:00:00-05:00",
       "end_time": "2026-05-22T11:45:00-05:00",
       "status": "confirmed",
@@ -1328,7 +1324,7 @@
       "contact_name": "David Park",
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Bronze 2 — waltz & tango review.",
+      "notes": "Bronze 2 \u2014 waltz & tango review.",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-15T09:00:00Z",
       "updated_at": "2026-05-15T09:00:00Z",
@@ -1338,7 +1334,7 @@
     {
       "id": "appt-023",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — Ashley Williams",
+      "title": "Bronze 1 \u2014 Ashley Williams",
       "start_time": "2026-05-22T15:00:00-05:00",
       "end_time": "2026-05-22T15:45:00-05:00",
       "status": "confirmed",
@@ -1358,7 +1354,7 @@
     {
       "id": "appt-024",
       "studio_id": "studio-001",
-      "title": "Couples Foxtrot — Tom & Linda Nguyen",
+      "title": "Couples Foxtrot \u2014 Tom & Linda Nguyen",
       "start_time": "2026-05-22T19:00:00-05:00",
       "end_time": "2026-05-22T19:45:00-05:00",
       "status": "confirmed",
@@ -1368,7 +1364,7 @@
       "contact_name": "Tom & Linda Nguyen",
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Foxtrot week 4 — adding music.",
+      "notes": "Foxtrot week 4 \u2014 adding music.",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-15T10:30:00Z",
       "updated_at": "2026-05-15T10:30:00Z",
@@ -1388,7 +1384,7 @@
       "contact_name": null,
       "assigned_user_id": "user-instructor-01",
       "assigned_user_name": "Maria Lopez",
-      "notes": "Saturday group intro class — open to walk-ins",
+      "notes": "Saturday group intro class \u2014 open to walk-ins",
       "address": "300 N Milwaukee Ave, Lincolnshire, IL 60069",
       "created_at": "2026-05-01T08:00:00Z",
       "updated_at": "2026-05-01T08:00:00Z",
@@ -1398,7 +1394,7 @@
     {
       "id": "appt-026",
       "studio_id": "studio-001",
-      "title": "Bronze 1 — Rachel Kim",
+      "title": "Bronze 1 \u2014 Rachel Kim",
       "start_time": "2026-05-23T10:00:00-05:00",
       "end_time": "2026-05-23T10:45:00-05:00",
       "status": "confirmed",
@@ -1418,7 +1414,7 @@
     {
       "id": "appt-027",
       "studio_id": "studio-001",
-      "title": "Intro Lesson — Patricia Alvarez",
+      "title": "Intro Lesson \u2014 Patricia Alvarez",
       "start_time": "2026-05-23T11:00:00-05:00",
       "end_time": "2026-05-23T11:45:00-05:00",
       "status": "new",
@@ -1436,7 +1432,6 @@
       "appointment_id": "ghl-appt-027"
     }
   ],
-
   "calls": [
     {
       "id": "call-001",
@@ -1454,7 +1449,7 @@
       "transcript_summary": "AI agent called Michael Thompson to follow up on his inquiry. He expressed interest in dance lessons but needs to check his work schedule. Agreed to call back next week.",
       "transcript": "Agent: Hi, is this Michael?\nMichael: Yes, who's calling?\nAgent: This is the AI assistant from Arthur Murray Lincolnshire. I'm calling about your interest in dance lessons.\nMichael: Oh right, yeah I filled something out online.\nAgent: Great! We'd love to get you started with a free introductory lesson. Would you be available this week?\nMichael: Hmm, let me check my schedule. This week is pretty packed. Can I call you back?\nAgent: Of course! You can reach us at any time. Would next week work better for you?\nMichael: Yeah, probably Tuesday or Wednesday.\nAgent: Perfect. I'll make a note of that. We'll follow up early next week. Thanks, Michael!\nMichael: Thanks, bye!",
       "lead_id": "lead-004",
-      "quality_score": 82,
+      "quality_score": 8.2,
       "appointment_booked": false,
       "recording_url": "https://storage.retellai.com/recordings/retell-call-001.wav",
       "caller_phone": "+18475550100",
@@ -1474,9 +1469,9 @@
       "voicemail": false,
       "direction": "outbound",
       "transcript_summary": "AI agent called Sarah Mitchell to confirm her Monday intro lesson. Sarah confirmed attendance and asked about what to wear. Appointment confirmed.",
-      "transcript": "Agent: Hi Sarah, this is the AI assistant from Arthur Murray Lincolnshire.\nSarah: Oh hi! I was expecting your call.\nAgent: I'm calling to confirm your introductory lesson scheduled for Monday at 10am.\nSarah: Yes, we'll be there! My fiancé David is excited too.\nAgent: Wonderful! Is there anything you'd like to know before your lesson?\nSarah: Actually yes — what should we wear?\nAgent: Great question! Comfortable clothing that allows movement is perfect. For shoes, smooth-soled shoes work best. Avoid sneakers with rubber soles if possible.\nSarah: Perfect, thank you so much!\nAgent: You're welcome! See you Monday at 10. Have a great weekend!\nSarah: Thanks, bye!",
+      "transcript": "Agent: Hi Sarah, this is the AI assistant from Arthur Murray Lincolnshire.\nSarah: Oh hi! I was expecting your call.\nAgent: I'm calling to confirm your introductory lesson scheduled for Monday at 10am.\nSarah: Yes, we'll be there! My fianc\u00e9 David is excited too.\nAgent: Wonderful! Is there anything you'd like to know before your lesson?\nSarah: Actually yes \u2014 what should we wear?\nAgent: Great question! Comfortable clothing that allows movement is perfect. For shoes, smooth-soled shoes work best. Avoid sneakers with rubber soles if possible.\nSarah: Perfect, thank you so much!\nAgent: You're welcome! See you Monday at 10. Have a great weekend!\nSarah: Thanks, bye!",
       "lead_id": "lead-001",
-      "quality_score": 95,
+      "quality_score": 9.5,
       "appointment_booked": true,
       "recording_url": "https://storage.retellai.com/recordings/retell-call-002.wav",
       "caller_phone": "+18475550100",
@@ -1498,7 +1493,7 @@
       "transcript_summary": "AI agent attempted to call Patricia Alvarez for a follow-up after her no-show. Call went to voicemail. Left a brief message.",
       "transcript": "Agent: Hi Patricia, this is the AI assistant from Arthur Murray Lincolnshire. We missed you at your lesson on April 20th and wanted to check in. We'd love to reschedule when you're ready. Give us a call or text anytime. Have a great day!",
       "lead_id": "lead-005",
-      "quality_score": 60,
+      "quality_score": 6.0,
       "appointment_booked": false,
       "recording_url": "https://storage.retellai.com/recordings/retell-call-003.wav",
       "caller_phone": "+18475550100",
@@ -1517,7 +1512,7 @@
       "transferred": false,
       "voicemail": false,
       "direction": "outbound",
-      "transcript_summary": "Call to David Park failed — line was busy.",
+      "transcript_summary": "Call to David Park failed \u2014 line was busy.",
       "transcript": null,
       "lead_id": "lead-006",
       "quality_score": null,
@@ -1542,7 +1537,7 @@
       "transcript_summary": "Tom Nguyen called in to ask about rescheduling his couples lesson. AI agent confirmed a new time slot on Thursday at 7pm. Appointment rescheduled.",
       "transcript": "Tom: Hi, I'm calling about my dance lesson.\nAgent: Hello! Welcome to Arthur Murray Lincolnshire. Can I have your name please?\nTom: Tom Nguyen. My wife Linda and I have a couples lesson.\nAgent: Hi Tom! I see your appointment. How can I help?\nTom: We need to move it to later in the week if possible. Thursday evening?\nAgent: Let me check availability... I have Thursday at 7pm with Maria. Would that work?\nTom: That's perfect.\nAgent: Great, I've rescheduled your lesson to Thursday at 7pm. You'll be working on the foxtrot with Maria.\nTom: Awesome, thank you!\nAgent: You're welcome, Tom. See you and Linda Thursday!",
       "lead_id": "lead-008",
-      "quality_score": 91,
+      "quality_score": 9.1,
       "appointment_booked": true,
       "recording_url": "https://storage.retellai.com/recordings/retell-call-005.wav",
       "caller_phone": "+18475551008",
@@ -1562,9 +1557,9 @@
       "voicemail": false,
       "direction": "outbound",
       "transcript_summary": "AI agent called Marcus Johnson. He was selling insurance and became irritated when the agent tried to discuss dance lessons. Marked as solicitation.",
-      "transcript": "Agent: Hi, is this Marcus Johnson?\nMarcus: Yeah, who's this?\nAgent: This is the AI assistant from Arthur Murray Lincolnshire dance studio. I'm calling about—\nMarcus: Oh, I actually called you guys to talk about your business insurance. Are you the owner?\nAgent: I'm an AI assistant. I can help with dance lesson inquiries. Would you be interested in—\nMarcus: No no, I'm calling about insurance. Can I speak to the owner?\nAgent: I can take a message for the studio owner if you'd like.\nMarcus: Never mind. *click*",
+      "transcript": "Agent: Hi, is this Marcus Johnson?\nMarcus: Yeah, who's this?\nAgent: This is the AI assistant from Arthur Murray Lincolnshire dance studio. I'm calling about\u2014\nMarcus: Oh, I actually called you guys to talk about your business insurance. Are you the owner?\nAgent: I'm an AI assistant. I can help with dance lesson inquiries. Would you be interested in\u2014\nMarcus: No no, I'm calling about insurance. Can I speak to the owner?\nAgent: I can take a message for the studio owner if you'd like.\nMarcus: Never mind. *click*",
       "lead_id": "lead-009",
-      "quality_score": 25,
+      "quality_score": 2.5,
       "appointment_booked": false,
       "recording_url": "https://storage.retellai.com/recordings/retell-call-006.wav",
       "caller_phone": "+18475550100",
@@ -1584,9 +1579,9 @@
       "voicemail": false,
       "direction": "outbound",
       "transcript_summary": "AI agent called Emily Chen to schedule her next Bronze 2 lesson. Emily mentioned she'd be out of town and asked to cancel upcoming lessons until June.",
-      "transcript": "Agent: Hi Emily, this is the AI assistant from Arthur Murray Lincolnshire.\nEmily: Hi there!\nAgent: I'm calling to schedule your next Bronze 2 lesson. How does next Monday work?\nEmily: Actually, I need to let you know — I'm going to be traveling for the rest of May. Can we pause my lessons?\nAgent: Of course! When do you expect to be back?\nEmily: Probably June 1st or 2nd.\nAgent: Perfect. I'll make a note to follow up with you in early June. Enjoy your travels!\nEmily: Thanks so much! I can't wait to get back to dancing.\nAgent: We'll be here! Have a wonderful trip, Emily.",
+      "transcript": "Agent: Hi Emily, this is the AI assistant from Arthur Murray Lincolnshire.\nEmily: Hi there!\nAgent: I'm calling to schedule your next Bronze 2 lesson. How does next Monday work?\nEmily: Actually, I need to let you know \u2014 I'm going to be traveling for the rest of May. Can we pause my lessons?\nAgent: Of course! When do you expect to be back?\nEmily: Probably June 1st or 2nd.\nAgent: Perfect. I'll make a note to follow up with you in early June. Enjoy your travels!\nEmily: Thanks so much! I can't wait to get back to dancing.\nAgent: We'll be here! Have a wonderful trip, Emily.",
       "lead_id": "lead-003",
-      "quality_score": 88,
+      "quality_score": 8.8,
       "appointment_booked": false,
       "recording_url": "https://storage.retellai.com/recordings/retell-call-007.wav",
       "caller_phone": "+18475550100",
@@ -1630,7 +1625,7 @@
       "transcript_summary": "AI agent reached James Rodriguez for the first time. James was enthusiastic about starting lessons. Booked an intro lesson for Saturday.",
       "transcript": "Agent: Hello, may I speak with James Rodriguez?\nJames: Speaking!\nAgent: Hi James, this is the AI assistant from Arthur Murray Lincolnshire dance studio. You recently expressed interest in dance lessons. Is this a good time to chat?\nJames: Yeah, absolutely! I've been wanting to learn to dance for a while.\nAgent: That's great to hear! We offer a complimentary introductory lesson. Would you like to schedule one?\nJames: For sure! What do you have available?\nAgent: We have Saturday at 11am or next Tuesday at 6pm.\nJames: Saturday works. Let's do it!\nAgent: Wonderful! You're booked for Saturday at 11am. We're located at 300 N Milwaukee Ave in Lincolnshire. Wear comfortable clothing and smooth-soled shoes.\nJames: Perfect, I'll be there. Thanks!\nAgent: See you Saturday, James!",
       "lead_id": "lead-002",
-      "quality_score": 93,
+      "quality_score": 9.3,
       "appointment_booked": true,
       "recording_url": "https://storage.retellai.com/recordings/retell-call-009.wav",
       "caller_phone": "+18475550100",
@@ -1652,7 +1647,7 @@
       "transcript_summary": "Ashley Williams called in asking about pricing for private lessons. AI agent provided general info and transferred to the front desk for detailed package pricing.",
       "transcript": "Ashley: Hi, I came in earlier today and I had a question about lesson packages.\nAgent: Welcome back, Ashley! I'd be happy to help. What would you like to know?\nAshley: How much are private lessons versus group classes?\nAgent: Great question! We have several package options. For detailed pricing, let me connect you with our front desk team who can walk you through everything and find the best fit.\nAshley: Sure, that works.\nAgent: Transferring you now. Thanks for calling, Ashley!",
       "lead_id": "lead-010",
-      "quality_score": 78,
+      "quality_score": 7.8,
       "appointment_booked": false,
       "recording_url": "https://storage.retellai.com/recordings/retell-call-010.wav",
       "caller_phone": "+18475551010",
@@ -1674,7 +1669,7 @@
       "transcript_summary": "Patricia Alvarez called back after the AI's voicemail. She apologized for the no-show and said she's been busy. Not ready to reschedule yet.",
       "transcript": "Patricia: Hi, I got a voicemail from you guys.\nAgent: Hi! Thanks for calling back. Can I have your name?\nPatricia: Patricia Alvarez. I had a lesson scheduled a while back but couldn't make it.\nAgent: No problem at all, Patricia! We'd love to reschedule whenever you're ready.\nPatricia: I'm still really busy right now. Maybe in a month or so?\nAgent: Absolutely, no rush. We'll be here whenever you're ready. Would you like us to follow up with you in a month?\nPatricia: Sure, that would be fine.\nAgent: Perfect. We'll reach out around mid-June. Thanks for calling, Patricia!\nPatricia: Thanks, bye.",
       "lead_id": "lead-005",
-      "quality_score": 70,
+      "quality_score": 7.0,
       "appointment_booked": false,
       "recording_url": "https://storage.retellai.com/recordings/retell-call-011.wav",
       "caller_phone": "+18475551005",
@@ -1696,14 +1691,13 @@
       "transcript_summary": "AI agent called Tom & Linda Nguyen to book their first couples lesson. Scheduled for Monday at 7pm. Both very excited about wedding dance prep.",
       "transcript": "Agent: Hello, may I speak with Tom or Linda Nguyen?\nTom: This is Tom.\nAgent: Hi Tom! This is the AI assistant from Arthur Murray Lincolnshire. You and Linda inquired about wedding dance lessons at our event booth. Is this a good time?\nTom: Yes! Linda's here too, I'll put you on speaker.\nAgent: Perfect! Congratulations on your upcoming wedding! When's the big day?\nTom: October 10th.\nAgent: Wonderful! We have plenty of time to get you both dance-floor ready. We'd like to start with a free intro lesson. How does Monday at 7pm sound?\nLinda: That works for us!\nAgent: Great! You're booked for Monday at 7pm with Maria, one of our top instructors. She specializes in wedding dances.\nTom: Awesome, we can't wait!\nAgent: See you both Monday! Have a great evening.",
       "lead_id": "lead-008",
-      "quality_score": 96,
+      "quality_score": 9.6,
       "appointment_booked": true,
       "recording_url": "https://storage.retellai.com/recordings/retell-call-012.wav",
       "caller_phone": "+18475550100",
       "called_phone": "+18475551008"
     }
   ],
-
   "callHistory": {
     "_comment": "CallHistoryRow = Call fields + lead_name, lead_phone, is_callback, last_missed_outbound_at. Tabs: all (everything), outbound, inbound, failed (picked_up=false or unsuccessful+voicemail/no_answer/busy), callbacks (inbound where lead has prior missed outbound).",
     "rows": [
@@ -1727,7 +1721,10 @@
         "transferred": false,
         "is_callback": false,
         "last_missed_outbound_at": null,
-        "tabs": ["all", "outbound"]
+        "tabs": [
+          "all",
+          "outbound"
+        ]
       },
       {
         "id": "call-002",
@@ -1749,7 +1746,10 @@
         "transferred": false,
         "is_callback": false,
         "last_missed_outbound_at": null,
-        "tabs": ["all", "outbound"]
+        "tabs": [
+          "all",
+          "outbound"
+        ]
       },
       {
         "id": "call-003",
@@ -1771,7 +1771,11 @@
         "transferred": false,
         "is_callback": false,
         "last_missed_outbound_at": null,
-        "tabs": ["all", "outbound", "failed"]
+        "tabs": [
+          "all",
+          "outbound",
+          "failed"
+        ]
       },
       {
         "id": "call-004",
@@ -1780,7 +1784,7 @@
         "duration_seconds": 0,
         "outcome": "unsuccessful",
         "sentiment": "unknown",
-        "transcript_summary": "Call to David Park failed — line was busy.",
+        "transcript_summary": "Call to David Park failed \u2014 line was busy.",
         "lead_id": "lead-006",
         "lead_name": "David Park",
         "lead_phone": "+18475551006",
@@ -1793,7 +1797,11 @@
         "transferred": false,
         "is_callback": false,
         "last_missed_outbound_at": null,
-        "tabs": ["all", "outbound", "failed"]
+        "tabs": [
+          "all",
+          "outbound",
+          "failed"
+        ]
       },
       {
         "id": "call-005",
@@ -1815,7 +1823,10 @@
         "transferred": false,
         "is_callback": false,
         "last_missed_outbound_at": null,
-        "tabs": ["all", "inbound"]
+        "tabs": [
+          "all",
+          "inbound"
+        ]
       },
       {
         "id": "call-006",
@@ -1837,7 +1848,10 @@
         "transferred": false,
         "is_callback": false,
         "last_missed_outbound_at": null,
-        "tabs": ["all", "outbound"]
+        "tabs": [
+          "all",
+          "outbound"
+        ]
       },
       {
         "id": "call-007",
@@ -1859,7 +1873,10 @@
         "transferred": false,
         "is_callback": false,
         "last_missed_outbound_at": null,
-        "tabs": ["all", "outbound"]
+        "tabs": [
+          "all",
+          "outbound"
+        ]
       },
       {
         "id": "call-008",
@@ -1881,7 +1898,11 @@
         "transferred": false,
         "is_callback": false,
         "last_missed_outbound_at": null,
-        "tabs": ["all", "outbound", "failed"]
+        "tabs": [
+          "all",
+          "outbound",
+          "failed"
+        ]
       },
       {
         "id": "call-009",
@@ -1903,7 +1924,10 @@
         "transferred": false,
         "is_callback": false,
         "last_missed_outbound_at": null,
-        "tabs": ["all", "outbound"]
+        "tabs": [
+          "all",
+          "outbound"
+        ]
       },
       {
         "id": "call-010",
@@ -1925,7 +1949,10 @@
         "transferred": true,
         "is_callback": false,
         "last_missed_outbound_at": null,
-        "tabs": ["all", "inbound"]
+        "tabs": [
+          "all",
+          "inbound"
+        ]
       },
       {
         "id": "call-011",
@@ -1947,7 +1974,11 @@
         "transferred": false,
         "is_callback": true,
         "last_missed_outbound_at": "2026-05-14T11:00:00Z",
-        "tabs": ["all", "inbound", "callbacks"]
+        "tabs": [
+          "all",
+          "inbound",
+          "callbacks"
+        ]
       },
       {
         "id": "call-012",
@@ -1969,15 +2000,54 @@
         "transferred": false,
         "is_callback": false,
         "last_missed_outbound_at": null,
-        "tabs": ["all", "outbound"]
+        "tabs": [
+          "all",
+          "outbound"
+        ]
       }
     ],
     "tabSummary": {
-      "all": { "count": 12, "description": "Every call record regardless of direction or outcome" },
-      "outbound": { "count": 8, "ids": ["call-001", "call-002", "call-003", "call-004", "call-006", "call-007", "call-008", "call-009"] },
-      "inbound": { "count": 3, "ids": ["call-005", "call-010", "call-011"] },
-      "failed": { "count": 3, "ids": ["call-003", "call-004", "call-008"], "description": "picked_up=false, unsuccessful outcome, or disconnect=voicemail/no_answer/busy" },
-      "callbacks": { "count": 1, "ids": ["call-011"], "description": "Inbound calls where the lead has a prior missed outbound call (Patricia called back after voicemail on call-003 and no-answer on call-008)" }
+      "all": {
+        "count": 12,
+        "description": "Every call record regardless of direction or outcome"
+      },
+      "outbound": {
+        "count": 8,
+        "ids": [
+          "call-001",
+          "call-002",
+          "call-003",
+          "call-004",
+          "call-006",
+          "call-007",
+          "call-008",
+          "call-009"
+        ]
+      },
+      "inbound": {
+        "count": 3,
+        "ids": [
+          "call-005",
+          "call-010",
+          "call-011"
+        ]
+      },
+      "failed": {
+        "count": 3,
+        "ids": [
+          "call-003",
+          "call-004",
+          "call-008"
+        ],
+        "description": "picked_up=false, unsuccessful outcome, or disconnect=voicemail/no_answer/busy"
+      },
+      "callbacks": {
+        "count": 1,
+        "ids": [
+          "call-011"
+        ],
+        "description": "Inbound calls where the lead has a prior missed outbound call (Patricia called back after voicemail on call-003 and no-answer on call-008)"
+      }
     }
   }
 }

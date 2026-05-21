@@ -14,6 +14,8 @@ import {
     ChevronLeft,
     ChevronRight,
     FlaskConical,
+    ClipboardCheck,
+    PhoneForwarded,
 } from "lucide-react";
 import { StudioSwitcher } from "./studio-switcher";
 import { setSelectedStudio, saveNavCollapsed } from "@/app/actions";
@@ -26,6 +28,8 @@ const NAV_ITEMS = [
     { href: "/calendar", label: "Calendar", Icon: Calendar },
     { href: "/call-analytics", label: "Call Analytics", Icon: BarChart2 },
     { href: "/call-history", label: "Call History", Icon: Phone },
+    { href: "/call-quality", label: "Quality Review", Icon: ClipboardCheck },
+    { href: "/follow-ups", label: "Follow-ups", Icon: PhoneForwarded },
     { href: "/test", label: "Test", Icon: FlaskConical },
 ];
 

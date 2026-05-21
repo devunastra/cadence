@@ -73,6 +73,9 @@ function parseTranscript(raw: string): { speaker: "agent" | "user" | "other"; te
             result.push({ speaker: "agent", text: trimmed.replace(/^agent\s*:\s*/i, "") });
         } else if (/^user\s*:/i.test(trimmed)) {
             result.push({ speaker: "user", text: trimmed.replace(/^user\s*:\s*/i, "") });
+        } else if (/^\w[\w\s]*:\s/.test(trimmed)) {
+            // Non-agent speaker line (e.g. "Michael: Hi") — treat as user
+            result.push({ speaker: "user", text: trimmed.replace(/^\w[\w\s]*:\s*/, "") });
         } else if (result.length > 0 && result[result.length - 1].speaker !== "other") {
             result[result.length - 1] = {
                 ...result[result.length - 1],

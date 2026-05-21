@@ -16,6 +16,7 @@ import { applyTranscriptFilters } from '@/lib/call-filters'
 import { type TranscriptFilters, DEFAULT_FILTERS } from './transcripts-filter-bar'
 import type { Lead } from '@/lib/types'
 import type { FieldOption } from '@/lib/field-options'
+import { MOCK_CALLS } from '@/lib/mock-data'
 
 type TranscriptCall = TranscriptCallRow
 
@@ -350,7 +351,7 @@ export function TranscriptsPanel({ studioId, from = '', to = '', leadId, listWid
       >
         {selected ? (
           <TranscriptViewer
-            call={{ ...selected, transcript: transcriptDataCache[selected.id]?.transcript ?? null }}
+            call={{ ...selected, transcript: transcriptDataCache[selected.id]?.transcript ?? MOCK_CALLS.find(c => c.id === selected.id)?.transcript ?? null }}
             transcriptWithToolCalls={transcriptDataCache[selected.id]?.toolCalls ?? null}
             isLoadingTranscript={fetchingTranscriptFor === selected.id}
             onNameClick={selected.lead_id ? () => openLead(selected.lead_id!) : undefined}
