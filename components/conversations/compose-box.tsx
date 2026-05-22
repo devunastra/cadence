@@ -28,6 +28,7 @@ export interface ComposeBoxProps {
   contactPhone: string | null
   contactEmail: string | null
   studioEmail?: string
+  isMobile?: boolean
   onSent: (msg: SentMessage) => void
   onConversationCreated?: (convId: string) => void
   /** Call this to programmatically expand + focus the box */
@@ -42,6 +43,7 @@ export function ComposeBox({
   contactPhone,
   contactEmail,
   studioEmail = 'info@arthurmurray.info',
+  isMobile = false,
   onSent,
   onConversationCreated,
   imperativeRef,
@@ -602,18 +604,20 @@ export function ComposeBox({
         />
         {/* Modal — edit WIDTH / HEIGHT below to resize */}
         <div
-          className="fixed z-[201] flex flex-col rounded-xl overflow-hidden"
+          className={`fixed z-[201] flex flex-col overflow-hidden ${isMobile ? '' : 'rounded-xl'}`}
           style={{
-            /* ↓↓ Adjust dimensions here ↓↓ */
-            width: '75%',
-            height: '90%',
-            /* ↑↑ Adjust dimensions here ↑↑ */
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
+            ...(isMobile ? {
+              inset: 0,
+            } : {
+              width: '75%',
+              height: '90%',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+            }),
             backgroundColor: 'var(--color-bg)',
-            border: '1px solid var(--color-border)',
-            boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+            border: isMobile ? undefined : '1px solid var(--color-border)',
+            boxShadow: isMobile ? undefined : '0 24px 64px rgba(0,0,0,0.25)',
           }}
         >
           {/* Modal header */}

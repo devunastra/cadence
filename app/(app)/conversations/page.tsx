@@ -15,6 +15,9 @@ import {
     ChevronUp,
     Trash2,
     StarOff,
+    ArrowLeft,
+    UserRound,
+    Search,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Spinner } from "@/components/spinner";
@@ -26,6 +29,7 @@ import { deleteAppointment, findLeadsByContactIds } from "@/app/actions";
 import type { Appointment, Lead, StudioSlotConfig } from "@/lib/types";
 import { Checkbox } from "@/components/leads/checkbox";
 import { ConversationThread } from "@/components/conversations/conversation-thread";
+import { useIsMobile } from "@/lib/hooks";
 import type { GHLMessage as GHLMessageType } from "@/components/conversations/conversation-thread";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -206,7 +210,14 @@ function ChannelTypeIcon({
 
 function ConversationSearchInput({ onChange }: { onChange: (v: string) => void }) {
     const [value, setValue] = useState('');
+    const [open, setOpen] = useState(false);
+    const [focused, setFocused] = useState(false);
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (open) setTimeout(() => inputRef.current?.focus(), 20);
+    }, [open]);
 
     function handleChange(v: string) {
         setValue(v);
@@ -214,37 +225,78 @@ function ConversationSearchInput({ onChange }: { onChange: (v: string) => void }
         timerRef.current = setTimeout(() => onChange(v), 300);
     }
 
-    function handleClear() {
+    function handleClose() {
         if (timerRef.current) clearTimeout(timerRef.current);
         setValue('');
         onChange('');
+        setOpen(false);
+    }
+
+    if (open) {
+        return (
+            <div
+                className="flex items-center gap-2 px-3 flex-1 min-w-0"
+                style={{
+                    height: 36,
+                    border: focused ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
+                    borderRadius: 8,
+                    backgroundColor: 'var(--color-bg)',
+                }}
+            >
+                <Search size={13} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+                <input
+                    ref={inputRef}
+                    type="text"
+                    placeholder="Search by name…"
+                    value={value}
+                    onChange={(e) => handleChange(e.target.value)}
+                    onFocus={() => setFocused(true)}
+                    onBlur={() => setFocused(false)}
+                    onKeyDown={(e) => { if (e.key === 'Escape') handleClose() }}
+                    className="text-sm outline-none bg-transparent flex-1 min-w-0"
+                    style={{ color: 'var(--color-text-primary)' }}
+                />
+                <button
+                    onClick={handleClose}
+                    style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
+                >
+                    <X size={12} />
+                </button>
+            </div>
+        );
     }
 
     return (
-        <div className="relative flex-1">
-            <input
-                type="text"
-                placeholder="Search by name…"
-                value={value}
-                onChange={(e) => handleChange(e.target.value)}
-                className="w-full px-3 py-1.5 text-sm rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-                style={{
-                    border: '1px solid var(--color-border)',
-                    backgroundColor: 'var(--color-bg)',
-                    color: 'var(--color-text-primary)',
-                    paddingRight: value ? 28 : undefined,
-                }}
-            />
-            {value && (
-                <button
-                    onClick={handleClear}
-                    className="absolute right-2 top-1/2 -translate-y-1/2"
-                    style={{ color: 'var(--color-text-muted)' }}
-                >
-                    <X size={13} />
-                </button>
-            )}
-        </div>
+        <button
+            onClick={() => setOpen(true)}
+            className="flex-1 min-w-0 flex items-center gap-1.5 px-3"
+            style={{
+                height: 36,
+                fontSize: 14,
+                fontWeight: 500,
+                borderRadius: 8,
+                cursor: 'pointer',
+                border: `1px solid ${value ? 'var(--color-border-strong)' : 'var(--color-border)'}`,
+                backgroundColor: value ? 'var(--color-surface)' : 'var(--color-bg)',
+                color: 'var(--color-text-secondary)',
+                transition: 'background var(--transition-fast), color var(--transition-fast)',
+            }}
+            onMouseEnter={(e) => {
+                (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface-hover)';
+                (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)';
+            }}
+            onMouseLeave={(e) => {
+                if (!value) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)';
+                (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)';
+            }}
+        >
+            <Search size={14} style={{ flexShrink: 0 }} />
+            <span className="flex-1 text-left truncate">
+                {value
+                    ? `"${value.slice(0, 14)}${value.length > 14 ? '…' : ''}"`
+                    : 'Search by name…'}
+            </span>
+        </button>
     );
 }
 
@@ -253,6 +305,10 @@ function ConversationSearchInput({ onChange }: { onChange: (v: string) => void }
 export default function ConversationsPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
+    const isMobile = useIsMobile();
+    const [mobileView, setMobileView] = useState<'list' | 'thread' | 'contact'>('list');
+    const isMobileRef = useRef(false);
+    isMobileRef.current = isMobile;
     const [conversations, setConversations] = useState<GHLConversation[]>([]);
     const [studioId, setStudioId] = useState<string | null>(null);
     const [ghlLocationId, setGhlLocationId] = useState<string | null>(null);
@@ -398,7 +454,10 @@ export default function ConversationsPage() {
         setConversations(prev => prev.filter(c => c.id !== convId))
         if (wasUnread) setGlobalUnreadCount(prev => Math.max(0, prev - 1))
         
-        if (selectedId === convId) setSelectedId(null)
+        if (selectedId === convId) {
+            setSelectedId(null)
+            if (isMobileRef.current) setMobileView('list')
+        }
         try {
             await fetch('/api/conversations', {
                 method: 'DELETE',
@@ -421,7 +480,10 @@ export default function ConversationsPage() {
                 if (conversations.find(c => c.id === id)?.unreadCount) unreadDelta -= 1;
             });
             setConversations(prev => prev.filter(c => !selectedConvIds.has(c.id)))
-            if (selectedId && selectedConvIds.has(selectedId)) setSelectedId(null)
+            if (selectedId && selectedConvIds.has(selectedId)) {
+                setSelectedId(null)
+                if (isMobileRef.current) setMobileView('list')
+            }
             setSelectedConvIds(new Set())
             setGlobalUnreadCount(prev => Math.max(0, prev + unreadDelta))
             await Promise.all(ids.map(id =>
@@ -457,7 +519,10 @@ export default function ConversationsPage() {
     // ── Select conversation (with auto-remove check for blank new ones) ───────
 
     function selectConversation(newId: string) {
-        if (newId === selectedId) return;
+        if (newId === selectedId) {
+            if (isMobileRef.current) setMobileView('thread');
+            return;
+        }
         if (
             selectedId &&
             selectedId !== newId &&
@@ -477,6 +542,10 @@ export default function ConversationsPage() {
         setSelectedId(newId);
         setSelectedAppt(null);
         setLoadingLead(true);
+        if (isMobileRef.current) {
+            setMobileView('thread');
+            window.history.pushState({ mobileView: 'thread' }, '');
+        }
     }
 
     const handleLeadResolved = useCallback(() => setLoadingLead(false), [])
@@ -657,6 +726,7 @@ export default function ConversationsPage() {
                     );
                     newlyCreatedIdsRef.current.add(conv.id);
                     setSelectedId(conv.id);
+                    if (isMobileRef.current) setMobileView('thread');
                     router.replace("/conversations");
                 }
             })
@@ -812,7 +882,7 @@ export default function ConversationsPage() {
     // Force-scroll to bottom after spinner clears on conversation switch.
     // rAF ensures we scroll after React has painted the new messages into the DOM.
     useEffect(() => {
-        if (loadingMsgs || loadingLead) return;
+        if (loadingMsgs || (!isMobileRef.current && loadingLead)) return;
         if (!forceScrollBottomRef.current) return;
         forceScrollBottomRef.current = false;
         const el = threadRef.current;
@@ -1027,6 +1097,10 @@ export default function ConversationsPage() {
             // Track as newly created so it can be auto-removed if blank on switch-away
             newlyCreatedIdsRef.current.add(conv.id);
             setSelectedId(conv.id);
+            if (isMobileRef.current) {
+                setMobileView('thread');
+                window.history.pushState({ mobileView: 'thread' }, '');
+            }
             setShowNewConv(false);
             setNewConvSearch("");
         } finally {
@@ -1081,6 +1155,23 @@ export default function ConversationsPage() {
             .catch(() => {});
     }, [studioId]); // Fetch when studioId is available. In a real app, you might refresh this periodically or via webhook/realtime event.
 
+    // ── Mobile: browser back button ────────────────────────────────────────
+    useEffect(() => {
+        if (!isMobile) return;
+        function handlePopState() {
+            setMobileView(prev => prev === 'contact' ? 'thread' : prev === 'thread' ? 'list' : prev);
+        }
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, [isMobile]);
+
+    // ── Mobile: sync view on resize ─────────────────────────────────────────
+    useEffect(() => {
+        if (isMobile && selectedId) setMobileView('thread');
+        if (isMobile && !selectedId) setMobileView('list');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isMobile]);
+
     // ── Fetch Conversations on Filter/Search Change ──────────────────────────
 
     useEffect(() => {
@@ -1111,7 +1202,7 @@ export default function ConversationsPage() {
                 onKeyDown={(e) =>
                     e.key === "Enter" && selectConversation(conv.id)
                 }
-                className={`group relative w-full text-left px-4 py-4 transition-colors cursor-pointer select-none border-b border-[var(--color-border)] ${
+                className={`group relative w-full text-left px-4 py-4 transition-colors cursor-pointer select-none border-b border-[var(--color-border)] overflow-hidden ${
                     isActive ? "bg-[var(--color-accent-subtle)]" : "hover:bg-[var(--color-surface)]"
                 }`}
             >
@@ -1236,48 +1327,103 @@ export default function ConversationsPage() {
             className="flex flex-col h-full"
             style={{ backgroundColor: "var(--color-bg)" }}
         >
-            <div
-                className="px-5 pt-5 md:pt-10 pb-5 flex-shrink-0"
-                style={{ borderBottom: "1px solid var(--color-border)" }}
-            >
-                <h1
-                    className="text-2xl font-semibold"
-                    style={{ color: "var(--color-text-primary)" }}
+            {(!isMobile || mobileView === 'list') && (
+                <div
+                    className="px-5 pt-5 md:pt-10 pb-5 flex-shrink-0"
+                    style={{ borderBottom: "1px solid var(--color-border)" }}
                 >
-                    Conversations
-                </h1>
-            </div>
+                    <h1
+                        className="text-2xl font-semibold"
+                        style={{ color: "var(--color-text-primary)" }}
+                    >
+                        Conversations
+                    </h1>
+                </div>
+            )}
             <div className="flex flex-1 min-h-0 overflow-hidden">
                 {/* ── Left panel: conversation list ───────────────────────────────── */}
+                {(!isMobile || mobileView === 'list') && (
                 <div
-                    className="w-[340px] shrink-0 flex flex-col"
+                    className={`${isMobile ? 'flex-1 min-w-0 overflow-hidden' : 'w-[340px] shrink-0'} flex flex-col`}
                     style={{
-                        borderRight: "1px solid var(--color-border)",
+                        borderRight: isMobile ? undefined : "1px solid var(--color-border)",
                         backgroundColor: "var(--color-bg)",
                     }}
                 >
                     {/* Search + compose */}
-                    <div
-                        className="p-3 flex items-center gap-2"
-                    >
+                    <div className="p-3 flex items-center gap-2">
                         <ConversationSearchInput onChange={setDebouncedSearch} />
-                        <button
-                            onClick={() => {
-                                setShowNewConv(true);
-                                setNewConvSearch("");
-                            }}
-                            title="New conversation"
-                            className="shrink-0 p-2 rounded-lg transition-opacity hover:opacity-90 shadow-sm"
-                            style={{ 
-                                backgroundColor: "var(--color-accent)",
-                                color: "#ffffff"
-                            }}
-                        >
-                            <MessageSquarePlus size={18} />
-                        </button>
+                        {!isMobile && (
+                            <button
+                                onClick={() => {
+                                    setShowNewConv(true);
+                                    setNewConvSearch("");
+                                }}
+                                title="New conversation"
+                                className="shrink-0 p-2 rounded-lg transition-opacity hover:opacity-90 shadow-sm"
+                                style={{
+                                    backgroundColor: "var(--color-accent)",
+                                    color: "#ffffff"
+                                }}
+                            >
+                                <MessageSquarePlus size={18} />
+                            </button>
+                        )}
                     </div>
 
+                    {/* Mobile-only: New Conversation button — above tabs */}
+                    {isMobile && (
+                        <div className="px-3 pb-2">
+                            <button
+                                onClick={() => {
+                                    setShowNewConv(true);
+                                    setNewConvSearch("");
+                                }}
+                                className="px-3 py-1.5 text-sm font-medium text-white rounded-lg"
+                                style={{ backgroundColor: 'var(--color-accent)' }}
+                            >
+                                + New Conversation
+                            </button>
+                        </div>
+                    )}
+
                     {/* Tabs */}
+                    {isMobile ? (
+                    <div className="flex-shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                        <div className="flex items-center gap-0 overflow-x-auto">
+                            {([
+                                { key: 'unread' as const, label: 'Unread' },
+                                { key: 'all' as const, label: 'All' },
+                                { key: 'starred' as const, label: 'Starred' },
+                            ]).map(t => (
+                                <button
+                                    key={t.key}
+                                    onClick={() => setActiveTab(t.key)}
+                                    className="px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap"
+                                    style={{
+                                        color: activeTab === t.key ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                                    }}
+                                >
+                                    {t.label}
+                                    {t.key === 'unread' && unreadTotal > 0 && (
+                                        <span
+                                            className="ml-1 inline-flex items-center justify-center rounded px-1 min-w-[16px] h-[16px] text-[10px] font-bold text-white"
+                                            style={{ backgroundColor: 'var(--color-accent)' }}
+                                        >
+                                            {unreadTotal > 99 ? '99+' : unreadTotal}
+                                        </span>
+                                    )}
+                                    {activeTab === t.key && (
+                                        <span
+                                            className="absolute bottom-0 left-0 right-0 h-0.5"
+                                            style={{ backgroundColor: 'var(--color-accent)' }}
+                                        />
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    ) : (
                     <div className="flex border-b" style={{ borderColor: 'var(--color-border)' }}>
                         <button
                             onClick={() => setActiveTab('unread')}
@@ -1307,7 +1453,7 @@ export default function ConversationsPage() {
                         <button
                             onClick={() => setActiveTab('all')}
                             className={`flex-1 flex flex-col items-center justify-center gap-1 pt-3 pb-2 text-sm font-medium transition-colors ${activeTab === 'all' ? 'border-b-2' : ''}`}
-                            style={{ 
+                            style={{
                                 color: 'var(--color-text-body)',
                                 borderBottomColor: activeTab === 'all' ? 'var(--color-accent)' : 'transparent',
                                 opacity: activeTab === 'all' ? 1 : 0.7,
@@ -1319,7 +1465,7 @@ export default function ConversationsPage() {
                         <button
                             onClick={() => setActiveTab('starred')}
                             className={`flex-1 flex flex-col items-center justify-center gap-1 pt-3 pb-2 text-sm font-medium transition-colors ${activeTab === 'starred' ? 'border-b-2' : ''}`}
-                            style={{ 
+                            style={{
                                 color: 'var(--color-text-body)',
                                 borderBottomColor: activeTab === 'starred' ? 'var(--color-accent)' : 'transparent',
                                 opacity: activeTab === 'starred' ? 1 : 0.7,
@@ -1329,6 +1475,7 @@ export default function ConversationsPage() {
                             <span>Starred</span>
                         </button>
                     </div>
+                    )}
 
                     {/* List */}
                     <div
@@ -1435,8 +1582,10 @@ export default function ConversationsPage() {
                         )}
                     </div>
                 </div>
+                )}
 
                 {/* ── Middle panel: thread + compose ──────────────────────────────── */}
+                {(!isMobile || mobileView === 'thread') && (
                 <div
                     className="flex-1 flex flex-col min-w-0"
                     style={{ backgroundColor: "var(--color-bg)" }}
@@ -1452,19 +1601,30 @@ export default function ConversationsPage() {
                         <>
                             {/* Header */}
                             <div
-                                className="px-5 py-3 flex items-center gap-3"
+                                className="px-3 md:px-5 py-3 flex items-center gap-2 md:gap-3"
                                 style={{
                                     backgroundColor: "var(--color-bg)",
                                     borderBottom:
                                         "1px solid var(--color-border)",
                                 }}
                             >
+                                {/* Mobile back button */}
+                                {isMobile && (
+                                    <button
+                                        onClick={() => setMobileView('list')}
+                                        className="w-9 h-9 flex items-center justify-center rounded-lg shrink-0 transition-colors hover:bg-[var(--color-surface)]"
+                                        style={{ color: 'var(--color-text-primary)' }}
+                                        aria-label="Back to conversations"
+                                    >
+                                        <ArrowLeft size={20} />
+                                    </button>
+                                )}
                                 <Avatar
                                     name={selectedConv.contactName || "?"}
                                     size="sm"
                                 />
                                 <span
-                                    className="font-semibold flex-1"
+                                    className="font-semibold flex-1 truncate"
                                     style={{
                                         color: "var(--color-text-primary)",
                                     }}
@@ -1527,12 +1687,26 @@ export default function ConversationsPage() {
                                     >
                                         <Trash2 size={18} />
                                     </button>
+                                    {/* Mobile: contact info button */}
+                                    {isMobile && (
+                                        <button
+                                            onClick={() => {
+                                                setMobileView('contact');
+                                                window.history.pushState({ mobileView: 'contact' }, '');
+                                            }}
+                                            className="conv-action-icon p-2 rounded-lg transition-colors"
+                                            style={{ color: 'var(--color-text-muted)' }}
+                                            title="Contact info"
+                                        >
+                                            <UserRound size={18} />
+                                        </button>
+                                    )}
                                 </div>
                         </div>
 
                             {/* Message thread */}
                             <div className="flex-1 min-h-0">
-                                {(loadingLead || loadingMsgs) ? (
+                                {((!isMobile && loadingLead) || loadingMsgs) ? (
                                     <div className="h-full flex items-center justify-center">
                                         <Spinner />
                                     </div>
@@ -1561,13 +1735,14 @@ export default function ConversationsPage() {
                             </div>
 
                             {/* Compose bar */}
-                            {!loadingLead && !loadingMsgs && selectedConv && (
+                            {(isMobile || !loadingLead) && !loadingMsgs && selectedConv && (
                                 <ComposeBox
                                     conversationId={selectedConv.id}
                                     contactId={selectedConv.contactId}
                                     contactPhone={selectedConv.phone}
                                     contactEmail={selectedConv.email}
                                     studioEmail={STUDIO_EMAIL}
+                                    isMobile={isMobile}
                                     imperativeRef={composeRef}
                                     onSent={(msg: SentMessage) => {
                                         setMessages((prev) => {
@@ -1580,8 +1755,10 @@ export default function ConversationsPage() {
                         </>
                     )}
                 </div>
+                )}
 
                 {/* ── Right panel: contact info ────────────────────────────────────── */}
+                {(!isMobile || mobileView === 'contact') && (
                 <ContactSidePanel
                     selectedConv={selectedConv}
                     blank={loadingLead}
@@ -1589,7 +1766,10 @@ export default function ConversationsPage() {
                     ghlLocationId={ghlLocationId}
                     onMessageClick={handleSidePanelMessage}
                     onLeadResolved={handleLeadResolved}
+                    isMobile={isMobile}
+                    onMobileBack={() => setMobileView('thread')}
                 />
+                )}
             </div>
 
             {/* ── Appointment detail modal ─────────────────────────────────────── */}

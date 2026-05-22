@@ -381,7 +381,7 @@ export function ConversationThread({
   }
 
   return (
-    <div ref={threadRef} className="h-full overflow-y-auto px-5 py-4 space-y-3" onScroll={onScroll}>
+    <div ref={threadRef} className="h-full overflow-y-auto px-3 md:px-5 py-4 space-y-3" onScroll={onScroll}>
       {loadingOlder && (
         <div className="flex justify-center pb-2">
           <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--color-border)', borderTopColor: 'var(--color-accent)' }} />

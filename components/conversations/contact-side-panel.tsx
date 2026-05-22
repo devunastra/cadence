@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import { findLeadsByContactIds, getStudioFieldOptions, addStudioFieldOption, renameStudioFieldOption, deleteStudioFieldOption } from '@/app/actions'
 import { buildDefaultOptions } from '@/lib/field-options'
 import { ALL_LEAD_ENUM_FIELDS } from '@/lib/constants'
@@ -23,11 +24,13 @@ interface ContactSidePanelProps {
   ghlLocationId?: string | null
   onMessageClick?: () => void
   onLeadResolved?: () => void
+  isMobile?: boolean
+  onMobileBack?: () => void
 }
 
 const ENUM_FIELDS = Object.keys(ALL_LEAD_ENUM_FIELDS)
 
-export function ContactSidePanel({ selectedConv, blank, studioId, ghlLocationId, onMessageClick, onLeadResolved }: ContactSidePanelProps) {
+export function ContactSidePanel({ selectedConv, blank, studioId, ghlLocationId, onMessageClick, onLeadResolved, isMobile, onMobileBack }: ContactSidePanelProps) {
   const [lead, setLead] = useState<Lead | null>(null)
   const [leadLoading, setLeadLoading] = useState(false)
   const [fieldOptions, setFieldOptions] = useState<Record<string, FieldOption[]>>({})
@@ -116,21 +119,41 @@ export function ContactSidePanel({ selectedConv, blank, studioId, ghlLocationId,
   // No conversation selected → hide panel entirely
   if (!selectedConv) return null
 
+  const panelClass = isMobile ? 'flex-1 flex flex-col overflow-hidden' : 'w-96 shrink-0 flex flex-col overflow-hidden'
+  const panelStyle = { borderLeft: isMobile ? undefined : '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' } as React.CSSProperties
+
+  // Mobile header for contact info view
+  const mobileHeader = isMobile ? (
+    <div
+      className="flex items-center gap-3 px-4 py-3 shrink-0"
+      style={{ borderBottom: '1px solid var(--color-border)' }}
+    >
+      <button
+        onClick={onMobileBack}
+        className="w-9 h-9 flex items-center justify-center rounded-lg shrink-0 transition-colors hover:bg-[var(--color-surface)]"
+        style={{ color: 'var(--color-text-primary)' }}
+        aria-label="Back to thread"
+      >
+        <ArrowLeft size={20} />
+      </button>
+      <span className="font-semibold text-sm" style={{ color: 'var(--color-text-primary)' }}>
+        Contact Info
+      </span>
+    </div>
+  ) : null
+
   // Switching conversations → show empty shell to preserve layout width
   if (blank) return (
-    <div
-      className="w-96 shrink-0 flex flex-col overflow-hidden"
-      style={{ borderLeft: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}
-    />
+    <div className={panelClass} style={panelStyle}>
+      {mobileHeader}
+    </div>
   )
 
   // Conversation selected but lead not yet found → show nothing in the lead area
   // (panel is still rendered at the right width so layout doesn't shift)
   return (
-    <div
-      className="w-96 shrink-0 flex flex-col overflow-hidden"
-      style={{ borderLeft: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}
-    >
+    <div className={panelClass} style={panelStyle}>
+      {mobileHeader}
       {lead ? (
         <LeadInfoPanel
           lead={lead}

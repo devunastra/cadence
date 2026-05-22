@@ -42,11 +42,11 @@ export default function ConversationsLoading() {
           Conversations
         </h1>
       </div>
-      {/* Two-panel layout */}
+      {/* Two-panel layout (single panel on mobile) */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left panel: conversation list */}
         <div
-          className="w-[340px] shrink-0 flex flex-col"
+          className="w-full md:w-[340px] md:shrink-0 flex flex-col"
           style={{ borderRight: '1px solid var(--color-border)' }}
         >
           {/* Search bar placeholder */}
@@ -61,8 +61,8 @@ export default function ConversationsLoading() {
             <ConversationItemSkeleton key={i} />
           ))}
         </div>
-        {/* Right panel: empty state */}
-        <div className="flex-1 flex items-center justify-center">
+        {/* Right panel: empty state — hidden on mobile */}
+        <div className="hidden md:flex flex-1 items-center justify-center">
           <SkeletonBar width={180} height={14} />
         </div>
       </div>
