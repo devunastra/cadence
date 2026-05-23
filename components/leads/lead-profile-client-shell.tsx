@@ -4,6 +4,7 @@ import { useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft } from 'lucide-react'
 import { addStudioFieldOption, renameStudioFieldOption, deleteStudioFieldOption } from '@/app/actions'
+import { useIsMobile } from '@/lib/hooks'
 import type { Lead } from '@/lib/types'
 import type { FieldOption } from '@/lib/field-options'
 import { LeadInfoPanel } from './lead-info-panel'
@@ -27,6 +28,8 @@ export function LeadProfileClientShell({
   ghlLocationId,
 }: LeadProfileClientShellProps) {
   const router = useRouter()
+  const isMobile = useIsMobile()
+  const [mobileTab, setMobileTab] = useState<'info' | 'messages'>('info')
   const [lead, setLead] = useState<Lead>(initialLead)
   const [fieldOptions, setFieldOptions] = useState(initialFieldOptions)
   const rightPanelRef = useRef<{ focusMessages: () => void } | null>(null)
@@ -74,18 +77,46 @@ export function LeadProfileClientShell({
         </button>
       </div>
 
-      {/* Two-panel body */}
+      {/* Mobile tab switcher */}
+      {isMobile && (
+        <div className="flex-shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
+          <div className="flex items-center gap-0">
+            {([
+              { key: 'info' as const, label: 'Lead Info' },
+              { key: 'messages' as const, label: 'Messages' },
+            ]).map(t => (
+              <button
+                key={t.key}
+                onClick={() => setMobileTab(t.key)}
+                className="px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap"
+                style={{ color: mobileTab === t.key ? 'var(--color-accent)' : 'var(--color-text-secondary)' }}
+              >
+                {t.label}
+                {mobileTab === t.key && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5" style={{ backgroundColor: 'var(--color-accent)' }} />
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Two-panel body (stacked on mobile via tabs) */}
       <div className="flex flex-1 min-h-0">
-        {/* Left panel */}
+        {/* Left panel — info */}
+        {(!isMobile || mobileTab === 'info') && (
         <div
-          className="flex flex-col flex-shrink-0"
-          style={{ width: 384, borderRight: '1px solid var(--color-border)' }}
+          className={`flex flex-col ${isMobile ? 'flex-1 min-w-0' : 'flex-shrink-0'}`}
+          style={{ width: isMobile ? undefined : 384, borderRight: isMobile ? undefined : '1px solid var(--color-border)' }}
         >
           <LeadInfoPanel
             lead={lead}
             onUpdate={setLead}
             onCallClick={() => {}}
-            onMessageClick={() => rightPanelRef.current?.focusMessages()}
+            onMessageClick={() => {
+              if (isMobile) setMobileTab('messages')
+              rightPanelRef.current?.focusMessages()
+            }}
             fieldOptions={fieldOptions}
             onOptionAdded={handleOptionAdded}
             onOptionRenamed={handleOptionRenamed}
@@ -95,8 +126,10 @@ export function LeadProfileClientShell({
             ghlLocationId={ghlLocationId}
           />
         </div>
+        )}
 
-        {/* Right panel */}
+        {/* Right panel — messages */}
+        {(!isMobile || mobileTab === 'messages') && (
         <div className="flex-1 min-w-0 h-full">
           <LeadProfileRightPanel
             lead={lead}
@@ -105,6 +138,7 @@ export function LeadProfileClientShell({
             imperativeRef={rightPanelRef}
           />
         </div>
+        )}
       </div>
     </div>
   )

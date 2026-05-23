@@ -100,7 +100,7 @@ export function NewLeadModal({ studioId, fieldOptions, onCreated, onClose, onBef
           </div>
 
           {/* Phone + Email */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Phone <span className="text-red-500">*</span></label>
               <PhoneInput defaultValue={phone} onChange={setPhone} />
@@ -112,7 +112,7 @@ export function NewLeadModal({ studioId, fieldOptions, onCreated, onClose, onBef
           </div>
 
           {/* Status + Level */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Status</label>
               <SimpleSelect value={status} onChange={setStatus} placeholder="— None —" options={(fieldOptions['status'] ?? []).map(o => ({ value: o.value, label: o.value }))} fullWidth />
@@ -124,7 +124,7 @@ export function NewLeadModal({ studioId, fieldOptions, onCreated, onClose, onBef
           </div>
 
           {/* Source + Reason */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Source</label>
               <SimpleSelect value={source} onChange={setSource} placeholder="— None —" options={(fieldOptions['source'] ?? []).map(o => ({ value: o.value, label: o.value }))} fullWidth />
