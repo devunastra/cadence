@@ -1057,7 +1057,7 @@ export async function savePageFilters(studioId: string, pageFilters: PageFilters
 // ── Retell Sync ────────────────────────────────────────────────────────────────
 
 const VALID_DISCONNECT_REASONS_SYNC = new Set([
-  'agent_hangup', 'user_hangup', 'voicemail', 'dial_no_answer', 'dial_busy', 'call_transfer',
+  'agent_hangup', 'user_hangup', 'voicemail', 'voicemail_reached', 'dial_no_answer', 'dial_busy', 'call_transfer',
 ])
 const UUID_REGEX_SYNC = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -1094,7 +1094,7 @@ function mapRetellCallSync(studioId: string, call: any) {
     disconnected_reason: VALID_DISCONNECT_REASONS_SYNC.has(disconnectionReason) ? disconnectionReason : null,
     picked_up:           !['dial_no_answer', 'dial_busy'].includes(disconnectionReason),
     transferred:         disconnectionReason === 'call_transfer',
-    voicemail:           disconnectionReason === 'voicemail',
+    voicemail:           disconnectionReason === 'voicemail' || disconnectionReason === 'voicemail_reached',
     direction:           call.direction ?? null,
     transcript_summary:  call.call_analysis?.call_summary ?? null,
     transcript:          formatTranscriptSync(call.transcript),
@@ -1417,7 +1417,7 @@ export async function fetchCallHistory(params: CallHistoryParams): Promise<{ cal
   } else if (tab === 'inbound' || tab === 'callbacks') {
     query = query.eq('direction', 'inbound')
   } else if (tab === 'failed') {
-    query = query.or('picked_up.eq.false,outcome.eq.unsuccessful,disconnected_reason.in.(voicemail,dial_no_answer,dial_busy)')
+    query = query.or('picked_up.eq.false,outcome.eq.unsuccessful,disconnected_reason.in.(voicemail,voicemail_reached,dial_no_answer,dial_busy)')
   }
 
   // For callbacks tab or filter, restrict to leads with missed outbound calls
@@ -1445,7 +1445,10 @@ export async function fetchCallHistory(params: CallHistoryParams): Promise<{ cal
     query = query.eq('appointment_booked', filters.appointmentBooked === 'yes')
   }
   if (filters.disconnectedReason && filters.disconnectedReason.length > 0) {
-    query = query.in('disconnected_reason', filters.disconnectedReason)
+    const reasons = filters.disconnectedReason.includes('voicemail') && !filters.disconnectedReason.includes('voicemail_reached')
+      ? [...filters.disconnectedReason, 'voicemail_reached']
+      : filters.disconnectedReason
+    query = query.in('disconnected_reason', reasons)
   }
   if (filters.qualityScore?.value) {
     const val = parseFloat(filters.qualityScore.value)
@@ -1507,7 +1510,7 @@ export async function fetchCallHistory(params: CallHistoryParams): Promise<{ cal
   // Heuristic: agent took ≥2 turns AND user side had at least one turn (the voicemail
   // greeting capture). One agent turn = greeting only, agent bailed on detection.
   const voicemailLeftMap: Record<string, boolean> = {}
-  const voicemailIds = rows.filter(c => c.disconnected_reason === 'voicemail').map(c => c.id)
+  const voicemailIds = rows.filter(c => c.disconnected_reason === 'voicemail' || c.disconnected_reason === 'voicemail_reached').map(c => c.id)
   if (voicemailIds.length > 0) {
     const { data: vmRows } = await client
       .from('calls')
@@ -1551,7 +1554,7 @@ export async function fetchCallHistory(params: CallHistoryParams): Promise<{ cal
         lead_phone: c.lead_id ? (leadPhones[c.lead_id] ?? null) : null,
         is_callback: isCallback,
         last_missed_outbound_at: isCallback && c.lead_id ? (lastMissedMap[c.lead_id] ?? null) : null,
-        voicemail_left: c.disconnected_reason === 'voicemail' ? (voicemailLeftMap[c.id] ?? false) : null,
+        voicemail_left: (c.disconnected_reason === 'voicemail' || c.disconnected_reason === 'voicemail_reached') ? (voicemailLeftMap[c.id] ?? false) : null,
       }
     }) as CallHistoryRow[],
     total: count ?? 0,
@@ -2406,13 +2409,13 @@ export async function fetchQualityReviews(
     if (filters.result?.length) {
       const dr = c.disconnected_reason as string | null
       let result: string | null = null
-      if (dr === 'voicemail') result = 'Voicemail'
+      if (dr === 'voicemail' || dr === 'voicemail_reached') result = 'Voicemail'
       else if (dr === 'dial_no_answer') result = 'No Answer'
       else if (dr === 'dial_busy') result = 'Busy'
       else if (c.transferred) result = 'Transferred'
       else if (c.appointment_booked) result = 'Booked'
-      else if (dr === 'user_hangup') result = 'Hung Up'
-      else if (c.picked_up) result = 'Completed'
+      else if (dr === 'user_hangup') result = 'User Hung Up'
+      else if (dr === 'agent_hangup') result = 'Agent Hung Up'
       if (!result || !filters.result.includes(result)) return false
     }
     if (filters.qualityScore?.value) {

@@ -57,7 +57,8 @@ const PRESET_OPTIONS: { value: DatePreset; label: string }[] = [
 const DISCONNECT_LABELS: Record<string, string> = {
   agent_hangup:   'Agent hangup',
   user_hangup:    'User hangup',
-  voicemail:      'Voicemail',
+  voicemail:          'Voicemail',
+  voicemail_reached:  'Voicemail',
   dial_no_answer: 'No answer',
   dial_busy:      'Busy',
   call_transfer:  'Transfer',

@@ -40,6 +40,7 @@ function formatDisconnectReason(reason: string | null) {
         agent_hangup: "Agent Hangup",
         user_hangup: "User Hangup",
         voicemail: "Voicemail",
+        voicemail_reached: "Voicemail",
         dial_no_answer: "No Answer",
         dial_busy: "Busy",
         call_transfer: "Transfer",

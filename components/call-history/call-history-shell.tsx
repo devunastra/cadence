@@ -62,13 +62,13 @@ function Badge({ value }: { value: string }) {
 
 
 function getCallResult(call: CallHistoryRow): string | null {
-  if (call.disconnected_reason === 'voicemail') return call.voicemail_left ? 'Left Voicemail' : 'Voicemail Reached'
+  if (call.disconnected_reason === 'voicemail' || call.disconnected_reason === 'voicemail_reached') return call.voicemail_left ? 'Left Voicemail' : 'Voicemail Reached'
   if (call.disconnected_reason === 'dial_no_answer') return 'No Answer'
   if (call.disconnected_reason === 'dial_busy') return 'Busy'
   if (call.transferred) return 'Transferred'
   if (call.appointment_booked) return 'Booked'
-  if (call.disconnected_reason === 'user_hangup') return 'Hung Up'
-  if (call.picked_up === true) return 'Completed'
+  if (call.disconnected_reason === 'user_hangup') return 'User Hung Up'
+  if (call.disconnected_reason === 'agent_hangup') return 'Agent Hung Up'
   return null
 }
 
@@ -134,8 +134,8 @@ const RESULT_OPTIONS = [
   { value: 'Busy', label: 'Busy' },
   { value: 'Transferred', label: 'Transferred' },
   { value: 'Booked', label: 'Booked' },
-  { value: 'Hung Up', label: 'Hung Up' },
-  { value: 'Completed', label: 'Completed' },
+  { value: 'User Hung Up', label: 'User Hung Up' },
+  { value: 'Agent Hung Up', label: 'Agent Hung Up' },
 ]
 
 // Map result filter values back to server-side outcome + disconnectedReason filters
@@ -145,13 +145,13 @@ function resultToServerFilters(results: string[]): { outcome: string; appointmen
   let appointmentBooked = ''
 
   for (const r of results) {
-    if (r === 'Voicemail') disconnectedReason.push('voicemail')
+    if (r === 'Voicemail') { disconnectedReason.push('voicemail'); disconnectedReason.push('voicemail_reached') }
     if (r === 'No Answer') disconnectedReason.push('dial_no_answer')
     if (r === 'Busy') disconnectedReason.push('dial_busy')
     if (r === 'Transferred') disconnectedReason.push('call_transfer')
     if (r === 'Booked') appointmentBooked = 'yes'
-    if (r === 'Hung Up') disconnectedReason.push('user_hangup')
-    if (r === 'Completed') disconnectedReason.push('agent_hangup')
+    if (r === 'User Hung Up') disconnectedReason.push('user_hangup')
+    if (r === 'Agent Hung Up') disconnectedReason.push('agent_hangup')
   }
 
   return { outcome, appointmentBooked, disconnectedReason }

@@ -15,7 +15,8 @@ interface DisconnectChartProps {
 const REASON_LABELS: Record<string, string> = {
   agent_hangup:   'Agent Ended',
   user_hangup:    'User Ended',
-  voicemail:      'Voicemail',
+  voicemail:          'Voicemail',
+  voicemail_reached:  'Voicemail',
   dial_no_answer: 'No Answer',
   dial_busy:      'Busy',
   call_transfer:  'Transfer',
@@ -24,7 +25,8 @@ const REASON_LABELS: Record<string, string> = {
 const REASON_COLORS: Record<string, string> = {
   agent_hangup:   NOTION_COLORS.blue.text,
   user_hangup:    NOTION_COLORS.green.text,
-  voicemail:      NOTION_COLORS.yellow.text,
+  voicemail:          NOTION_COLORS.yellow.text,
+  voicemail_reached:  NOTION_COLORS.yellow.text,
   dial_no_answer: NOTION_COLORS.gray.text,
   dial_busy:      NOTION_COLORS.red.text,
   call_transfer:  NOTION_COLORS.purple.text,

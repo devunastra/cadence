@@ -18,7 +18,11 @@ export function applyTranscriptFilters<T extends FilterableCall>(calls: T[], fil
       const want = filters.appointmentBooked === 'yes'
       if (c.appointment_booked !== want) return false
     }
-    if (filters.disconnectedReason.length > 0 && !filters.disconnectedReason.includes(c.disconnected_reason ?? '')) return false
+    if (filters.disconnectedReason.length > 0) {
+      const dr = c.disconnected_reason ?? ''
+      const match = filters.disconnectedReason.includes(dr) || (dr === 'voicemail_reached' && filters.disconnectedReason.includes('voicemail'))
+      if (!match) return false
+    }
     if (filters.qualityScore.value !== '') {
       const v = parseFloat(filters.qualityScore.value)
       const s = c.quality_score

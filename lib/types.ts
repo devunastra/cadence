@@ -75,6 +75,7 @@ export type CallDisconnectedReason =
   | 'agent_hangup'
   | 'user_hangup'
   | 'voicemail'
+  | 'voicemail_reached'
   | 'dial_no_answer'
   | 'dial_busy'
   | 'call_transfer'

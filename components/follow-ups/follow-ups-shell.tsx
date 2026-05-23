@@ -52,13 +52,13 @@ function Badge({ value }: { value: string }) {
 }
 
 function getCallResult(row: { disconnected_reason: string | null; picked_up: boolean | null; transferred: boolean | null; appointment_booked: boolean | null }): string | null {
-  if (row.disconnected_reason === 'voicemail') return 'Voicemail'
+  if (row.disconnected_reason === 'voicemail' || row.disconnected_reason === 'voicemail_reached') return 'Voicemail'
   if (row.disconnected_reason === 'dial_no_answer') return 'No Answer'
   if (row.disconnected_reason === 'dial_busy') return 'Busy'
   if (row.transferred) return 'Transferred'
   if (row.appointment_booked) return 'Booked'
-  if (row.disconnected_reason === 'user_hangup') return 'Hung Up'
-  if (row.picked_up === true) return 'Completed'
+  if (row.disconnected_reason === 'user_hangup') return 'User Hung Up'
+  if (row.disconnected_reason === 'agent_hangup') return 'Agent Hung Up'
   return null
 }
 

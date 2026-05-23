@@ -27,13 +27,13 @@ function capitalize(s: string | null): string {
 }
 
 function getCallResult(call: { disconnected_reason: string | null; picked_up: boolean | null; transferred: boolean | null; appointment_booked: boolean | null }): string | null {
-  if (call.disconnected_reason === 'voicemail') return 'Voicemail'
+  if (call.disconnected_reason === 'voicemail' || call.disconnected_reason === 'voicemail_reached') return 'Voicemail'
   if (call.disconnected_reason === 'dial_no_answer') return 'No Answer'
   if (call.disconnected_reason === 'dial_busy') return 'Busy'
   if (call.transferred) return 'Transferred'
   if (call.appointment_booked) return 'Booked'
-  if (call.disconnected_reason === 'user_hangup') return 'Hung Up'
-  if (call.picked_up === true) return 'Completed'
+  if (call.disconnected_reason === 'user_hangup') return 'User Hung Up'
+  if (call.disconnected_reason === 'agent_hangup') return 'Agent Hung Up'
   return null
 }
 
