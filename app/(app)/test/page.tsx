@@ -152,7 +152,7 @@ export default function TestPage() {
         </p>
       </div>
 
-      <div className="px-5 pb-8 flex flex-col lg:flex-row gap-5 max-w-5xl">
+      <div className="px-5 pb-8 flex flex-col md:flex-row gap-5 max-w-5xl">
         {/* ── Quick Call Card ── */}
         <div
           className="flex-1 rounded-xl p-6 shadow-sm"
@@ -249,7 +249,7 @@ export default function TestPage() {
             <AgentDropdown value={formAgentId} onChange={setFormAgentId} />
 
             {/* First Name + Last Name */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--color-text-primary)' }}>
                   First Name <span style={{ color: '#C4554D' }}>*</span>

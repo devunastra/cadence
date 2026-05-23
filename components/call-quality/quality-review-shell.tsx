@@ -591,10 +591,10 @@ export function QualityReviewShell({ studioId, userRole, isSuper }: QualityRevie
   return (
     <div className="relative flex flex-col h-full px-5 pb-4 gap-3 [font-family:var(--font-inter,Inter,sans-serif)]">
       {/* KPI Dashboard */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 flex-shrink-0">
+      <div className="flex gap-3 flex-shrink-0 overflow-x-auto no-scrollbar md:grid md:grid-cols-3 lg:grid-cols-6">
         {kpiLoading ? (
           Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="rounded-2xl h-[120px] skeleton-shimmer" style={{ border: '1px solid var(--color-border)' }} />
+            <div key={i} className="rounded-2xl h-[120px] min-w-[160px] md:min-w-0 shrink-0 md:shrink skeleton-shimmer" style={{ border: '1px solid var(--color-border)' }} />
           ))
         ) : kpis ? (
           <>

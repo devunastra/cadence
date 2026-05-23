@@ -501,10 +501,10 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
   return (
     <div className="relative flex flex-col h-full px-5 pb-4 gap-3 [font-family:var(--font-inter,Inter,sans-serif)]">
       {/* KPI Cards */}
-      <div className="grid grid-cols-3 gap-3 flex-shrink-0">
+      <div className="flex gap-3 flex-shrink-0 overflow-x-auto no-scrollbar md:grid md:grid-cols-3">
         {kpiLoading ? (
           Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="rounded-2xl h-[120px] skeleton-shimmer" style={{ border: '1px solid var(--color-border)' }} />
+            <div key={i} className="rounded-2xl h-[120px] min-w-[160px] md:min-w-0 shrink-0 md:shrink skeleton-shimmer" style={{ border: '1px solid var(--color-border)' }} />
           ))
         ) : kpis ? (
           <>
@@ -522,7 +522,7 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
 
       {/* Tabs */}
       <div className="flex-shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-        <div className="flex items-center gap-0 overflow-x-auto">
+        <div className="flex items-center gap-0 overflow-x-auto no-scrollbar">
           {TABS.map(t => (
             <button
               key={t.key}
