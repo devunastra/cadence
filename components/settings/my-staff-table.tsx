@@ -126,13 +126,13 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
         <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
 
           {/* Staff table */}
-          <div style={{ borderBottom: '1px solid var(--color-border)' }}>
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto" style={{ borderBottom: '1px solid var(--color-border)' }}>
+            <table className="w-full text-sm" style={{ minWidth: 400 }}>
               <thead style={{ backgroundColor: 'var(--color-surface)' }}>
                 <tr>
-                  <th className="text-left px-6 py-3 text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>Email</th>
-                  <th className="text-left px-6 py-3 text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>Role</th>
-                  <th className="px-6 py-3" />
+                  <th className="text-left px-4 md:px-6 py-3 text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>Email</th>
+                  <th className="text-left px-4 md:px-6 py-3 text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>Role</th>
+                  <th className="px-4 md:px-6 py-3" />
                 </tr>
               </thead>
               <tbody>
@@ -145,7 +145,7 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
                 ) : (
                   members.map(member => (
                     <tr key={member.id} style={{ borderTop: '1px solid var(--color-border)' }}>
-                      <td className="px-6 py-3">
+                      <td className="px-4 md:px-6 py-3">
                         <div className="flex items-center gap-2.5">
                           <div
                             className="w-7 h-7 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center"
@@ -160,7 +160,7 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
                           <span style={{ color: 'var(--color-text-body)' }}>{member.email}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-3">
+                      <td className="px-4 md:px-6 py-3">
                         {/* Inline role edit: super_admin can edit everyone; studio_owner can edit non-super_admin rows that aren't themselves */}
                         {(isSuperAdmin || (member.role !== 'super_admin' && member.user_id !== currentUserId)) && member.user_id !== currentUserId ? (
                           <div style={{ width: 150 }}>
@@ -181,7 +181,7 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
                           </span>
                         )}
                       </td>
-                      <td className="py-3 text-center">
+                      <td className="px-2 py-3 text-center">
                         {member.role !== 'super_admin' && member.user_id !== currentUserId && (
                           <button
                             type="button"
@@ -204,8 +204,8 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
           </div>
 
           {/* Invite form */}
-          <div className="px-6 py-5" style={{ borderBottom: '1px solid var(--color-border)' }}>
-            <div className="flex gap-4 items-end">
+          <div className="px-4 md:px-6 py-5" style={{ borderBottom: '1px solid var(--color-border)' }}>
+            <div className="flex flex-col md:flex-row gap-3 md:gap-4 md:items-end">
               <div className="flex-1">
                 <label className={LABEL}>Invite by email</label>
                 <input
@@ -217,7 +217,7 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
                   className={INPUT}
                 />
               </div>
-              <div className="w-64">
+              <div className="w-full md:w-64">
                 <label className={LABEL}>Studio</label>
                 <SimpleSelect
                   value={inviteStudioId}
@@ -229,7 +229,7 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
                   triggerClassName="py-2"
                 />
               </div>
-              <div className="w-36">
+              <div className="w-full md:w-36">
                 <label className={LABEL}>Role</label>
                 <SimpleSelect
                   value={inviteRole}

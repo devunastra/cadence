@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { Building2, User, Users, LayoutGrid, LogOut } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useIsMobile, useMounted } from '@/lib/hooks'
 import type { Role } from '@/lib/types'
 
 interface SettingsNavProps {
@@ -13,14 +14,17 @@ interface SettingsNavProps {
 export function SettingsNav({ role }: SettingsNavProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const mounted = useMounted()
+  const isMobile = useIsMobile()
+  const showMobile = mounted && isMobile
   const isOwner = role === 'studio_owner' || role === 'super_admin'
   const isSuperAdmin = role === 'super_admin'
 
   const items = [
-    ...(isOwner ? [{ href: '/settings/business-profile', label: 'Business Profile', Icon: Building2 }] : []),
-    { href: '/settings/my-profile', label: 'My Profile', Icon: User },
-    ...(isOwner ? [{ href: '/settings/my-staff', label: 'My Staff', Icon: Users }] : []),
-    ...(isOwner ? [{ href: '/settings/studios', label: 'Studios', Icon: LayoutGrid }] : []),
+    ...(isOwner ? [{ href: '/settings/business-profile', label: 'Business Profile', mobileLabel: 'Business', Icon: Building2 }] : []),
+    { href: '/settings/my-profile', label: 'My Profile', mobileLabel: 'Profile', Icon: User },
+    ...(isOwner ? [{ href: '/settings/my-staff', label: 'My Staff', mobileLabel: 'Staff', Icon: Users }] : []),
+    ...(isOwner ? [{ href: '/settings/studios', label: 'Studios', mobileLabel: 'Studios', Icon: LayoutGrid }] : []),
   ]
 
   async function handleSignOut() {
@@ -29,6 +33,33 @@ export function SettingsNav({ role }: SettingsNavProps) {
     router.push('/login')
   }
 
+  // Mobile: horizontal scrollable tab strip (sign out lives in sidebar)
+  if (showMobile) {
+    return (
+      <div className="flex-shrink-0 overflow-x-auto" style={{ borderBottom: '1px solid var(--color-border)' }}>
+        <div className="flex items-center gap-0">
+          {items.map(({ href, mobileLabel }) => {
+            const active = pathname === href
+            return (
+              <Link
+                key={href}
+                href={href}
+                className="px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap"
+                style={{ color: active ? 'var(--color-accent)' : 'var(--color-text-secondary)' }}
+              >
+                {mobileLabel}
+                {active && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5" style={{ backgroundColor: 'var(--color-accent)' }} />
+                )}
+              </Link>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  // Desktop: vertical sidebar
   return (
     <aside
       className="w-52 flex-shrink-0 flex flex-col h-full"

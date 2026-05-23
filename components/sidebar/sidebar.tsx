@@ -16,9 +16,12 @@ import {
     FlaskConical,
     ClipboardCheck,
     PhoneForwarded,
+    LogOut,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { StudioSwitcher } from "./studio-switcher";
 import { setSelectedStudio, saveNavCollapsed } from "@/app/actions";
+import { createClient } from "@/lib/supabase/client";
 import { useCurrentStudio } from "@/components/studio-context";
 import type { Studio } from "@/lib/types";
 
@@ -51,6 +54,7 @@ export function Sidebar({
     onMobileClose,
 }: SidebarProps) {
     const pathname = usePathname();
+    const router = useRouter();
     const { currentStudio, setCurrentStudio } = useCurrentStudio();
     const [collapsed, setCollapsed] = useState(initialCollapsed);
     const [pendingHref, setPendingHref] = useState<string | null>(null);
@@ -205,6 +209,29 @@ export function Sidebar({
                     <Settings size={20} className="flex-shrink-0" />
                     {!isCollapsed && "Settings"}
                 </Link>
+
+                {/* Sign out — mobile only */}
+                {isMobile && (
+                    <button
+                        onClick={async () => {
+                            const supabase = createClient();
+                            await supabase.auth.signOut();
+                            router.push('/login');
+                        }}
+                        className="flex items-center text-sm leading-none"
+                        style={{
+                            gap: 12,
+                            padding: '13px 16px',
+                            color: 'var(--color-text-secondary)',
+                            fontWeight: 500,
+                            backgroundColor: 'transparent',
+                            transition: 'background var(--transition-fast), color var(--transition-fast)',
+                        }}
+                    >
+                        <LogOut size={20} className="flex-shrink-0" />
+                        Sign out
+                    </button>
+                )}
             </div>
 
             {/* Collapse toggle — desktop only */}

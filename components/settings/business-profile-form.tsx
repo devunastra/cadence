@@ -100,7 +100,7 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
               <label htmlFor="streetAddress" className={LABEL}>Street Address</label>
               <input id="streetAddress" type="text" value={streetAddress} onChange={e => setStreetAddress(e.target.value)} placeholder="e.g. 175 Olde Half Day Road" className={INPUT} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="city" className={LABEL}>City</label>
                 <input id="city" type="text" value={city} onChange={e => setCity(e.target.value)} placeholder="e.g. Lincolnshire" className={INPUT} />
@@ -110,7 +110,7 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
                 <input id="postalCode" type="text" value={postalCode} onChange={e => setPostalCode(e.target.value)} placeholder="e.g. 60069" className={INPUT} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="state" className={LABEL}>State / Prov / Region</label>
                 <SimpleSelect
@@ -132,7 +132,7 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
 
           {/* Integrations */}
           <div className="px-6 py-5 space-y-4" style={{ borderBottom: '1px solid var(--color-border)' }}>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="ghlId" className={LABEL}>GHL Account ID</label>
                 <input id="ghlId" type="text" value={ghlId} onChange={e => setGhlId(e.target.value)} className={INPUT} />

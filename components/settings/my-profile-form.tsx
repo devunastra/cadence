@@ -142,7 +142,7 @@ export function MyProfileForm({ email, avatarUrl: initialAvatarUrl, notifyCreate
               <label htmlFor="current-password" className={LABEL}>Current Password</label>
               <input id="current-password" type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="Enter your current password" className={INPUT} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="new-password" className={LABEL}>New Password</label>
                 <input id="new-password" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Min. 8 characters" className={INPUT} />

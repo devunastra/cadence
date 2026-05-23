@@ -186,7 +186,8 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                         border: "1px solid var(--color-border)",
                     }}
                 >
-                    <table className="w-full text-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm" style={{ minWidth: 500 }}>
                         <thead
                             style={{
                                 backgroundColor: "var(--color-surface)",
@@ -283,6 +284,7 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                             )}
                         </tbody>
                     </table>
+                  </div>
                 </div>
 
                 {/* Add new studio section */}
@@ -351,7 +353,7 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                                     className={INPUT}
                                 />
                             </div>
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className={LABEL}>
                                         City <span className="text-red-500">*</span>
@@ -382,7 +384,7 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                                     />
                                 </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className={LABEL}>
                                         State / Prov / Region{" "}
@@ -422,7 +424,7 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                                 borderBottom: "1px solid var(--color-border)",
                             }}
                         >
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className={LABEL}>GHL Account ID</label>
                                     <input
