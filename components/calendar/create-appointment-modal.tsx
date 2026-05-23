@@ -188,11 +188,10 @@ export function CreateAppointmentModal({
             <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
             <div
-                className="relative w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col"
+                className="relative w-full max-w-3xl mx-3 md:mx-0 rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col"
                 style={{
                     backgroundColor: "var(--color-bg)",
                     border: "1px solid var(--color-border)",
-                    minHeight: 500,
                     maxHeight: "90vh",
                 }}
             >
@@ -231,7 +230,7 @@ export function CreateAppointmentModal({
                     onSubmit={handleSubmit}
                     className="flex flex-col flex-1 min-h-0"
                 >
-                    <div className="flex flex-1 px-6 py-5 gap-6 min-h-0">
+                    <div className="flex flex-col md:flex-row flex-1 px-4 md:px-6 py-5 gap-6 min-h-0 overflow-y-auto">
                         {/* ── Left column ─────────────────────────────────── */}
                         <div className="flex-1 min-w-0 flex flex-col gap-6">
                             {/* Appointment Title */}
@@ -261,7 +260,7 @@ export function CreateAppointmentModal({
                             </div>
 
                             {/* Date + Slot row */}
-                            <div className="flex gap-3">
+                            <div className="flex flex-col md:flex-row gap-3">
                                 <div className="flex-1 min-w-0">
                                     <label style={LABEL_STYLE}>
                                         Date{" "}
@@ -338,10 +337,9 @@ export function CreateAppointmentModal({
 
                         {/* ── Right column — Contact ───────────────────────── */}
                         <div
-                            className="w-80 flex-shrink-0 flex flex-col gap-3"
+                            className="w-full md:w-80 flex-shrink-0 flex flex-col gap-3 border-t md:border-t-0 md:border-l pt-5 md:pt-0 md:pl-5"
                             style={{
-                                borderLeft: "1px solid var(--color-border)",
-                                paddingLeft: 20,
+                                borderColor: "var(--color-border)",
                             }}
                         >
                             {/* Label + Search input — wrapped so they sit flush like left column */}

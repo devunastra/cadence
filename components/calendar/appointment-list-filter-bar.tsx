@@ -534,7 +534,7 @@ export function AppointmentListFilterBar({
 
         {filterOpen && (
           <div
-            className="absolute top-full left-0 mt-2 z-40 rounded-xl p-4"
+            className="absolute top-full left-0 mt-2 z-40 rounded-xl p-4 max-w-[calc(100vw-2.5rem)]"
             style={{
               minWidth: 280,
               backgroundColor: 'var(--color-bg)',
@@ -635,13 +635,13 @@ export function AppointmentListFilterBar({
       </div>
 
       {/* Search */}
-      <div style={{ width: 240, flexShrink: 0 }}>
+      <div className="basis-full md:basis-auto md:w-60 md:shrink-0">
         {searchOpen ? (
           <div
-            className="flex items-center gap-2 px-3 py-1.5 w-full"
+            className="flex items-center gap-2 px-3 w-full"
             style={{
-              border: '1px solid var(--color-border)',
-              boxShadow: searchFocused ? '0 0 0 2px var(--color-accent)' : 'none',
+              height: 36,
+              border: searchFocused ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
               borderRadius: 8,
               backgroundColor: 'var(--color-bg)',
             }}
@@ -671,8 +671,9 @@ export function AppointmentListFilterBar({
         ) : (
           <button
             onClick={() => setSearchOpen(true)}
-            className="w-full flex items-center gap-1.5 px-3 py-1.5"
+            className="w-full flex items-center gap-1.5 px-3"
             style={{
+              height: 36,
               fontSize: 14,
               lineHeight: '1.25rem',
               fontWeight: 500,

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, useRef, useCallback } from 'react'
-import { useMounted } from '@/lib/hooks'
+import { useMounted, useIsMobile } from '@/lib/hooks'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, RefreshCw, Settings, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -57,6 +57,7 @@ function buildContactMap(appts: Appointment[]): string[] {
 
 export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, userRole }: CalendarShellProps) {
   const router = useRouter()
+  const isMobile = useIsMobile()
   const [tab, setTab]                        = useState<'calendar' | 'list' | 'settings'>('calendar')
   const [weekStart, setWeekStart]            = useState<Date>(getWeekStart(new Date()))
   const [appointments, setAppointments]      = useState<Appointment[]>([])
@@ -80,6 +81,16 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
   const [datePickerOpen,   setDatePickerOpen]   = useState(false)
   const [datePickerAnchor, setDatePickerAnchor] = useState<DOMRect | null>(null)
   const mounted = useMounted()
+
+  // Default to list view on first mobile load (week grid is tight but still accessible)
+  const initialTabSet = useRef(false)
+  useEffect(() => {
+    if (isMobile && !initialTabSet.current) {
+      initialTabSet.current = true
+      setTab('list')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile])
 
   // Fetch appointments on mount
   useEffect(() => {
@@ -238,7 +249,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
           <button
             key={t}
             onClick={() => setTab(t)}
-            className="px-4 pb-2.5 pt-2 text-sm font-medium border-b-2 transition-colors"
+            className="px-4 pb-2.5 pt-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap"
             style={{
               borderBottomColor: tab === t ? 'var(--color-accent)' : 'transparent',
               color: tab === t ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
@@ -253,10 +264,10 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
         ))}
         {(userRole === 'studio_owner' || userRole === 'super_admin') && (
           <>
-            <span className="self-center mx-1 text-xs select-none" style={{ color: 'var(--color-border-strong)' }}>|</span>
+            {!isMobile && <span className="self-center mx-1 text-xs select-none" style={{ color: 'var(--color-border-strong)' }}>|</span>}
             <button
               onClick={() => setTab('settings')}
-              className="flex items-center gap-1.5 px-4 pb-2.5 pt-2 text-sm font-medium border-b-2 transition-colors"
+              className="flex items-center gap-1.5 px-4 pb-2.5 pt-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap"
               style={{
                 borderBottomColor: tab === 'settings' ? 'var(--color-accent)' : 'transparent',
                 color: tab === 'settings' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
@@ -267,7 +278,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
               onMouseLeave={e => { if (tab !== 'settings') (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)' }}
             >
               <Settings size={16} />
-              Calendar Settings
+              {isMobile ? 'Settings' : 'Calendar Settings'}
             </button>
           </>
         )}
@@ -275,7 +286,8 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
 
       {/* Row 2: Actions — context-sensitive, hidden on settings tab */}
       {tab !== 'settings' && (
-        <div className="flex items-center gap-2 flex-shrink-0" style={{ height: 34 }}>
+        <>
+        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap" style={{ minHeight: 34 }}>
           {tab === 'list' ? (
             <AppointmentListFilterBar
               search={listSearch}
@@ -355,32 +367,63 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
               </div>
             </>
           )}
-          {tab === 'list' && listSelectedCount > 0 ? (
-            <div className="ml-auto flex items-center gap-3">
-              <span className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-                {listSelectedCount} selected
-              </span>
+          {/* Desktop: inline action buttons */}
+          {!isMobile && (
+            tab === 'list' && listSelectedCount > 0 ? (
+              <div className="ml-auto flex items-center gap-3">
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                  {listSelectedCount} selected
+                </span>
+                <button
+                  onClick={() => listOnDeleteRef.current?.()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white"
+                  style={{ backgroundColor: '#dc2626', transition: 'background var(--transition-fast)' }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#b91c1c'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#dc2626'}
+                >
+                  <Trash2 size={14} />
+                  Delete ({listSelectedCount})
+                </button>
+              </div>
+            ) : (
               <button
-                onClick={() => listOnDeleteRef.current?.()}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white"
-                style={{ backgroundColor: '#dc2626', transition: 'background var(--transition-fast)' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#b91c1c'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#dc2626'}
+                onClick={() => setShowCreate(true)}
+                className="btn-primary ml-auto flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium"
               >
-                <Trash2 size={14} />
-                Delete ({listSelectedCount})
+                <span className="text-base leading-none">+</span>
+                New Appointment
               </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setShowCreate(true)}
-              className="btn-primary ml-auto flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium"
-            >
-              <span className="text-base leading-none">+</span>
-              New Appointment
-            </button>
+            )
           )}
         </div>
+
+        {/* Mobile-only: action row below toolbar */}
+        {isMobile && tab === 'list' && (
+          <div className="flex items-center gap-2.5 flex-shrink-0">
+            {listSelectedCount > 0 ? (
+              <>
+                <span className="text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
+                  {listSelectedCount} selected
+                </span>
+                <button
+                  onClick={() => listOnDeleteRef.current?.()}
+                  className="px-3 py-1.5 text-sm font-medium text-white rounded-lg bg-red-600 hover:bg-red-700 transition-colors"
+                >
+                  Delete
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setShowCreate(true)}
+                className="px-3 py-1.5 text-sm font-medium text-white rounded-lg"
+                style={{ backgroundColor: 'var(--color-accent)' }}
+              >
+                + New Appointment
+              </button>
+            )}
+          </div>
+        )}
+      </>
       )}
 
       {/* Date picker popup for week nav */}
