@@ -228,11 +228,12 @@ export function DateRangePickerPopup({ anchorRect, initialFrom, initialTo, onApp
     return () => document.removeEventListener('mousedown', handler)
   }, [onClose])
 
-  const POPUP_W = 680
+  const POPUP_W = Math.min(680, window.innerWidth - 16)
   const POPUP_H = 420
   let left = anchorRect.left
   let top  = anchorRect.bottom + 6
   if (left + POPUP_W > window.innerWidth)  left = window.innerWidth - POPUP_W - 8
+  if (left < 8) left = 8
   if (top  + POPUP_H > window.innerHeight) top  = anchorRect.top - POPUP_H - 6
   top = Math.max(8, Math.min(top, window.innerHeight - POPUP_H - 8))
 
@@ -280,10 +281,10 @@ export function DateRangePickerPopup({ anchorRect, initialFrom, initialTo, onApp
     >
       {/* Body: presets panel + dual calendar */}
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        {/* Presets panel */}
-        <div style={{
+        {/* Presets panel — hidden on very narrow screens */}
+        <div className="hidden md:flex" style={{
           width: 160, borderRight: '1px solid var(--color-border)',
-          padding: '12px 0', display: 'flex', flexDirection: 'column', gap: 2,
+          padding: '12px 0', flexDirection: 'column', gap: 2,
         }}>
           {PRESETS.map(p => (
             <button

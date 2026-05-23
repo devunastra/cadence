@@ -144,7 +144,22 @@ Commit: `c04f0dd` — "feat: add mobile responsive layout (Phase 1)"
 
 ---
 
-## Phase 7: Global Polish
+## Phase 7: Quality Review, Follow-ups & Test Page
+
+**Problem:** KPI cards use fixed column grids that don't scale on mobile. Filter popups overflow. Test page forms don't stack.
+
+**Approach:** Responsive grid breakpoints for KPI cards. Filter popups capped to viewport. Form grids stack single-column.
+
+### Files to modify:
+| File | Changes |
+|------|---------|
+| `components/follow-ups/follow-ups-shell.tsx` | KPI cards: `grid-cols-3` → `grid-cols-1 md:grid-cols-3` |
+| `components/call-quality/quality-review-shell.tsx` | Search bar pill pattern, table min-width for horizontal scroll |
+| `app/(app)/test/page.tsx` | Cards layout `lg:flex-row` → `md:flex-row`, name grid stacks single-column |
+
+---
+
+## Phase 8: Global Polish
 
 Final pass for consistency, edge cases, and touch optimization.
 

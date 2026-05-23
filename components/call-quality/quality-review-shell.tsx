@@ -664,8 +664,8 @@ export function QualityReviewShell({ studioId, userRole, isSuper }: QualityRevie
         </button>
 
         {filterOpen && (
-          <div className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-xl p-4"
-            style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', width: 520 }}>
+          <div className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-xl p-4 w-[520px] max-w-[calc(100vw-2.5rem)]"
+            style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
             <div className="grid grid-cols-2 gap-3">
               <FieldSelect label="Grade" value={filters.grade} onChange={v => set('grade', v)} options={[{ value: 'Pass', label: 'Pass' }, { value: 'Fail', label: 'Fail' }]} />
               <FieldSelect label="Direction" value={filters.direction} onChange={v => set('direction', v)} options={[{ value: 'inbound', label: 'Inbound' }, { value: 'outbound', label: 'Outbound' }]} />

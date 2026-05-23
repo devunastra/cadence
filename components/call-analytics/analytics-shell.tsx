@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useRef, useEffect } from 'react'
-import { useMounted } from '@/lib/hooks'
+import { useMounted, useIsMobile } from '@/lib/hooks'
 import { Spinner } from '@/components/spinner'
 import { fetchCallsAnalytics, saveAnalyticsPreferences, savePageFilters } from '@/app/actions'
 import { createClient } from '@/lib/supabase/client'
@@ -78,6 +78,8 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
   const [spinning,   setSpinning]  = useState(false)
   const [chartKey,   setChartKey]  = useState(0)
   const [transcriptRefreshTrigger, setTranscriptRefreshTrigger] = useState(0)
+  const isMobile = useIsMobile()
+  const [mobileTranscriptDetail, setMobileTranscriptDetail] = useState(false)
   const mounted = useMounted()
 
   // Custom range picker state
@@ -205,7 +207,8 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 gap-3">
-      {/* Row 1: Tab strip — stable, never shifts */}
+      {/* Row 1: Tab strip — hidden on mobile when viewing transcript detail */}
+      {!(isMobile && mobileTranscriptDetail) && (
       <div className="flex items-end flex-shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
         {(['analytics', 'transcripts'] as Tab[]).map(tab => (
           <button
@@ -225,9 +228,11 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
           </button>
         ))}
       </div>
+      )}
 
-      {/* Row 2: Actions — same for both tabs */}
-      <div className="flex items-center gap-2 flex-shrink-0">
+      {/* Row 2: Actions — hidden on mobile when viewing transcript detail */}
+      {!(isMobile && mobileTranscriptDetail) && (
+      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
         <button
           onClick={handleRefresh}
           title="Refresh analytics"
@@ -274,6 +279,7 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
           />
         </button>
       </div>
+      )}
 
       {/* GHL-style custom range picker popup */}
       {datePickerOpen && datePickerAnchor && (
@@ -392,7 +398,7 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
       {/* Transcripts tab — fills remaining height */}
       {activeTab === 'transcripts' && (
         <div className="flex flex-1 min-h-0">
-          <TranscriptsPanel studioId={studioId} from={fromStr} to={toStr} filters={filters} transcriptRefreshTrigger={transcriptRefreshTrigger} />
+          <TranscriptsPanel studioId={studioId} from={fromStr} to={toStr} filters={filters} transcriptRefreshTrigger={transcriptRefreshTrigger} onMobileDetailChange={setMobileTranscriptDetail} />
         </div>
       )}
 

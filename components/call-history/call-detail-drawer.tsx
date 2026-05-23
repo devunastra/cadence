@@ -202,7 +202,7 @@ export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
         {/* Body — scrollable */}
         <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
           {/* Call details grid */}
-          <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-sm">
             <div>
               <span style={{ color: 'var(--color-text-secondary)' }}>Date/Time</span>
               <p className="font-medium" style={{ color: 'var(--color-text-primary)' }}>

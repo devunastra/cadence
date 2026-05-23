@@ -295,6 +295,14 @@ select:focus {
   display: none;
 }
 
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* ============================================================
    STATUS BADGE COLOR VARIANTS
    Defined here (not via Tailwind arbitrary values) so dark mode

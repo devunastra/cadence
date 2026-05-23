@@ -556,7 +556,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
     <div className="relative flex flex-col h-full px-5 pb-4 gap-3 [font-family:var(--font-inter,Inter,sans-serif)]">
       {/* Tabs */}
       <div className="flex-shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-        <div className="flex items-center gap-0 overflow-x-auto">
+        <div className="flex items-center gap-0 overflow-x-auto no-scrollbar">
           {TABS.map(t => (
             <button
               key={t.key}

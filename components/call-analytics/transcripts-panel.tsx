@@ -2,7 +2,8 @@
 
 import { useState, useTransition, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowLeft } from 'lucide-react'
+import { useIsMobile } from '@/lib/hooks'
 import {
   fetchCallTranscripts, fetchCallTranscriptFull, fetchLeadById, fetchCallsForLead,
   addStudioFieldOption, renameStudioFieldOption, deleteStudioFieldOption, updateStudioFieldOptionColor,
@@ -71,12 +72,15 @@ interface TranscriptsPanelProps {
   filters?: TranscriptFilters
   initialFieldOptions?: Record<string, Array<{ id: string; value: string; bg: string | null; text: string | null }>>
   transcriptRefreshTrigger?: number
+  onMobileDetailChange?: (inDetail: boolean) => void
 }
 
 const PAGE_SIZE = 20
 
-export function TranscriptsPanel({ studioId, from = '', to = '', leadId, listWidth, hidePagination, filters = DEFAULT_FILTERS, initialFieldOptions = {}, transcriptRefreshTrigger }: TranscriptsPanelProps) {
+export function TranscriptsPanel({ studioId, from = '', to = '', leadId, listWidth, hidePagination, filters = DEFAULT_FILTERS, initialFieldOptions = {}, transcriptRefreshTrigger, onMobileDetailChange }: TranscriptsPanelProps) {
   const router = useRouter()
+  const isMobile = useIsMobile()
+  const [mobileView, setMobileView] = useState<'list' | 'detail'>('list')
   const [calls, setCalls]         = useState<TranscriptCall[] | null>(null)
   const [page, setPage]           = useState(1)
   const [selected, setSelected]   = useState<TranscriptCall | null>(null)
@@ -141,6 +145,15 @@ export function TranscriptsPanel({ studioId, from = '', to = '', leadId, listWid
   function handleSelectCall(call: TranscriptCall) {
     setSelected(call)
     fetchTranscriptIfMissing(call.id)
+    if (isMobile) {
+      setMobileView('detail')
+      onMobileDetailChange?.(true)
+    }
+  }
+
+  function handleMobileBack() {
+    setMobileView('list')
+    onMobileDetailChange?.(false)
   }
 
   // Fetch ALL calls for the date range — client-side filters + pagination operate on the full set
@@ -252,10 +265,11 @@ export function TranscriptsPanel({ studioId, from = '', to = '', leadId, listWid
 
   return (
     <>
-    <div className="flex flex-1 min-h-0 gap-4">
+    <div className="flex flex-col md:flex-row flex-1 min-h-0 gap-4">
       {/* Left: call list — scrollable within itself */}
+      {(!isMobile || mobileView === 'list') && (
       <div
-        className={`${listWidth ?? 'w-72'} shrink-0 flex flex-col rounded-2xl overflow-hidden`}
+        className={`${listWidth ?? 'w-full md:w-72'} shrink-0 flex flex-col rounded-2xl overflow-hidden ${isMobile ? 'flex-1' : ''}`}
         style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
       >
         <div className="flex-1 overflow-y-auto">
@@ -342,12 +356,33 @@ export function TranscriptsPanel({ studioId, from = '', to = '', leadId, listWid
           </div>
         )}
       </div>
+      )}
 
       {/* Right: transcript viewer — fills remaining space, scrolls within itself */}
+      {(!isMobile || mobileView === 'detail') && (
       <div
         className="flex-1 flex flex-col rounded-2xl overflow-hidden"
         style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
       >
+        {/* Mobile back button */}
+        {isMobile && selected && (
+          <div
+            className="flex items-center gap-2 px-3 py-2.5 shrink-0"
+            style={{ borderBottom: '1px solid var(--color-border)' }}
+          >
+            <button
+              onClick={handleMobileBack}
+              className="w-9 h-9 flex items-center justify-center rounded-lg shrink-0 transition-colors hover:bg-[var(--color-surface)]"
+              style={{ color: 'var(--color-text-primary)' }}
+              aria-label="Back to call list"
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <span className="text-sm font-semibold truncate" style={{ color: 'var(--color-text-primary)' }}>
+              {selected.lead_name ?? 'Transcript'}
+            </span>
+          </div>
+        )}
         {selected ? (
           <TranscriptViewer
             call={{ ...selected, transcript: transcriptDataCache[selected.id]?.transcript ?? null }}
@@ -361,6 +396,7 @@ export function TranscriptsPanel({ studioId, from = '', to = '', leadId, listWid
           </div>
         )}
       </div>
+      )}
     </div>
     </>
   )
