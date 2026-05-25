@@ -647,10 +647,10 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Date Range</label>
                   <div className="grid grid-cols-2 gap-2">
                     <input type="date" value={filters.dateFrom} onChange={e => set('dateFrom', e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                      className="w-full px-1.5 md:px-3 py-2 rounded-lg text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] min-w-0"
                       style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
                     <input type="date" value={filters.dateTo} onChange={e => set('dateTo', e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                      className="w-full px-1.5 md:px-3 py-2 rounded-lg text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] min-w-0"
                       style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
                   </div>
                 </div>
