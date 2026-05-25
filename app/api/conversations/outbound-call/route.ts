@@ -8,7 +8,7 @@ async function getStudio(userId: string) {
   const serviceClient = createServiceClient()
   const selectedStudioId = await getSelectedStudioId()
 
-  let studioQuery = serviceClient.from('studios').select('id, ghl_account_id, ghl_api_key')
+  let studioQuery = serviceClient.from('studios').select('id, ghl_account_id, ghl_api_key, voice_agent_enabled')
 
   if (selectedStudioId) {
     studioQuery = studioQuery.eq('id', selectedStudioId)
@@ -59,6 +59,13 @@ export async function POST(req: NextRequest) {
   const studio = await getStudio(user.id)
   if (!studio) {
     return NextResponse.json({ error: 'Studio not found' }, { status: 404 })
+  }
+
+  if (studio.voice_agent_enabled === false) {
+    return NextResponse.json(
+      { error: 'voice_agent_paused', message: 'AI voice agent is paused for this studio.' },
+      { status: 409 },
+    )
   }
 
   try {

@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { createGHLContact, updateGHLContact, deleteGHLContact, deleteGHLAppointment, updateGHLAppointment, createGHLAppointment, patchGHLAppointmentDetails } from '@/lib/ghl'
+import { getRetellPhoneNumber, updateRetellPhoneNumberInboundAgent } from '@/lib/retell'
 import type { Lead, ScheduledCallback, StudioSlotConfig } from '@/lib/types'
 import type { FieldOption } from '@/lib/field-options'
 
@@ -361,6 +362,115 @@ export async function updateStudio(id: string, updates: {
   if (error) throw new Error(error.message)
 
   revalidatePath('/', 'layout')
+}
+
+export async function setVoiceAgentEnabled(studioId: string, enabled: boolean): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  const { data: studioMembership } = await supabase
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('studio_id', studioId)
+  const isOwnerOrAbove = studioMembership?.some(m => m.role === 'studio_owner' || m.role === 'super_admin') ?? false
+
+  if (!isOwnerOrAbove) {
+    const { data: anyMembership } = await supabase
+      .from('studio_users')
+      .select('role')
+      .eq('user_id', user.id)
+    const isSuper = anyMembership?.some(m => m.role === 'super_admin') ?? false
+    if (!isSuper) throw new Error('Forbidden')
+  }
+
+  const serviceClient = createServiceClient()
+  const { data: studio, error: readErr } = await serviceClient
+    .from('studios')
+    .select('voice_agent_enabled, retell_phone_number, retell_inbound_agent_id, retell_api_key')
+    .eq('id', studioId)
+    .single()
+  if (readErr || !studio) throw new Error('Studio not found')
+  if (studio.voice_agent_enabled === enabled) return
+
+  const dbUpdates: Record<string, unknown> = {
+    voice_agent_enabled: enabled,
+    voice_agent_paused_at: enabled ? null : new Date().toISOString(),
+    voice_agent_paused_by: enabled ? null : user.id,
+  }
+
+  // Inbound Retell block — only if a phone number is configured for this studio.
+  // On pause: snapshot current inbound_agent_id (if not already stored), then clear it.
+  // On resume: restore from the stored snapshot.
+  // Rollback value lets us undo the Retell change if the DB write fails.
+  let retellRollback: { phoneNumber: string; restoreTo: string | null; apiKey: string | null } | null = null
+
+  if (studio.retell_phone_number) {
+    try {
+      if (!enabled) {
+        // PAUSE
+        if (!studio.retell_inbound_agent_id) {
+          const current = await getRetellPhoneNumber(studio.retell_phone_number, studio.retell_api_key ?? undefined)
+          if (current?.inbound_agent_id) dbUpdates.retell_inbound_agent_id = current.inbound_agent_id
+        }
+        await updateRetellPhoneNumberInboundAgent(
+          studio.retell_phone_number,
+          null,
+          studio.retell_api_key ?? undefined,
+        )
+        retellRollback = {
+          phoneNumber: studio.retell_phone_number,
+          restoreTo: studio.retell_inbound_agent_id ?? (dbUpdates.retell_inbound_agent_id as string | null | undefined) ?? null,
+          apiKey: studio.retell_api_key,
+        }
+      } else if (studio.retell_inbound_agent_id) {
+        // RESUME
+        await updateRetellPhoneNumberInboundAgent(
+          studio.retell_phone_number,
+          studio.retell_inbound_agent_id,
+          studio.retell_api_key ?? undefined,
+        )
+        dbUpdates.retell_inbound_agent_id = null
+        retellRollback = {
+          phoneNumber: studio.retell_phone_number,
+          restoreTo: null,
+          apiKey: studio.retell_api_key,
+        }
+      }
+    } catch (e) {
+      throw new Error(`Failed to update Retell inbound agent: ${e instanceof Error ? e.message : 'unknown error'}`)
+    }
+  }
+
+  const { error: updateErr } = await serviceClient
+    .from('studios')
+    .update(dbUpdates)
+    .eq('id', studioId)
+
+  if (updateErr) {
+    if (retellRollback) {
+      try {
+        await updateRetellPhoneNumberInboundAgent(
+          retellRollback.phoneNumber,
+          retellRollback.restoreTo,
+          retellRollback.apiKey ?? undefined,
+        )
+      } catch { /* rollback failed — surfaces in original error */ }
+    }
+    throw new Error(updateErr.message)
+  }
+
+  // Activity log — non-critical. Uses event_type 'update' so the existing log renderer
+  // doesn't choke on unknown types; the lead_name field carries the human-readable label.
+  serviceClient.from('activity_logs').insert({
+    studio_id: studioId,
+    lead_name: enabled ? 'AI Voice Agent (resumed)' : 'AI Voice Agent (paused)',
+    actor_email: user.email ?? null,
+    event_type: 'update',
+  }).then(() => {}, () => {})
+
+  revalidatePath('/leads')
 }
 
 export async function deleteStudio(id: string): Promise<void> {

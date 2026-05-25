@@ -9,6 +9,9 @@ export default function LeadsLoading() {
       >
         Leads
       </h1>
+      <div className="flex-shrink-0 px-5 pb-3">
+        <div className="skeleton-shimmer" style={{ height: 40, width: '100%', borderRadius: 8 }} />
+      </div>
       <div className="flex flex-col flex-1 min-h-0 px-5 pb-4 gap-3">
         {/* View tabs placeholder */}
         <div className="flex items-center gap-2 flex-shrink-0">

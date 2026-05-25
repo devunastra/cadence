@@ -21,6 +21,11 @@ export interface Studio {
   ghl_api_key: string | null
   retell_agent_id: string
   retell_api_key: string | null
+  retell_inbound_agent_id: string | null
+  retell_phone_number: string | null
+  voice_agent_enabled: boolean
+  voice_agent_paused_at: string | null
+  voice_agent_paused_by: string | null
   calendar_start_hour: number
   calendar_end_hour: number
   appointment_duration_minutes: number
