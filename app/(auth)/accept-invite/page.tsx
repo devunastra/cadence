@@ -71,7 +71,7 @@ export default function AcceptInvitePage() {
               onChange={e => setPassword(e.target.value)}
               placeholder="Min. 8 characters"
               required
-              className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+              className="w-full px-3 py-2 rounded-lg text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
               style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)', color: 'var(--color-text-primary)' }}
             />
           </div>
@@ -85,7 +85,7 @@ export default function AcceptInvitePage() {
               onChange={e => setConfirmPassword(e.target.value)}
               placeholder="Re-enter password"
               required
-              className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+              className="w-full px-3 py-2 rounded-lg text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
               style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)', color: 'var(--color-text-primary)' }}
             />
           </div>

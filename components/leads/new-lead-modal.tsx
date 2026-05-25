@@ -20,7 +20,7 @@ interface NewLeadModalProps {
   onCreateFailed?: () => void
 }
 
-const INPUT_CLASS  = "w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+const INPUT_CLASS  = "w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-base md:text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
 const INPUT_STYLE  = { backgroundColor: 'var(--color-surface)' }
 
 export function NewLeadModal({ studioId, fieldOptions, onCreated, onClose, onBeforeCreate, onCreateFailed }: NewLeadModalProps) {

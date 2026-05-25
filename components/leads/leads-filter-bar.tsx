@@ -107,10 +107,10 @@ function SortSelect({
     }, [open]);
 
     return (
-        <div ref={ref} className="relative">
+        <div ref={ref} className="relative flex-1 md:flex-none">
             <button
                 onClick={() => setOpen((o) => !o)}
-                className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm rounded-lg"
+                className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm rounded-lg w-full md:w-auto"
                 style={{
                     minWidth: 130,
                     border: "1px solid var(--color-border)",
@@ -276,6 +276,106 @@ export function LeadsFilterBar({
 
     return (
         <div className="flex items-center gap-2 flex-wrap">
+            {/* ── Search — full-width on mobile (first row), 240px on desktop ── */}
+            <div className="order-first md:order-last basis-full md:basis-auto md:w-60 md:shrink-0">
+                {searchOpen ? (
+                    <div
+                        className="flex items-center gap-2 px-3 w-full"
+                        style={{
+                            height: 36,
+                            border: searchFocused ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
+                            borderRadius: 8,
+                            backgroundColor: "var(--color-bg)",
+                        }}
+                    >
+                        <Search
+                            size={13}
+                            style={{
+                                color: "var(--color-text-muted)",
+                                flexShrink: 0,
+                            }}
+                        />
+                        <input
+                            ref={searchInputRef}
+                            type="text"
+                            placeholder="Search by name…"
+                            value={inputValue}
+                            onChange={(e) => {
+                                const v = e.target.value;
+                                setInputValue(v);
+                                if (searchTimer.current) clearTimeout(searchTimer.current);
+                                searchTimer.current = setTimeout(() => onSearchChange(v), 350);
+                            }}
+                            onFocus={() => setSearchFocused(true)}
+                            onBlur={() => setSearchFocused(false)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Escape") handleSearchClose();
+                            }}
+                            className="text-base md:text-sm outline-none bg-transparent flex-1 min-w-0"
+                            style={{ color: "var(--color-text-primary)" }}
+                        />
+                        <button
+                            onClick={handleSearchClose}
+                            style={{
+                                color: "var(--color-text-muted)",
+                                flexShrink: 0,
+                            }}
+                            onMouseEnter={(e) =>
+                                ((e.currentTarget as HTMLElement).style.color =
+                                    "var(--color-text-secondary)")
+                            }
+                            onMouseLeave={(e) =>
+                                ((e.currentTarget as HTMLElement).style.color =
+                                    "var(--color-text-muted)")
+                            }
+                        >
+                            <X size={12} />
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        onClick={() => setSearchOpen(true)}
+                        className="w-full flex items-center gap-1.5 px-3"
+                        style={{
+                            height: 36,
+                            fontSize: 14,
+                            fontWeight: 500,
+                            borderRadius: 8,
+                            cursor: "pointer",
+                            border: `1px solid ${inputValue ? "var(--color-border-strong)" : "var(--color-border)"}`,
+                            backgroundColor: inputValue
+                                ? "var(--color-surface)"
+                                : "var(--color-bg)",
+                            color: "var(--color-text-secondary)",
+                            transition: `background var(--transition-fast), color var(--transition-fast)`,
+                        }}
+                        onMouseEnter={(e) => {
+                            (
+                                e.currentTarget as HTMLElement
+                            ).style.backgroundColor =
+                                "var(--color-surface-hover)";
+                            (e.currentTarget as HTMLElement).style.color =
+                                "var(--color-text-primary)";
+                        }}
+                        onMouseLeave={(e) => {
+                            if (!inputValue)
+                                (
+                                    e.currentTarget as HTMLElement
+                                ).style.backgroundColor = "var(--color-bg)";
+                            (e.currentTarget as HTMLElement).style.color =
+                                "var(--color-text-secondary)";
+                        }}
+                    >
+                        <Search size={14} style={{ flexShrink: 0 }} />
+                        <span className="flex-1 text-left truncate">
+                            {inputValue
+                                ? `"${inputValue.slice(0, 14)}${inputValue.length > 14 ? "…" : ""}"`
+                                : "Search by name…"}
+                        </span>
+                    </button>
+                )}
+            </div>
+
             {/* ── Refresh ── */}
             <button
                 onClick={() => {
@@ -316,7 +416,7 @@ export function LeadsFilterBar({
 
                 {filterOpen && (
                     <div
-                        className="absolute top-full left-0 mt-2 z-40 rounded-xl p-4 w-[480px] max-w-[calc(100vw-2.5rem)]"
+                        className="fixed left-5 right-5 md:absolute md:left-0 md:right-auto mt-2 z-40 rounded-xl p-4 md:w-[480px]"
                         style={{
                             backgroundColor: "var(--color-bg)",
                             border: "1px solid var(--color-border)",
@@ -426,7 +526,7 @@ export function LeadsFilterBar({
 
                 {sortOpen && (
                     <div
-                        className="absolute top-full left-0 mt-2 z-40 rounded-xl overflow-visible"
+                        className="fixed left-5 right-5 md:absolute md:left-0 md:right-auto md:w-auto mt-2 z-40 rounded-xl overflow-visible"
                         style={{
                             backgroundColor: "var(--color-bg)",
                             border: "1px solid var(--color-border)",
@@ -481,105 +581,6 @@ export function LeadsFilterBar({
                 )}
             </div>
 
-            {/* ── Search — 240px on desktop, full-width on mobile ── */}
-            <div className="basis-full md:basis-auto md:w-60 md:shrink-0">
-                {searchOpen ? (
-                    <div
-                        className="flex items-center gap-2 px-3 w-full"
-                        style={{
-                            height: 36,
-                            border: searchFocused ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
-                            borderRadius: 8,
-                            backgroundColor: "var(--color-bg)",
-                        }}
-                    >
-                        <Search
-                            size={13}
-                            style={{
-                                color: "var(--color-text-muted)",
-                                flexShrink: 0,
-                            }}
-                        />
-                        <input
-                            ref={searchInputRef}
-                            type="text"
-                            placeholder="Search by name…"
-                            value={inputValue}
-                            onChange={(e) => {
-                                const v = e.target.value;
-                                setInputValue(v);
-                                if (searchTimer.current) clearTimeout(searchTimer.current);
-                                searchTimer.current = setTimeout(() => onSearchChange(v), 350);
-                            }}
-                            onFocus={() => setSearchFocused(true)}
-                            onBlur={() => setSearchFocused(false)}
-                            onKeyDown={(e) => {
-                                if (e.key === "Escape") handleSearchClose();
-                            }}
-                            className="text-sm outline-none bg-transparent flex-1 min-w-0"
-                            style={{ color: "var(--color-text-primary)" }}
-                        />
-                        <button
-                            onClick={handleSearchClose}
-                            style={{
-                                color: "var(--color-text-muted)",
-                                flexShrink: 0,
-                            }}
-                            onMouseEnter={(e) =>
-                                ((e.currentTarget as HTMLElement).style.color =
-                                    "var(--color-text-secondary)")
-                            }
-                            onMouseLeave={(e) =>
-                                ((e.currentTarget as HTMLElement).style.color =
-                                    "var(--color-text-muted)")
-                            }
-                        >
-                            <X size={12} />
-                        </button>
-                    </div>
-                ) : (
-                    <button
-                        onClick={() => setSearchOpen(true)}
-                        className="w-full flex items-center gap-1.5 px-3"
-                        style={{
-                            height: 36,
-                            fontSize: 14,
-                            fontWeight: 500,
-                            borderRadius: 8,
-                            cursor: "pointer",
-                            border: `1px solid ${inputValue ? "var(--color-border-strong)" : "var(--color-border)"}`,
-                            backgroundColor: inputValue
-                                ? "var(--color-surface)"
-                                : "var(--color-bg)",
-                            color: "var(--color-text-secondary)",
-                            transition: `background var(--transition-fast), color var(--transition-fast)`,
-                        }}
-                        onMouseEnter={(e) => {
-                            (
-                                e.currentTarget as HTMLElement
-                            ).style.backgroundColor =
-                                "var(--color-surface-hover)";
-                            (e.currentTarget as HTMLElement).style.color =
-                                "var(--color-text-primary)";
-                        }}
-                        onMouseLeave={(e) => {
-                            if (!inputValue)
-                                (
-                                    e.currentTarget as HTMLElement
-                                ).style.backgroundColor = "var(--color-bg)";
-                            (e.currentTarget as HTMLElement).style.color =
-                                "var(--color-text-secondary)";
-                        }}
-                    >
-                        <Search size={14} style={{ flexShrink: 0 }} />
-                        <span className="flex-1 text-left truncate">
-                            {inputValue
-                                ? `"${inputValue.slice(0, 14)}${inputValue.length > 14 ? "…" : ""}"`
-                                : "Search by name…"}
-                        </span>
-                    </button>
-                )}
-            </div>
         </div>
     );
 }

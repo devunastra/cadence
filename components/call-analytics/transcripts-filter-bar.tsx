@@ -396,8 +396,8 @@ export function TranscriptsFilterBar({ filters, onChange }: TranscriptsFilterBar
 
       {open && (
         <div
-          className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-xl p-4"
-          style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', width: 480 }}
+          className="fixed left-5 right-5 md:absolute md:left-0 md:right-auto mt-1 z-50 rounded-xl shadow-xl p-4 md:w-[520px]"
+          style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
         >
           <div className="grid grid-cols-2 gap-3">
             <FieldSelect
@@ -470,7 +470,7 @@ export function TranscriptsFilterBar({ filters, onChange }: TranscriptsFilterBar
                   placeholder="0–10"
                   value={filters.qualityScore.value}
                   onChange={e => set('qualityScore', { ...filters.qualityScore, value: e.target.value })}
-                  className="flex-1 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                  className="flex-1 px-3 py-2 rounded-lg text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
                   style={{
                     border: '1px solid var(--color-border)',
                     backgroundColor: 'var(--color-surface)',

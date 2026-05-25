@@ -225,7 +225,7 @@ export function PhoneInput({ defaultValue = '', onChange, onBlur, onKeyDown, aut
             onKeyDown={onKeyDown}
             placeholder={country.placeholder}
             maxLength={15}
-            className={`flex-1 py-2 text-sm focus:outline-none ${isOther ? 'pl-1 pr-3' : 'px-3'}`}
+            className={`flex-1 py-2 text-base md:text-sm focus:outline-none ${isOther ? 'pl-1 pr-3' : 'px-3'}`}
             style={{ color: 'var(--color-text-primary)', minWidth: 0, backgroundColor: 'var(--color-surface)' }}
           />
         </div>

@@ -72,7 +72,7 @@ export function DateRangeFilter({ value, onChange, onCustomApply }: DateRangeFil
             type="date"
             value={customFrom}
             onChange={e => setCustomFrom(e.target.value)}
-            className="text-xs rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+            className="text-base md:text-xs rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
             style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)', color: 'var(--color-text-primary)' }}
           />
           <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>to</span>
@@ -80,7 +80,7 @@ export function DateRangeFilter({ value, onChange, onCustomApply }: DateRangeFil
             type="date"
             value={customTo}
             onChange={e => setCustomTo(e.target.value)}
-            className="text-xs rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+            className="text-base md:text-xs rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
             style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)', color: 'var(--color-text-primary)' }}
           />
           <button

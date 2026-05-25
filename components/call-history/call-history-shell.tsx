@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useTransition, useCallback } from 'react'
 import { useMounted } from '@/lib/hooks'
-import { Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, ChevronDown, Check, X } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, ChevronDown, Check, X, RefreshCw } from 'lucide-react'
 import { fetchCallHistory, savePageFilters } from '@/app/actions'
 import type { CallHistoryRow, CallHistoryParams } from '@/app/actions'
 import { STATUS_COLORS, NOTION_COLORS } from '@/lib/constants'
@@ -48,13 +48,13 @@ function Badge({ value }: { value: string }) {
   const colors = STATUS_COLORS[value]
   if (!colors) {
     return (
-      <span className="px-2 py-0.5 rounded text-sm font-medium status-bg-gray status-text-gray">
+      <span className="inline-flex items-center justify-center px-2 py-1 rounded text-xs font-medium text-center leading-tight status-bg-gray status-text-gray">
         {capitalize(value)}
       </span>
     )
   }
   return (
-    <span className={`px-2 py-0.5 rounded text-sm font-medium ${colors.bg} ${colors.text}`}>
+    <span className={`inline-flex items-center justify-center px-2 py-1 rounded text-xs font-medium text-center leading-tight ${colors.bg} ${colors.text}`}>
       {capitalize(value)}
     </span>
   )
@@ -590,19 +590,31 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
             placeholder="Search by lead name or phone..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="w-full pl-9 pr-8 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+            className="w-full pl-9 pr-8 py-2 rounded-lg text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
             style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }}
           />
           {search && (
             <button
               onClick={() => setSearch('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-sm"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 md:p-0.5 rounded-sm"
               style={{ color: 'var(--color-text-muted)' }}
             >
               <X size={14} />
             </button>
           )}
         </div>
+
+        {/* Refresh */}
+        <button
+          onClick={() => loadCalls(tab, debouncedSearch.current, filters, sort, 1, pageSize)}
+          className="p-2 rounded-lg"
+          style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'; (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)'; (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)' }}
+          title="Refresh"
+        >
+          <RefreshCw size={14} />
+        </button>
 
         {/* Filter pill */}
         <div className="relative" ref={filterRef}>
@@ -635,10 +647,10 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Date Range</label>
                   <div className="grid grid-cols-2 gap-2">
                     <input type="date" value={filters.dateFrom} onChange={e => set('dateFrom', e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                      className="w-full px-3 py-2 rounded-lg text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
                       style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
                     <input type="date" value={filters.dateTo} onChange={e => set('dateTo', e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                      className="w-full px-3 py-2 rounded-lg text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
                       style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
                   </div>
                 </div>
@@ -752,7 +764,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                   <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)', fontVariantNumeric: 'tabular-nums' }}>
                     {formatDurationMSS(call.duration_seconds)}
                   </td>
-                  <td className="px-3 py-3 align-middle">
+                  <td className="px-3 py-3 align-middle whitespace-nowrap">
                     {(() => { const r = getCallResult(call); return r ? <Badge value={r} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span> })()}
                   </td>
                   <td className="px-3 py-3 align-middle whitespace-nowrap" style={{
@@ -799,7 +811,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                   <td className="px-3 py-3 align-middle">
                     {call.sentiment ? <Badge value={call.sentiment} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span>}
                   </td>
-                  <td className="px-3 py-3 align-middle">
+                  <td className="px-3 py-3 align-middle whitespace-nowrap">
                     {(() => { const r = getCallResult(call); return r ? <Badge value={r} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span> })()}
                   </td>
                   <td className="px-3 py-3 align-middle whitespace-nowrap" style={{
@@ -871,7 +883,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                 onClick={onClick}
                 disabled={disabled}
                 title={title}
-                className="p-2 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
+                className="p-2.5 md:p-2 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
                 style={{
                   border: '1px solid var(--color-border)',
                   color: 'var(--color-text-secondary)',
@@ -903,7 +915,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                 onClick={onClick}
                 disabled={disabled}
                 title={title}
-                className="p-2 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
+                className="p-2.5 md:p-2 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
                 style={{
                   border: '1px solid var(--color-border)',
                   color: 'var(--color-text-secondary)',

@@ -96,7 +96,7 @@ function ViewModal({ existing, onSave, onClose }: ViewModalProps) {
               onChange={e => setName(e.target.value.slice(0, 24))}
               onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') onClose() }}
               placeholder="e.g. My View"
-              className="w-full text-sm px-3 py-2 rounded-lg outline-none"
+              className="w-full text-base md:text-sm px-3 py-2 rounded-lg outline-none"
               style={{
                 backgroundColor: 'var(--color-surface)',
                 border: '1px solid var(--color-border)',

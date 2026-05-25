@@ -31,7 +31,6 @@ const INPUT_STYLE = {
     border: "1px solid var(--color-border)",
     borderRadius: 8,
     color: "var(--color-text-primary)",
-    fontSize: 14,
     padding: "8px 12px",
     width: "100%",
     outline: "none",
@@ -230,9 +229,9 @@ export function CreateAppointmentModal({
                     onSubmit={handleSubmit}
                     className="flex flex-col flex-1 min-h-0"
                 >
-                    <div className="flex flex-col md:flex-row flex-1 px-4 md:px-6 py-5 gap-6 min-h-0 overflow-y-auto">
+                    <div className="flex flex-col md:flex-row flex-1 px-4 md:px-6 py-5 gap-4 md:gap-6 min-h-0 overflow-y-auto">
                         {/* ── Left column ─────────────────────────────────── */}
-                        <div className="flex-1 min-w-0 flex flex-col gap-6">
+                        <div className="flex-1 min-w-0 flex flex-col gap-4 md:gap-6">
                             {/* Appointment Title */}
                             <div>
                                 <label style={LABEL_STYLE}>
@@ -243,7 +242,7 @@ export function CreateAppointmentModal({
                                     type="text"
                                     value={title}
                                     onChange={(e) => setTitle(e.target.value)}
-                                    style={INPUT_STYLE}
+                                    className="text-base md:text-sm" style={INPUT_STYLE}
                                     placeholder="Dance Appointment"
                                     onFocus={(e) =>
                                         ((
@@ -319,7 +318,7 @@ export function CreateAppointmentModal({
                                     placeholder="Add a description…"
                                     rows={5}
                                     label="Description"
-                                    style={INPUT_STYLE}
+                                    className="text-base md:text-sm" style={INPUT_STYLE}
                                     onFocus={(e) =>
                                         ((
                                             e.currentTarget as HTMLElement
@@ -358,7 +357,7 @@ export function CreateAppointmentModal({
                                         onChange={(e) => {
                                             setSearch(e.target.value);
                                         }}
-                                        style={INPUT_STYLE}
+                                        className="text-base md:text-sm" style={INPUT_STYLE}
                                         placeholder="Search by name…"
                                         autoComplete="off"
                                         onFocus={(e) =>

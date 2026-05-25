@@ -24,7 +24,7 @@ const HOURS   = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 const MINUTES = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55']
 const PERIODS = ['AM', 'PM'] as const
 
-const INPUT = 'w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-text-primary)] bg-[var(--color-bg)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]'
+const INPUT = 'w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-base md:text-sm text-[var(--color-text-primary)] bg-[var(--color-bg)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]'
 const LABEL = 'block text-sm font-medium text-[var(--color-text-secondary)] mb-1'
 
 /** Parse "HH:MM" into total minutes since midnight. */
@@ -69,7 +69,7 @@ interface TimePickerProps {
 }
 
 function TimeColumnPicker({ hour, minute, period, onHour, onMinute, onPeriod }: TimePickerProps) {
-  const colClass = 'flex flex-col gap-0.5 overflow-y-auto max-h-44 pr-1 scrollbar-thin'
+  const colClass = 'flex-1 md:flex-none flex flex-col gap-0.5 overflow-y-auto max-h-44 pr-1 scrollbar-thin'
   const itemBase = 'px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer select-none transition-colors text-center'
   const active   = 'text-white'
   const inactive = 'hover:bg-[var(--color-surface)]'
@@ -92,7 +92,7 @@ function TimeColumnPicker({ hour, minute, period, onHour, onMinute, onPeriod }: 
   }, [])
 
   return (
-    <div className="flex gap-1 p-2 rounded-xl shadow-sm w-fit" style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
+    <div className="flex gap-1 p-2 rounded-xl shadow-sm w-full md:w-fit" style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
       <div className={colClass} ref={hourColRef}>
         {HOURS.map(h => (
           <div
@@ -117,7 +117,7 @@ function TimeColumnPicker({ hour, minute, period, onHour, onMinute, onPeriod }: 
           </div>
         ))}
       </div>
-      <div className="flex flex-col gap-0.5">
+      <div className="flex-1 md:flex-none flex flex-col gap-0.5">
         {PERIODS.map(p => (
           <div
             key={p}
@@ -397,7 +397,7 @@ export function CalendarSettingsTab({ studioId, initialConfig, calStartHour: ini
           </p>
 
           {/* Day tabs */}
-          <div className="flex rounded-lg overflow-hidden mb-4" style={{ border: '1px solid var(--color-border)' }}>
+          <div className="flex rounded-lg overflow-x-auto mb-4" style={{ border: '1px solid var(--color-border)' }}>
             {ALL_DAYS.map(d => (
               <button
                 key={d}
@@ -422,11 +422,11 @@ export function CalendarSettingsTab({ studioId, initialConfig, calStartHour: ini
           </div>
 
           {/* Picker + slot list */}
-          <div className="flex gap-6 items-start">
+          <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-start">
             {/* Time picker */}
-            <div className="flex-shrink-0 w-[200px]">
+            <div className="flex-shrink-0 w-full md:w-[200px] self-stretch md:self-start">
               <p className={LABEL}>Select time</p>
-              <div className="w-fit">
+              <div className="md:w-fit">
                 <TimeColumnPicker
                   hour={pickHour}
                   minute={pickMinute}
@@ -446,22 +446,23 @@ export function CalendarSettingsTab({ studioId, initialConfig, calStartHour: ini
                 </button>
               </div>
               {addError && (
-                <div className="flex items-start gap-1 mt-2 text-xs text-red-600 dark:text-red-400 max-w-[200px]">
+                <div className="flex items-start gap-1 mt-2 text-xs text-red-600 dark:text-red-400 md:max-w-[200px]">
                   <AlertCircle size={12} className="flex-shrink-0 mt-0.5" />
                   <span className="leading-snug">{addError}</span>
                 </div>
               )}
             </div>
 
-            {/* Divider */}
-            <div className="self-stretch w-px flex-shrink-0" style={{ backgroundColor: 'var(--color-border)' }} />
+            {/* Divider — desktop only */}
+            <div className="hidden md:block w-px self-stretch flex-shrink-0" style={{ backgroundColor: 'var(--color-border)' }} />
 
             {/* Slot list */}
             <div className="flex-1 min-w-0">
               <p className={LABEL}>
                 {DAY_LABELS[selectedDay]} — {daySlots.length === 0 ? 'no slots' : `${daySlots.length} slot${daySlots.length === 1 ? '' : 's'}`}
               </p>
-              <div className="space-y-1.5 min-h-[40px]">
+              {/* Mobile: horizontal scroll chips — Desktop: vertical list */}
+              <div className="hidden md:block space-y-1.5 min-h-[40px]">
                 {daySlots.length === 0 ? (
                   <p className="text-sm italic" style={{ color: 'var(--color-text-muted)' }}>No slots added yet.</p>
                 ) : (
@@ -483,6 +484,32 @@ export function CalendarSettingsTab({ studioId, initialConfig, calStartHour: ini
                           onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-text-muted)'}
                         >
                           <X size={15} />
+                        </button>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+              <div className="flex md:hidden overflow-x-auto gap-2 min-h-[40px] pb-1 -mx-1 px-1 max-w-[calc(100vw-4rem)]">
+                {daySlots.length === 0 ? (
+                  <p className="text-sm italic" style={{ color: 'var(--color-text-muted)' }}>No slots added yet.</p>
+                ) : (
+                  daySlots.map(time => {
+                    const startMin = parseMinutes(time)
+                    const endMin   = startMin + duration
+                    return (
+                      <div key={time} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg whitespace-nowrap flex-shrink-0" style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)' }}>
+                        <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
+                          {formatMinutes(startMin)}
+                          <span className="mx-0.5" style={{ color: 'var(--color-text-muted)' }}>–</span>
+                          {formatMinutes(endMin)}
+                        </span>
+                        <button
+                          onClick={() => removeSlot(selectedDay, time)}
+                          className="transition-colors"
+                          style={{ color: 'var(--color-text-muted)' }}
+                        >
+                          <X size={13} />
                         </button>
                       </div>
                     )

@@ -144,7 +144,7 @@ export function LeadInfoPanel({
             onChange={e => setEditValue(e.target.value)}
             onBlur={() => commitEdit(field)}
             onKeyDown={e => { if (e.key === 'Enter') commitEdit(field); if (e.key === 'Escape') setEditingField(null) }}
-            className="w-full text-sm bg-transparent focus:outline-none focus:ring-0 px-2 py-1"
+            className="w-full text-base md:text-sm bg-transparent focus:outline-none focus:ring-0 px-2 py-1"
             style={{ color: 'var(--color-text-body)' }}
           />
         </div>
@@ -405,7 +405,7 @@ export function LeadInfoPanel({
                   onChange={e => setEditValue(e.target.value)}
                   onBlur={() => commitEdit('comments')}
                   rows={8}
-                  className="w-full text-sm rounded-lg px-2 py-2 focus:outline-none focus:ring-0 resize-none bg-transparent"
+                  className="w-full text-base md:text-sm rounded-lg px-2 py-2 focus:outline-none focus:ring-0 resize-none bg-transparent"
                   style={{ color: 'var(--color-text-body)' }}
                 />
               </div>

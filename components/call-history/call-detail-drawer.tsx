@@ -48,14 +48,14 @@ function Badge({ value, className }: { value: string; className?: string }) {
   if (!colors) {
     return (
       <span
-        className="px-2 py-0.5 rounded text-sm font-medium status-bg-gray status-text-gray"
+        className="inline-flex items-center justify-center px-2 py-1 rounded text-xs font-medium text-center leading-tight status-bg-gray status-text-gray"
       >
         {capitalize(value)}
       </span>
     )
   }
   return (
-    <span className={`px-2 py-0.5 rounded text-sm font-medium ${colors.bg} ${colors.text} ${className ?? ''}`}>
+    <span className={`inline-flex items-center justify-center px-2 py-1 rounded text-xs font-medium text-center leading-tight ${colors.bg} ${colors.text} ${className ?? ''}`}>
       {capitalize(value)}
     </span>
   )
@@ -190,7 +190,7 @@ export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
           </div>
           <button
             onClick={onClose}
-            className="flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0 transition-colors"
+            className="flex items-center justify-center w-11 h-11 md:w-8 md:h-8 rounded-lg flex-shrink-0 transition-colors"
             style={{ color: 'var(--color-text-secondary)' }}
             onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)' }}
             onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}

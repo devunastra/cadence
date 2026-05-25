@@ -238,6 +238,109 @@ All table-based pages (Leads, Call History, etc.) must follow these patterns exa
 
 ---
 
+## Mobile Responsive (<768px)
+
+All mobile changes are conditional on `useIsMobile()` hook or Tailwind `md:` breakpoints. Desktop layout must remain unchanged.
+
+### Core Tools
+| Tool | Location | Usage |
+|------|----------|-------|
+| `useIsMobile()` | `lib/hooks.ts` | Viewport detection in client components (breakpoint 767px, SSR-safe) |
+| `AppShell` | `components/app-shell.tsx` | Mobile hamburger header bar with studio name |
+| Tailwind `md:` prefix | Server components, loading skeletons | Use when hooks aren't available |
+
+### Page Layout (mobile)
+- Page heading top padding: `pt-5 md:pt-10`
+- Sidebar converts to slide-out drawer with backdrop
+- Pagination stacks vertically: `flex-col md:flex-row`
+- Tabs scroll horizontally: `overflow-x-auto` + `whitespace-nowrap`
+
+### Toolbar Hierarchy
+
+#### Desktop (>=768px)
+All controls on a single row, left-to-right:
+
+```
+[Refresh] [Filter] [Sort] [Search ___________]          [+ CTA Button]
+```
+
+- **Refresh**, **Filter**, **Sort** are pill buttons on the left
+- **Search** is inline, fixed width (`w-60` / 240px), after the pills
+- **CTA** is right-aligned via `ml-auto` in a `hidden md:flex` wrapper
+- Selection state replaces CTA: `3 selected [Delete]`
+
+#### Mobile (<768px)
+Controls stack vertically, top-to-bottom:
+
+```
+[Search...........................] (full-width, own row — if page has search)
+[Refresh] [Filter] [Sort]          (secondary controls row)
+[+ CTA Button]                     (primary action, own row — if page has CTA)
+[Views / Tabs]                     (if applicable)
+```
+
+- **Search** goes first (most used), full-width via `basis-full md:basis-auto` or `w-full md:flex-1`
+- Use `order-first md:order-last` to reorder search to top on mobile without changing desktop DOM order
+- **Refresh** always before **Filter** and **Sort**
+- **CTA** on its own row below secondary controls via `flex md:hidden` (not inline — avoids wrapping with long labels like "+ New Appointment")
+- Selection state replaces CTA on mobile too: `3 selected [Delete]`
+
+### Filter/Sort Dropdowns
+
+#### Desktop
+- Position: `absolute top-full left-0` relative to the pill button
+- Filter panel: fixed width `w-[480px]` or `w-[520px]`, 2-column grid (`grid-cols-2 gap-3`)
+- Sort panel: auto-width, horizontal layout with two `SortSelect` components inline
+- Both use `z-40` or `z-50`, close on outside click
+
+#### Mobile
+- **Offset buttons** (Filter/Sort not at left edge of viewport): use `fixed left-5 right-5 md:absolute md:left-0 md:right-auto` — anchors to page padding edges on mobile, absolute on desktop. This applies to Leads, Call Analytics, and Calendar toolbars.
+- **Left-edge buttons** (Filter after full-width search wraps it to left): use `absolute left-0` + `max-w-[calc(100vw-2.5rem)]` — works because button is flush left. This applies to Call History, Follow-ups, and Quality Review toolbars.
+- Filter grids stay 2-column on mobile when given full content width
+- Sort selects: `flex-1 md:flex-none` with `w-full md:w-auto` so they split space evenly on mobile
+
+### Form Inputs (iOS zoom prevention)
+**All `<input>`, `<textarea>`, and `<select>` elements must use `text-base md:text-sm`.**
+
+iOS Safari zooms in on inputs with `font-size < 16px`. The pattern:
+- Tailwind class inputs: `text-base md:text-sm` (16px mobile, 14px desktop)
+- Inline style inputs: remove `fontSize: 14`, add `className="text-base md:text-sm"` — Tailwind class overrides
+- Shared INPUT constants (e.g. `const INPUT = '...text-base md:text-sm...'`) — fix once, applies everywhere
+
+### Touch Targets
+All interactive elements must be >= 44px tap area on mobile:
+- Pagination nav buttons: `p-2.5 md:p-2`
+- Icon-only buttons (close, dismiss, clear): `p-2.5 md:p-1` or `w-11 h-11 md:w-8 md:h-8`
+- Calendar/date picker nav arrows: `p-2 md:p-1`
+- Banner dismiss buttons: `p-2.5 md:p-1`
+
+### Multi-panel Layouts (mobile)
+- **Conversations**: stacked view navigation (`mobileView` state: `'list' | 'thread' | 'contact'`), browser back button support via `pushState`/`popstate`
+- **Lead detail**: stacked view with tab-like navigation
+- **Settings**: sidebar nav replaced with full-width stacked menu
+- **Calendar**: defaults to list view; week view shows single-day column with day nav arrows
+
+### Modals (mobile)
+- All modals use `fixed inset-0` or responsive width via `min(Xpx, 100vw)`
+- Email compose: full-screen on mobile (`inset: 0`)
+- Create/edit modals: full-screen or max-width capped
+
+### Patterns Reference
+| Pattern | Usage |
+|---------|-------|
+| `pt-5 md:pt-10` | Page heading top padding |
+| `flex-col md:flex-row` | Stack layouts vertically on mobile |
+| `overflow-x-auto` + `whitespace-nowrap` | Horizontal tab/pill scrolling |
+| `w-full md:flex-1 md:max-w-[...]` | Full-width inputs on mobile |
+| `max-w-[calc(100vw-2.5rem)]` | Cap dropdowns/popups to viewport |
+| `hidden md:flex` / `flex md:hidden` | Show/hide elements per breakpoint |
+| `order-first md:order-last` | Reorder search to top on mobile |
+| `fixed left-5 right-5 md:absolute md:left-0 md:right-auto` | Dropdown anchored to page edges on mobile |
+| `text-base md:text-sm` | Input font size (16px mobile / 14px desktop) |
+| `p-2.5 md:p-2` | Touch-friendly button padding |
+
+---
+
 ## Dark Mode
 
 - Implemented via `next-themes` with `attribute="class"`

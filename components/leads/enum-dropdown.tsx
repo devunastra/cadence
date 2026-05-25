@@ -119,7 +119,7 @@ function OptionEditor({ opt, usageCount, onSave, onDelete, onCancel }: OptionEdi
         <button
           onClick={() => setConfirmingDelete(true)}
           title="Delete option"
-          className="p-1 rounded transition-colors text-red-400 hover:text-red-600"
+          className="p-2 md:p-1 rounded transition-colors text-red-400 hover:text-red-600"
           onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#FEF2F2'}
           onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
         >

@@ -553,7 +553,7 @@ export function ComposeBox({
           <input
             value={emailCc}
             onChange={e => setEmailCc(e.target.value)}
-            className="flex-1 bg-transparent focus:outline-none text-sm"
+            className="flex-1 bg-transparent focus:outline-none text-base md:text-sm"
             style={{ color: 'var(--color-text-primary)' }}
             placeholder="cc@email.com"
             autoFocus
@@ -568,7 +568,7 @@ export function ComposeBox({
           <input
             value={emailBcc}
             onChange={e => setEmailBcc(e.target.value)}
-            className="flex-1 bg-transparent focus:outline-none text-sm"
+            className="flex-1 bg-transparent focus:outline-none text-base md:text-sm"
             style={{ color: 'var(--color-text-primary)' }}
             placeholder="bcc@email.com"
             autoFocus
@@ -582,7 +582,7 @@ export function ComposeBox({
         <input
           value={emailSubject}
           onChange={e => setEmailSubject(e.target.value)}
-          className="flex-1 bg-transparent focus:outline-none text-sm"
+          className="flex-1 bg-transparent focus:outline-none text-base md:text-sm"
           style={{ color: 'var(--color-text-primary)' }}
           placeholder="Enter subject..."
         />
@@ -703,7 +703,7 @@ export function ComposeBox({
             }
           }}
           rows={expanded2 ? 14 : 8}
-          className="w-full resize-none text-sm focus:outline-none px-3 py-3"
+          className="w-full resize-none text-base md:text-sm focus:outline-none px-3 py-3"
           style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text-primary)' }}
           placeholder="Type a message..."
         />

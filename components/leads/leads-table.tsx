@@ -804,7 +804,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
             onChange={e => setEditValue(e.target.value)}
             onBlur={() => commitEdit(lead, field)}
             onKeyDown={e => { if (e.key === 'Enter') commitEdit(lead, field) }}
-            className="text-sm border border-gray-300 rounded px-1 py-0.5 w-full focus:outline-none"
+            className="text-base md:text-sm border border-gray-300 rounded px-1 py-0.5 w-full focus:outline-none"
           />
         )
       }
@@ -831,7 +831,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
             onChange={e => setEditValue(e.target.value)}
             onBlur={() => commitEdit(lead, field)}
             onKeyDown={e => { if (e.key === 'Enter') commitEdit(lead, field) }}
-            className="text-sm border border-gray-300 rounded px-1 py-0.5 w-full focus:outline-none"
+            className="text-base md:text-sm border border-gray-300 rounded px-1 py-0.5 w-full focus:outline-none"
           />
         )
       }
@@ -866,7 +866,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
             onBlur={() => commitEdit(lead, field)}
             onKeyDown={e => { if (e.key === 'Escape') setEditing(null) }}
             rows={3}
-            className="text-sm border border-gray-300 rounded px-1 py-0.5 w-full focus:outline-none resize-none"
+            className="text-base md:text-sm border border-gray-300 rounded px-1 py-0.5 w-full focus:outline-none resize-none"
           />
         )
       }
@@ -888,7 +888,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
           onChange={e => setEditValue(e.target.value)}
           onBlur={() => commitEdit(lead, field)}
           onKeyDown={e => { if (e.key === 'Enter') commitEdit(lead, field) }}
-          className="text-sm border border-gray-300 rounded px-1 py-0.5 w-full min-w-[80px] focus:outline-none"
+          className="text-base md:text-sm border border-gray-300 rounded px-1 py-0.5 w-full min-w-[80px] focus:outline-none"
         />
       )
     }
@@ -1055,7 +1055,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
             </button>
             <button
               onClick={() => setNewLeadNames([])}
-              className="p-1 text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200 transition-colors"
+              className="p-2.5 md:p-1 text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200 transition-colors"
               title="Dismiss"
             >
               <X size={15} />
@@ -1087,7 +1087,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setDeletedLeadNames([])}
-              className="p-1 text-amber-500 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-200 transition-colors"
+              className="p-2.5 md:p-1 text-amber-500 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-200 transition-colors"
               title="Dismiss"
             >
               <X size={15} />
@@ -1118,7 +1118,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
           </span>
           <button
             onClick={() => setUpdatedLeadNames([])}
-            className="p-1 text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-200 transition-colors"
+            className="p-2.5 md:p-1 text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-200 transition-colors"
             title="Dismiss"
           >
             <X size={15} />
@@ -1268,7 +1268,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
                 onClick={onClick}
                 disabled={disabled}
                 title={title}
-                className="p-2 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
+                className="p-2.5 md:p-2 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
                 style={{
                   border: '1px solid var(--color-border)',
                   color: 'var(--color-text-secondary)',
@@ -1300,7 +1300,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
                 onClick={onClick}
                 disabled={disabled}
                 title={title}
-                className="p-2 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
+                className="p-2.5 md:p-2 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
                 style={{
                   border: '1px solid var(--color-border)',
                   color: 'var(--color-text-secondary)',

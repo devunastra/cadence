@@ -294,7 +294,7 @@ function VoicemailCard({ msg, isOutbound }: { msg: GHLMessage; isOutbound: boole
   }, [msg.id])
 
   return (
-    <div className="max-w-sm w-80 rounded-2xl" style={{ backgroundColor: isOutbound ? 'var(--color-accent)' : 'var(--color-bubble-inbound)', border: isOutbound ? 'none' : '1px solid var(--color-border)', borderBottomLeftRadius: isOutbound ? undefined : 4, borderBottomRightRadius: isOutbound ? 4 : undefined }}>
+    <div className="max-w-sm w-full sm:w-80 rounded-2xl" style={{ backgroundColor: isOutbound ? 'var(--color-accent)' : 'var(--color-bubble-inbound)', border: isOutbound ? 'none' : '1px solid var(--color-border)', borderBottomLeftRadius: isOutbound ? undefined : 4, borderBottomRightRadius: isOutbound ? 4 : undefined }}>
       <div className="flex items-center gap-2 px-4 py-2.5" style={{ borderBottom: isOutbound ? '1px solid rgba(255,255,255,0.2)' : '1px solid var(--color-border)' }}>
         <Phone size={13} style={{ color: isOutbound ? 'rgba(255,255,255,0.7)' : 'var(--color-text-muted)', flexShrink: 0 }} />
         <span className="text-sm font-medium" style={{ color: isOutbound ? '#ffffff' : 'var(--color-text-primary)' }}>Voicemail</span>

@@ -727,7 +727,7 @@ function InlineReplyCompose({
       {showCc && (
         <div className="flex items-center gap-2 px-4 py-2" style={borderBottom}>
           <span className="w-14 flex-shrink-0 text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>CC</span>
-          <input value={emailCc} onChange={e => setEmailCc(e.target.value)} className="flex-1 bg-transparent focus:outline-none text-sm" style={{ color: 'var(--color-text-primary)' }} placeholder="cc@email.com" autoFocus />
+          <input value={emailCc} onChange={e => setEmailCc(e.target.value)} className="flex-1 bg-transparent focus:outline-none text-base md:text-sm" style={{ color: 'var(--color-text-primary)' }} placeholder="cc@email.com" autoFocus />
           <button onClick={() => { setShowCc(false); setEmailCc('') }}><X size={12} style={{ color: 'var(--color-text-muted)' }} /></button>
         </div>
       )}
@@ -736,7 +736,7 @@ function InlineReplyCompose({
       {showBcc && (
         <div className="flex items-center gap-2 px-4 py-2" style={borderBottom}>
           <span className="w-14 flex-shrink-0 text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>BCC</span>
-          <input value={emailBcc} onChange={e => setEmailBcc(e.target.value)} className="flex-1 bg-transparent focus:outline-none text-sm" style={{ color: 'var(--color-text-primary)' }} placeholder="bcc@email.com" autoFocus />
+          <input value={emailBcc} onChange={e => setEmailBcc(e.target.value)} className="flex-1 bg-transparent focus:outline-none text-base md:text-sm" style={{ color: 'var(--color-text-primary)' }} placeholder="bcc@email.com" autoFocus />
           <button onClick={() => { setShowBcc(false); setEmailBcc('') }}><X size={12} style={{ color: 'var(--color-text-muted)' }} /></button>
         </div>
       )}
@@ -931,14 +931,14 @@ function InlineReplyModal({
         {showCc && (
           <div className="flex items-center gap-2 px-4 py-2" style={borderBottom}>
             <span className="w-14 flex-shrink-0 text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>CC</span>
-            <input value={emailCc} onChange={e => setEmailCc(e.target.value)} className="flex-1 bg-transparent focus:outline-none text-sm" style={{ color: 'var(--color-text-primary)' }} placeholder="cc@email.com" autoFocus />
+            <input value={emailCc} onChange={e => setEmailCc(e.target.value)} className="flex-1 bg-transparent focus:outline-none text-base md:text-sm" style={{ color: 'var(--color-text-primary)' }} placeholder="cc@email.com" autoFocus />
             <button onClick={() => { setShowCc(false); setEmailCc('') }}><X size={12} style={{ color: 'var(--color-text-muted)' }} /></button>
           </div>
         )}
         {showBcc && (
           <div className="flex items-center gap-2 px-4 py-2" style={borderBottom}>
             <span className="w-14 flex-shrink-0 text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>BCC</span>
-            <input value={emailBcc} onChange={e => setEmailBcc(e.target.value)} className="flex-1 bg-transparent focus:outline-none text-sm" style={{ color: 'var(--color-text-primary)' }} placeholder="bcc@email.com" autoFocus />
+            <input value={emailBcc} onChange={e => setEmailBcc(e.target.value)} className="flex-1 bg-transparent focus:outline-none text-base md:text-sm" style={{ color: 'var(--color-text-primary)' }} placeholder="bcc@email.com" autoFocus />
             <button onClick={() => { setShowBcc(false); setEmailBcc('') }}><X size={12} style={{ color: 'var(--color-text-muted)' }} /></button>
           </div>
         )}

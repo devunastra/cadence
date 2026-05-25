@@ -327,7 +327,7 @@ export function TranscriptsPanel({ studioId, from = '', to = '', leadId, listWid
                 onClick={btn.onClick}
                 disabled={btn.disabled}
                 title={btn.title}
-                className="p-2 rounded-md disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                className="p-2.5 md:p-2 rounded-md disabled:opacity-30 disabled:pointer-events-none transition-colors"
                 style={{ border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', backgroundColor: 'var(--color-bg)' }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)'}
@@ -345,7 +345,7 @@ export function TranscriptsPanel({ studioId, from = '', to = '', leadId, listWid
                 onClick={btn.onClick}
                 disabled={btn.disabled}
                 title={btn.title}
-                className="p-2 rounded-md disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                className="p-2.5 md:p-2 rounded-md disabled:opacity-30 disabled:pointer-events-none transition-colors"
                 style={{ border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', backgroundColor: 'var(--color-bg)' }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)'}

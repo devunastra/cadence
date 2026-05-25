@@ -183,7 +183,7 @@ export default function TestPage() {
                 placeholder="+1 (555) 123-4567"
                 value={quickPhone}
                 onChange={e => setQuickPhone(e.target.value)}
-                className="flex-1 px-3 py-2.5 rounded-lg text-sm outline-none transition-colors"
+                className="flex-1 px-3 py-2.5 rounded-lg text-base md:text-sm outline-none transition-colors"
                 style={{
                   backgroundColor: 'var(--color-surface)',
                   border: '1px solid var(--color-border)',
@@ -260,7 +260,7 @@ export default function TestPage() {
                   value={firstName}
                   onChange={e => setFirstName(e.target.value)}
                   required
-                  className="w-full px-3 py-2.5 rounded-lg text-sm outline-none transition-colors"
+                  className="w-full px-3 py-2.5 rounded-lg text-base md:text-sm outline-none transition-colors"
                   style={{
                     backgroundColor: 'var(--color-surface)',
                     border: '1px solid var(--color-border)',
@@ -278,7 +278,7 @@ export default function TestPage() {
                   value={lastName}
                   onChange={e => setLastName(e.target.value)}
                   required
-                  className="w-full px-3 py-2.5 rounded-lg text-sm outline-none transition-colors"
+                  className="w-full px-3 py-2.5 rounded-lg text-base md:text-sm outline-none transition-colors"
                   style={{
                     backgroundColor: 'var(--color-surface)',
                     border: '1px solid var(--color-border)',
@@ -299,7 +299,7 @@ export default function TestPage() {
                 value={formEmail}
                 onChange={e => setFormEmail(e.target.value)}
                 required
-                className="w-full px-3 py-2.5 rounded-lg text-sm outline-none transition-colors"
+                className="w-full px-3 py-2.5 rounded-lg text-base md:text-sm outline-none transition-colors"
                 style={{
                   backgroundColor: 'var(--color-surface)',
                   border: '1px solid var(--color-border)',
@@ -319,7 +319,7 @@ export default function TestPage() {
                 value={formPhone}
                 onChange={e => setFormPhone(e.target.value)}
                 required
-                className="w-full px-3 py-2.5 rounded-lg text-sm outline-none transition-colors"
+                className="w-full px-3 py-2.5 rounded-lg text-base md:text-sm outline-none transition-colors"
                 style={{
                   backgroundColor: 'var(--color-surface)',
                   border: '1px solid var(--color-border)',
@@ -363,7 +363,7 @@ export default function TestPage() {
                 value={message}
                 onChange={e => setMessage(e.target.value)}
                 rows={4}
-                className="w-full px-3 py-2.5 rounded-lg text-sm outline-none transition-colors resize-y"
+                className="w-full px-3 py-2.5 rounded-lg text-base md:text-sm outline-none transition-colors resize-y"
                 style={{
                   backgroundColor: 'var(--color-surface)',
                   border: '1px solid var(--color-border)',

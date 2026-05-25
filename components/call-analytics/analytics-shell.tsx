@@ -54,15 +54,14 @@ const PRESET_OPTIONS: { value: DatePreset; label: string }[] = [
   { value: 'all',            label: 'All Time'       },
 ]
 
-const DISCONNECT_LABELS: Record<string, string> = {
-  agent_hangup:   'Agent hangup',
-  user_hangup:    'User hangup',
-  voicemail:          'Voicemail',
-  voicemail_reached:  'Voicemail',
-  dial_no_answer: 'No answer',
-  dial_busy:      'Busy',
-  call_transfer:  'Transfer',
-}
+const DISCONNECT_SUMMARY: { label: string; keys: string[] }[] = [
+  { label: 'Agent hangup',  keys: ['agent_hangup'] },
+  { label: 'User hangup',   keys: ['user_hangup'] },
+  { label: 'Voicemail',     keys: ['voicemail', 'voicemail_reached'] },
+  { label: 'No answer',     keys: ['dial_no_answer'] },
+  { label: 'Busy',          keys: ['dial_busy'] },
+  { label: 'Transfer',      keys: ['call_transfer'] },
+]
 
 export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
   const defaultRange: DateRange = (() => {
@@ -348,12 +347,15 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
               description="Breakdown of how each call ended — who hung up, voicemail, transferred, or unanswered."
               value={`${calls.length} calls`}
               summary={<>
-                {Object.entries(DISCONNECT_LABELS).map(([key, label]) => (
-                  <p key={key}>
-                    <span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{disconnectCounts[key] ?? 0}</span>{' '}
-                    {label} ({disconnectTotal ? Math.round((disconnectCounts[key] ?? 0) / disconnectTotal * 100) : 0}%)
-                  </p>
-                ))}
+                {DISCONNECT_SUMMARY.map(({ label, keys }) => {
+                  const count = keys.reduce((s, k) => s + (disconnectCounts[k] ?? 0), 0)
+                  return (
+                    <p key={label}>
+                      <span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{count}</span>{' '}
+                      {label} ({disconnectTotal ? Math.round(count / disconnectTotal * 100) : 0}%)
+                    </p>
+                  )
+                })}
               </>}
               availableChartTypes={['donut']}
               defaultChartType="donut"

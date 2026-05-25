@@ -312,12 +312,12 @@ function DateFieldPicker({
               {MONTHS[viewMonth]} {viewYear}
             </span>
             <div className="flex gap-0.5">
-              <button type="button" onClick={prevMonth} className="p-1 rounded transition-colors" style={{ color: 'var(--color-text-secondary)' }}
+              <button type="button" onClick={prevMonth} className="p-2 md:p-1 rounded transition-colors" style={{ color: 'var(--color-text-secondary)' }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}>
                 <ChevronLeft size={14} />
               </button>
-              <button type="button" onClick={nextMonth} className="p-1 rounded transition-colors" style={{ color: 'var(--color-text-secondary)' }}
+              <button type="button" onClick={nextMonth} className="p-2 md:p-1 rounded transition-colors" style={{ color: 'var(--color-text-secondary)' }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}>
                 <ChevronRight size={14} />
@@ -387,10 +387,10 @@ function SortSelect({
   }, [open])
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative flex-1 md:flex-none">
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm rounded-lg"
+        className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm rounded-lg w-full md:w-auto"
         style={{
           minWidth: 130,
           border: '1px solid var(--color-border)',
@@ -596,7 +596,7 @@ export function AppointmentListFilterBar({
 
         {sortOpen && (
           <div
-            className="absolute top-full left-0 mt-2 z-40 rounded-xl overflow-visible"
+            className="fixed left-5 right-5 md:absolute md:left-0 md:right-auto md:w-auto mt-2 z-40 rounded-xl overflow-visible"
             style={{
               backgroundColor: 'var(--color-bg)',
               border: '1px solid var(--color-border)',
@@ -620,7 +620,7 @@ export function AppointmentListFilterBar({
               {isSortCustom && (
                 <button
                   onClick={() => { onSortChange('start_time', true); setSortOpen(false) }}
-                  className="p-1 rounded transition-colors"
+                  className="p-2 md:p-1 rounded transition-colors"
                   style={{ color: 'var(--color-text-muted)' }}
                   onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)'}
                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-text-muted)'}
@@ -634,8 +634,8 @@ export function AppointmentListFilterBar({
         )}
       </div>
 
-      {/* Search */}
-      <div className="basis-full md:basis-auto md:w-60 md:shrink-0">
+      {/* Search — first row on mobile, last on desktop */}
+      <div className="order-first md:order-last basis-full md:basis-auto md:w-60 md:shrink-0">
         {searchOpen ? (
           <div
             className="flex items-center gap-2 px-3 w-full"
@@ -656,7 +656,7 @@ export function AppointmentListFilterBar({
               onFocus={() => setSearchFocused(true)}
               onBlur={() => setSearchFocused(false)}
               onKeyDown={e => { if (e.key === 'Escape') handleSearchClose() }}
-              className="text-sm outline-none bg-transparent flex-1 min-w-0"
+              className="text-base md:text-sm outline-none bg-transparent flex-1 min-w-0"
               style={{ color: 'var(--color-text-primary)' }}
             />
             <button

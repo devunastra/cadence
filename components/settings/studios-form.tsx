@@ -14,7 +14,7 @@ interface StudiosFormProps {
 }
 
 const INPUT =
-    "w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-text-primary)] bg-[var(--color-bg)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]";
+    "w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-base md:text-sm text-[var(--color-text-primary)] bg-[var(--color-bg)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]";
 const LABEL =
     "block text-sm font-medium text-[var(--color-text-secondary)] mb-1";
 

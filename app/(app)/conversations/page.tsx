@@ -253,7 +253,7 @@ function ConversationSearchInput({ onChange }: { onChange: (v: string) => void }
                     onFocus={() => setFocused(true)}
                     onBlur={() => setFocused(false)}
                     onKeyDown={(e) => { if (e.key === 'Escape') handleClose() }}
-                    className="text-sm outline-none bg-transparent flex-1 min-w-0"
+                    className="text-base md:text-sm outline-none bg-transparent flex-1 min-w-0"
                     style={{ color: 'var(--color-text-primary)' }}
                 />
                 <button
@@ -1872,7 +1872,7 @@ export default function ConversationsPage() {
                                 onChange={(e) =>
                                     setNewConvSearch(e.target.value)
                                 }
-                                className="w-full px-3 py-1.5 text-sm rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                                className="w-full px-3 py-1.5 text-base md:text-sm rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
                                 style={{
                                     border: "1px solid var(--color-border)",
                                     backgroundColor: "var(--color-surface)",

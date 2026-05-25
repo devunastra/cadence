@@ -136,7 +136,7 @@ export function AppointmentDatePicker({ value, onChange, config, className = '' 
               <button
                 type="button"
                 onClick={prevMonth}
-                className="p-1 rounded transition-colors"
+                className="p-2 md:p-1 rounded transition-colors"
                 style={{ color: 'var(--color-text-secondary)' }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
@@ -146,7 +146,7 @@ export function AppointmentDatePicker({ value, onChange, config, className = '' 
               <button
                 type="button"
                 onClick={nextMonth}
-                className="p-1 rounded transition-colors"
+                className="p-2 md:p-1 rounded transition-colors"
                 style={{ color: 'var(--color-text-secondary)' }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}

@@ -37,11 +37,11 @@ const FIELD_INPUT = {
   border: '1px solid var(--color-border)',
   borderRadius: 8,
   color: 'var(--color-text-primary)',
-  fontSize: 14,
   padding: '8px 12px',
   width: '100%',
   outline: 'none',
 } as const
+const FIELD_INPUT_CLASS = 'text-base md:text-sm'
 
 // Times stored as plain local ISO — read hours/minutes directly
 function localTime(iso: string) {
@@ -251,7 +251,7 @@ export function AppointmentModal({
                 type="text"
                 value={editTitle}
                 onChange={e => setEditTitle(e.target.value)}
-                style={FIELD_INPUT}
+                className={FIELD_INPUT_CLASS} style={FIELD_INPUT}
                 onFocus={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-accent)'}
                 onBlur={e  => (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border)'}
               />
@@ -306,7 +306,7 @@ export function AppointmentModal({
                 placeholder="Add a description…"
                 rows={4}
                 label="Description"
-                style={FIELD_INPUT}
+                className={FIELD_INPUT_CLASS} style={FIELD_INPUT}
                 onFocus={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-accent)'}
                 onBlur={e  => (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border)'}
               />

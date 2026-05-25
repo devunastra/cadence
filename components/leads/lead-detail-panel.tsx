@@ -172,7 +172,7 @@ export function LeadDetailPanel({
           onChange={e => setEditValue(e.target.value)}
           onBlur={() => commitEdit(field)}
           onKeyDown={e => { if (e.key === 'Enter') commitEdit(field); if (e.key === 'Escape') setEditingField(null) }}
-          className="w-full text-sm rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+          className="w-full text-base md:text-sm rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
           style={{ border: '1px solid var(--color-accent)', backgroundColor: 'var(--color-bg)', color: 'var(--color-text-primary)' }}
         />
       )
@@ -280,7 +280,7 @@ export function LeadDetailPanel({
                     onChange={e => setEditValue(e.target.value)}
                     onBlur={() => commitEdit('name')}
                     onKeyDown={e => { if (e.key === 'Enter') commitEdit('name') }}
-                    className="text-2xl font-bold bg-transparent focus:outline-none w-72"
+                    className="text-2xl font-bold bg-transparent focus:outline-none w-full max-w-72"
                     style={{ borderBottom: '2px solid var(--color-accent)', color: 'var(--color-text-primary)' }}
                   />
                 ) : (
@@ -394,7 +394,7 @@ export function LeadDetailPanel({
                   onChange={e => setEditValue(e.target.value)}
                   onBlur={() => commitEdit('comments')}
                   rows={4}
-                  className="w-full text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] resize-none"
+                  className="w-full text-base md:text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] resize-none"
                   style={{ border: '1px solid var(--color-accent)', backgroundColor: 'var(--color-bg)', color: 'var(--color-text-primary)' }}
                 />
               ) : (
@@ -434,9 +434,9 @@ export function LeadDetailPanel({
                 <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>No calls linked to this lead yet.</p>
               </div>
             ) : (
-              <div className="flex gap-3 h-[960px]">
+              <div className="flex flex-col md:flex-row gap-3 md:h-[960px]">
                 {/* Call list */}
-                <div className="w-52 flex-shrink-0 flex flex-col rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
+                <div className="w-full md:w-52 flex-shrink-0 flex flex-col rounded-xl overflow-hidden max-h-48 md:max-h-none" style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
                   <div className="flex-1 overflow-y-auto">
                     {leadCalls.map(call => {
                       const isSelected = selectedCall?.id === call.id
@@ -470,7 +470,7 @@ export function LeadDetailPanel({
                 </div>
 
                 {/* Transcript viewer */}
-                <div className="flex-1 rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
+                <div className="flex-1 min-h-[400px] md:min-h-0 rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
                   {selectedCall ? (
                     <TranscriptViewer
                       call={{ ...selectedCall, transcript: transcriptCache[selectedCall.id] ?? null }}

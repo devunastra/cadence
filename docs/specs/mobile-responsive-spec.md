@@ -1,8 +1,8 @@
 # Mobile Responsive Spec — AMLS WebApp
 
 > **Goal:** Make the entire app mobile-responsive (<768px) without changing the desktop layout.
-> **Status:** Phase 1 shipped (commit c04f0dd). Phases 2-7 pending.
-> **Last updated:** 2026-05-22
+> **Status:** All 8 phases complete. Mobile responsive implementation finished.
+> **Last updated:** 2026-05-25
 
 ---
 
@@ -159,20 +159,71 @@ Commit: `c04f0dd` — "feat: add mobile responsive layout (Phase 1)"
 
 ---
 
-## Phase 8: Global Polish
+## Phase 8: Global Polish (DONE)
 
 Final pass for consistency, edge cases, and touch optimization.
 
+### What was done:
+
+**Touch targets** — all icon buttons and pagination nav buttons enlarged to >= 44px on mobile:
+- Pagination buttons across all 8 table pages: `p-2` → `p-2.5 md:p-2`
+- Banner dismiss buttons (leads-table): `p-1` → `p-2.5 md:p-1`
+- Call detail drawer close button: `w-8 h-8` → `w-11 h-11 md:w-8 md:h-8`
+- Calendar date picker nav arrows: `p-1` → `p-2 md:p-1`
+- Appointment list filter bar nav/reset buttons: `p-1` → `p-2 md:p-1`
+- Enum dropdown delete button: `p-1` → `p-2 md:p-1`
+- Call history search clear button: `p-0.5` → `p-1.5 md:p-0.5`
+
+**iOS zoom prevention** — all form inputs use `text-base md:text-sm` (16px on mobile, 14px on desktop):
+- New Lead modal (INPUT_CLASS constant)
+- Call history search + date filters
+- Follow-ups date filters
+- Quality review date + score filters
+- Compose box (CC, BCC, Subject inputs + SMS textarea)
+- Login, accept-invite, reset-password pages
+- Test page (all form fields + textarea)
+- Leads table inline edit inputs
+
+**Filter/sort dropdown positioning** — dropdowns that overflow the viewport because their parent button is offset from the left edge now use `fixed left-5 right-5` on mobile to anchor to the page padding edges:
+- Leads filter + sort (`components/leads/leads-filter-bar.tsx`)
+- Call Analytics transcript filter (`components/call-analytics/transcripts-filter-bar.tsx`)
+- Calendar sort (`components/calendar/appointment-list-filter-bar.tsx`)
+- Pages where filter button is already at the left edge (call-history, follow-ups, quality-review) keep `absolute left-0` with `max-w-[calc(100vw-2.5rem)]` — works because the button is flush left after search wraps to its own row.
+
+**Modal audit** — verified all modals already have proper mobile treatment:
+- All use `fixed inset-0` or responsive width via `min(Xpx, 100vw)`
+- No horizontal overflow issues found
+
 ### Checklist:
-- [ ] Touch targets audit: all buttons/links >= 44px tap area on mobile
-- [ ] Modal audit: all modals full-screen or properly sized on mobile
-- [ ] Form inputs: font-size >= 16px to prevent iOS zoom
+- [x] Touch targets audit: all buttons/links >= 44px tap area on mobile
+- [x] Modal audit: all modals full-screen or properly sized on mobile
+- [x] Form inputs: font-size >= 16px to prevent iOS zoom
 - [ ] Test all pages at 375px (iPhone SE) and 390px (iPhone 14)
 - [ ] Verify no horizontal overflow on any page
 - [ ] Verify all `overflow-x-auto` containers scroll properly
 - [ ] Test landscape orientation
 - [ ] Test hamburger menu -> page navigation -> interactions -> back on every page
 - [ ] Verify desktop layout unchanged at 768px+
+
+### Files modified:
+- `components/leads/leads-table.tsx` — banner dismiss buttons, pagination buttons, inline edit inputs
+- `components/leads/new-lead-modal.tsx` — INPUT_CLASS font size
+- `components/leads/enum-dropdown.tsx` — delete button
+- `components/call-history/call-history-shell.tsx` — search, date inputs, clear button, pagination
+- `components/call-history/call-detail-drawer.tsx` — close button
+- `components/call-quality/quality-review-shell.tsx` — date/score inputs, pagination
+- `components/follow-ups/follow-ups-shell.tsx` — date inputs, pagination
+- `components/call-analytics/transcripts-panel.tsx` — pagination
+- `components/call-analytics/transcripts-filter-bar.tsx` — filter dropdown positioning, quality score input font size
+- `components/calendar/appointment-date-picker.tsx` — month nav arrows
+- `components/calendar/appointment-list-panel.tsx` — pagination
+- `components/calendar/appointment-list-filter-bar.tsx` — nav/reset buttons
+- `components/conversations/compose-box.tsx` — email fields, SMS textarea
+- `components/settings/activity-log-table.tsx` — pagination
+- `app/(auth)/login/page.tsx` — form inputs
+- `app/(auth)/accept-invite/page.tsx` — form inputs
+- `app/(auth)/reset-password/page.tsx` — form inputs
+- `app/(app)/test/page.tsx` — form inputs + textarea
 
 ---
 

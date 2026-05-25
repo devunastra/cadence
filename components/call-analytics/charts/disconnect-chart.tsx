@@ -12,32 +12,21 @@ interface DisconnectChartProps {
   type: ChartType
 }
 
-const REASON_LABELS: Record<string, string> = {
-  agent_hangup:   'Agent Ended',
-  user_hangup:    'User Ended',
-  voicemail:          'Voicemail',
-  voicemail_reached:  'Voicemail',
-  dial_no_answer: 'No Answer',
-  dial_busy:      'Busy',
-  call_transfer:  'Transfer',
-}
-
-const REASON_COLORS: Record<string, string> = {
-  agent_hangup:   NOTION_COLORS.blue.text,
-  user_hangup:    NOTION_COLORS.green.text,
-  voicemail:          NOTION_COLORS.yellow.text,
-  voicemail_reached:  NOTION_COLORS.yellow.text,
-  dial_no_answer: NOTION_COLORS.gray.text,
-  dial_busy:      NOTION_COLORS.red.text,
-  call_transfer:  NOTION_COLORS.purple.text,
-}
+const REASONS: { key: string; mergeKeys?: string[]; name: string; color: string }[] = [
+  { key: 'agent_hangup',   name: 'Agent Ended', color: NOTION_COLORS.blue.text },
+  { key: 'user_hangup',    name: 'User Ended',  color: NOTION_COLORS.green.text },
+  { key: 'voicemail',      mergeKeys: ['voicemail', 'voicemail_reached'], name: 'Voicemail', color: NOTION_COLORS.yellow.text },
+  { key: 'dial_no_answer', name: 'No Answer',   color: NOTION_COLORS.gray.text },
+  { key: 'dial_busy',      name: 'Busy',        color: NOTION_COLORS.red.text },
+  { key: 'call_transfer',  name: 'Transfer',    color: NOTION_COLORS.purple.text },
+]
 
 export function DisconnectChart({ counts, type }: DisconnectChartProps) {
-  // All known reasons always shown in legend
-  const allData = Object.entries(REASON_LABELS).map(([key, name]) => ({
+  // All known reasons always shown in legend — voicemail + voicemail_reached merged
+  const allData = REASONS.map(({ mergeKeys, key, name, color }) => ({
     name,
-    value: counts[key] ?? 0,
-    color: REASON_COLORS[key] ?? '#787774',
+    value: (mergeKeys ?? [key]).reduce((sum, k) => sum + (counts[k] ?? 0), 0),
+    color,
   }))
   const data = allData.filter(d => d.value > 0)
 

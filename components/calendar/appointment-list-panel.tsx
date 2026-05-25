@@ -100,7 +100,7 @@ function NavButton({ onClick, disabled, title, children }: { onClick: () => void
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className="p-2 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
+      className="p-2.5 md:p-2 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
       style={{
         border: '1px solid var(--color-border)',
         color: 'var(--color-text-secondary)',
