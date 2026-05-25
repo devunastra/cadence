@@ -10,6 +10,7 @@ import { formatDateTime } from '@/lib/date-utils'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentStudio } from '@/components/studio-context'
 import { CallDetailDrawer } from './call-detail-drawer'
+import { DateFieldPicker } from '@/components/date-field-picker'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -646,12 +647,8 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                 <div className="col-span-2">
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Date Range</label>
                   <div className="grid grid-cols-2 gap-3">
-                    <input type="date" value={filters.dateFrom} onChange={e => set('dateFrom', e.target.value)}
-                      className="w-full px-2 md:px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] min-w-0"
-                      style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
-                    <input type="date" value={filters.dateTo} onChange={e => set('dateTo', e.target.value)}
-                      className="w-full px-2 md:px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] min-w-0"
-                      style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' }} />
+                    <DateFieldPicker value={filters.dateFrom} onChange={v => set('dateFrom', v)} placeholder="From" />
+                    <DateFieldPicker value={filters.dateTo} onChange={v => set('dateTo', v)} placeholder="To" />
                   </div>
                 </div>
               </div>
