@@ -242,7 +242,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
   }
 
   return (
-    <div className="flex flex-col gap-3 flex-1 min-h-0">
+    <div className="flex flex-col gap-3 md:flex-1 md:min-h-0">
       {/* Row 1: Tab strip — stable, never shifts */}
       <div className="flex items-end flex-shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
         {(['calendar', 'list'] as const).map(t => (

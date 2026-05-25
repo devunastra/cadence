@@ -887,8 +887,11 @@ export default function ConversationsPage() {
         forceScrollBottomRef.current = false;
         const el = threadRef.current;
         if (!el) return;
+        // Double rAF ensures layout is fully settled (especially on mobile with fixed positioning)
         const raf = requestAnimationFrame(() => {
-            el.scrollTop = el.scrollHeight;
+            requestAnimationFrame(() => {
+                el.scrollTop = el.scrollHeight;
+            });
         });
         return () => cancelAnimationFrame(raf);
     }, [loadingMsgs, loadingLead]);
@@ -1324,7 +1327,7 @@ export default function ConversationsPage() {
 
     return (
         <div
-            className="flex flex-col h-full"
+            className={`flex flex-col overflow-hidden ${isMobile ? 'fixed left-0 right-0 bottom-0 top-[52px] z-20' : 'h-full'}`}
             style={{ backgroundColor: "var(--color-bg)" }}
         >
             {(!isMobile || mobileView === 'list') && (
@@ -1587,7 +1590,7 @@ export default function ConversationsPage() {
                 {/* ── Middle panel: thread + compose ──────────────────────────────── */}
                 {(!isMobile || mobileView === 'thread') && (
                 <div
-                    className="flex-1 flex flex-col min-w-0"
+                    className="flex-1 flex flex-col min-w-0 overflow-hidden"
                     style={{ backgroundColor: "var(--color-bg)" }}
                 >
                     {!selectedConv ? (

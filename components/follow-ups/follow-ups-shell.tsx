@@ -499,7 +499,7 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
   const columns = tab === 'follow_ups' ? FOLLOW_UP_COLUMNS : CALLBACK_COLUMNS
 
   return (
-    <div className="relative flex flex-col h-full px-5 pb-4 gap-3 [font-family:var(--font-inter,Inter,sans-serif)]">
+    <div className="relative flex flex-col md:h-full px-5 pb-4 gap-3 [font-family:var(--font-inter,Inter,sans-serif)]">
       {/* KPI Cards */}
       <div className="flex gap-3 flex-shrink-0 overflow-x-auto no-scrollbar md:grid md:grid-cols-3">
         {kpiLoading ? (
@@ -607,8 +607,8 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
         <ScheduledCallbacksTable refreshTrigger={scheduledRefreshTrigger} />
       ) : (<>
       {/* Table card */}
-      <div className="relative flex-1 min-h-0 rounded-xl overflow-hidden shadow-sm" style={{ border: '1px solid var(--color-border)' }}>
-        <div className="h-full overflow-y-auto overflow-x-auto no-theme-transition" style={{ backgroundColor: 'var(--color-bg)' }}>
+      <div className="relative md:flex-1 md:min-h-0 rounded-xl overflow-hidden shadow-sm" style={{ border: '1px solid var(--color-border)' }}>
+        <div className="md:h-full overflow-x-auto md:overflow-y-auto no-theme-transition" style={{ backgroundColor: 'var(--color-bg)' }}>
           <table className="w-full text-sm border-collapse">
             <thead className="sticky top-0 z-10" style={{ backgroundColor: 'var(--color-surface)' }}>
               <tr>

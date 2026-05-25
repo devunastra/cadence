@@ -13,7 +13,7 @@ export default function LeadsPage() {
       <div className="flex-shrink-0 px-5 pb-3">
         <VoiceAgentToggle />
       </div>
-      <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex flex-col md:flex-1 md:min-h-0">
         <LeadsTable studioId={studioId} />
       </div>
     </>

@@ -923,7 +923,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
         onCancel={() => setShowConfirmDelete(false)}
       />
     )}
-    <div className="relative flex flex-col h-full px-5 pb-4 gap-3 [font-family:var(--font-inter,Inter,sans-serif)]">
+    <div className="relative flex flex-col md:h-full px-5 pb-4 gap-3 [font-family:var(--font-inter,Inter,sans-serif)]">
       {/* Header */}
       <div className="flex-shrink-0 space-y-2">
         {/* Toolbar row: filter bar + action button */}
@@ -1128,8 +1128,8 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
       })()}
 
       {/* Table card */}
-      <div className="relative flex-1 min-h-0 rounded-xl border border-[#e9e9e7] dark:border-[rgba(255,255,255,0.07)] shadow-sm overflow-hidden">
-      <div className="relative h-full overflow-y-auto overflow-x-scroll bg-white dark:bg-[#191919] no-theme-transition leads-scroll">
+      <div className="relative md:flex-1 md:min-h-0 rounded-xl border border-[#e9e9e7] dark:border-[rgba(255,255,255,0.07)] shadow-sm overflow-hidden">
+      <div className="relative md:h-full overflow-x-scroll md:overflow-y-auto bg-white dark:bg-[#191919] no-theme-transition leads-scroll">
 
 
         <table className="w-full text-sm border-collapse" style={{ tableLayout: 'fixed' }}>

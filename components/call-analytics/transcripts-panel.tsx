@@ -247,7 +247,7 @@ export function TranscriptsPanel({ studioId, from = '', to = '', leadId, listWid
 
   if (isLoading || isRefreshing) {
     return (
-      <div className="flex flex-1 min-h-0 items-center justify-center">
+      <div className="flex md:flex-1 md:min-h-0 items-center justify-center">
         <Spinner />
       </div>
     )
@@ -265,7 +265,7 @@ export function TranscriptsPanel({ studioId, from = '', to = '', leadId, listWid
 
   return (
     <>
-    <div className="flex flex-col md:flex-row flex-1 min-h-0 gap-4">
+    <div className="flex flex-col md:flex-row md:flex-1 md:min-h-0 gap-4">
       {/* Left: call list — scrollable within itself */}
       {(!isMobile || mobileView === 'list') && (
       <div

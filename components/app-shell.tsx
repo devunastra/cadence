@@ -34,12 +34,12 @@ export function AppShell({ studios, initialStudioId, initialCollapsed, children 
                 mobileOpen={mobileOpen}
                 onMobileClose={() => setMobileOpen(false)}
             />
-            <div className="flex-1 flex flex-col overflow-hidden relative">
+            <div className="flex-1 flex flex-col overflow-y-auto md:overflow-hidden relative">
                 {/* Mobile hamburger header */}
                 {showMobile && (
                     <div
-                        className="flex-shrink-0 flex items-center justify-between px-4 py-3"
-                        style={{ borderBottom: '1px solid var(--color-border)' }}
+                        className="flex-shrink-0 flex items-center justify-between px-4 py-3 sticky top-0 z-30"
+                        style={{ borderBottom: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}
                     >
                         <button
                             onClick={() => setMobileOpen(true)}
@@ -50,14 +50,14 @@ export function AppShell({ studios, initialStudioId, initialCollapsed, children 
                             <Menu size={22} />
                         </button>
                         <span
-                            className="text-sm font-medium truncate max-w-[150px]"
+                            className="text-sm font-medium truncate flex-1 text-right"
                             style={{ color: 'var(--color-text-primary)' }}
                         >
                             {currentStudio?.name}
                         </span>
                     </div>
                 )}
-                <main className="flex-1 flex flex-col overflow-hidden">
+                <main className="flex-1 flex flex-col md:overflow-hidden md:min-h-0">
                     <ErrorBoundary>{children}</ErrorBoundary>
                 </main>
             </div>

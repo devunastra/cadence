@@ -206,7 +206,7 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
   const toStr   = range.to.toISOString()
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 gap-3">
+    <div className="flex flex-col md:flex-1 md:min-h-0 gap-3">
       {/* Row 1: Tab strip — hidden on mobile when viewing transcript detail */}
       {!(isMobile && mobileTranscriptDetail) && (
       <div className="flex items-end flex-shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
@@ -400,7 +400,7 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
 
       {/* Transcripts tab — fills remaining height */}
       {activeTab === 'transcripts' && (
-        <div className="flex flex-1 min-h-0">
+        <div className="flex md:flex-1 md:min-h-0">
           <TranscriptsPanel studioId={studioId} from={fromStr} to={toStr} filters={filters} transcriptRefreshTrigger={transcriptRefreshTrigger} onMobileDetailChange={setMobileTranscriptDetail} />
         </div>
       )}

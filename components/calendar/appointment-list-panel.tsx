@@ -307,11 +307,11 @@ export function AppointmentListPanel({
   const someSelected = selectedIds.size > 0 && selectedIds.size < appointments.length
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 gap-3">
+    <div className="flex flex-col md:flex-1 md:min-h-0 gap-3">
 
       {/* Card — table only (pagination is outside) */}
       <div
-        className="relative flex flex-col flex-1 min-h-0 rounded-2xl overflow-hidden"
+        className="relative flex flex-col md:flex-1 md:min-h-0 rounded-2xl md:overflow-hidden"
         style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
       >
         {isPending && (
@@ -321,7 +321,7 @@ export function AppointmentListPanel({
         )}
 
         {/* Scrollable table */}
-        <div className="flex-1 overflow-auto min-h-0">
+        <div className="md:flex-1 overflow-x-auto md:overflow-auto md:min-h-0">
           <table className="w-full text-sm">
             <thead
               className="sticky top-0 z-10"
