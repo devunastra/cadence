@@ -1345,6 +1345,9 @@ export type CallHistoryRow = Pick<Call,
   is_callback?: boolean
   last_missed_outbound_at?: string | null
   voicemail_left?: boolean | null
+  booking_successful?: boolean | null
+  booking_attempted?: boolean | null
+  callback_requested?: boolean | null
 }
 
 export interface CallHistoryParams {
@@ -1356,6 +1359,8 @@ export interface CallHistoryParams {
     sentiment?: string[]
     outcome?: string
     appointmentBooked?: string
+    bookingAttempted?: string
+    callbackRequested?: string
     disconnectedReason?: string[]
     qualityScore?: { op: string; value: string }
     dateFrom?: string
@@ -1388,6 +1393,36 @@ export async function fetchCallHistory(params: CallHistoryParams): Promise<{ cal
       .limit(500)
     searchLeadIds = (matchingLeads ?? []).map(l => l.id)
     if (searchLeadIds.length === 0) return { calls: [], total: 0 }
+  }
+
+  // "Booking Attempted" filter — pre-query call_reviews for matching call IDs.
+  // call_reviews is the source of truth for booking outcomes (calls.appointment_booked
+  // is sometimes flipped true by n8n for attempts that didn't actually succeed).
+  let bookingAttemptedCallIds: string[] | null = null
+  if (filters.bookingAttempted === 'yes') {
+    const { data: attemptedReviews } = await client
+      .from('call_reviews')
+      .select('call_id')
+      .eq('studio_id', studioId)
+      .eq('booking_attempted', true)
+      .eq('booking_successful', false)
+    bookingAttemptedCallIds = (attemptedReviews ?? []).map(r => r.call_id as string)
+    if (bookingAttemptedCallIds.length === 0) return { calls: [], total: 0 }
+  }
+
+  // "Callback Requested" filter — pre-query call_reviews where caller asked for a
+  // callback and the call didn't already result in a successful booking.
+  let callbackRequestedCallIds: string[] | null = null
+  if (filters.callbackRequested === 'yes') {
+    const { data: callbackReviews } = await client
+      .from('call_reviews')
+      .select('call_id,booking_successful')
+      .eq('studio_id', studioId)
+      .eq('callback_requested', true)
+    callbackRequestedCallIds = (callbackReviews ?? [])
+      .filter(r => r.booking_successful !== true)
+      .map(r => r.call_id as string)
+    if (callbackRequestedCallIds.length === 0) return { calls: [], total: 0 }
   }
 
   // For callbacks tab or callbackOnly filter, find leads with missed outbound calls first
@@ -1429,6 +1464,16 @@ export async function fetchCallHistory(params: CallHistoryParams): Promise<{ cal
   // Search by lead IDs
   if (searchLeadIds) {
     query = query.in('lead_id', searchLeadIds)
+  }
+
+  // Restrict to calls flagged "Booking Attempted" in their AI review
+  if (bookingAttemptedCallIds) {
+    query = query.in('id', bookingAttemptedCallIds)
+  }
+
+  // Restrict to calls flagged "Callback Requested" in their AI review
+  if (callbackRequestedCallIds) {
+    query = query.in('id', callbackRequestedCallIds)
   }
 
   // Additional filters
@@ -1507,22 +1552,44 @@ export async function fetchCallHistory(params: CallHistoryParams): Promise<{ cal
   }
 
   // For voicemail rows, fetch transcripts and detect whether agent actually left a message.
-  // Heuristic: agent took ≥2 turns AND user side had at least one turn (the voicemail
-  // greeting capture). One agent turn = greeting only, agent bailed on detection.
+  // Heuristic: agent's total speech across all turns must be substantive (≥100 chars).
+  // Don't use User: turn count — voicemail greetings get transcribed as User turns too,
+  // which mis-flagged short hang-ups as "Left Voicemail" (e.g. agent just said "Hi X, this is ").
   const voicemailLeftMap: Record<string, boolean> = {}
   const voicemailIds = rows.filter(c => c.disconnected_reason === 'voicemail' || c.disconnected_reason === 'voicemail_reached').map(c => c.id)
   if (voicemailIds.length > 0) {
     const { data: vmRows } = await client
       .from('calls')
-      .select('id,transcript')
+      .select('id,transcript,duration_seconds')
       .in('id', voicemailIds)
     for (const v of vmRows ?? []) {
       const t = v.transcript as string | null
+      const dur = v.duration_seconds as number | null
       if (!t) { voicemailLeftMap[v.id] = false; continue }
-      const lines = t.split('\n')
-      const agentTurns = lines.reduce((n, l) => l.startsWith('Agent:') ? n + 1 : n, 0)
-      const hasUserTurn = lines.some(l => l.startsWith('User:'))
-      voicemailLeftMap[v.id] = agentTurns >= 2 && hasUserTurn
+      const agentText = t.split('\n')
+        .filter(l => l.startsWith('Agent:'))
+        .map(l => l.replace(/^Agent:\s*/, '').trim())
+        .join(' ')
+      voicemailLeftMap[v.id] = agentText.length >= 100 && (dur ?? 0) >= 10
+    }
+  }
+
+  // Fetch AI-reviewed booking outcome for each call in the page (call_reviews is the
+  // source of truth: calls.appointment_booked is sometimes flipped true on attempts
+  // that didn't succeed). Falls back to calls.appointment_booked when no review exists.
+  const reviewMap: Record<string, { attempted: boolean | null; successful: boolean | null; callback: boolean | null }> = {}
+  const callIds = rows.map(c => c.id)
+  if (callIds.length > 0) {
+    const { data: reviews } = await client
+      .from('call_reviews')
+      .select('call_id,booking_attempted,booking_successful,callback_requested')
+      .in('call_id', callIds)
+    for (const r of reviews ?? []) {
+      reviewMap[r.call_id as string] = {
+        attempted: r.booking_attempted as boolean | null,
+        successful: r.booking_successful as boolean | null,
+        callback: r.callback_requested as boolean | null,
+      }
     }
   }
 
@@ -1548,6 +1615,7 @@ export async function fetchCallHistory(params: CallHistoryParams): Promise<{ cal
   return {
     calls: rows.map(c => {
       const isCallback = c.direction === 'inbound' && !!c.lead_id && !!(callbackLeadIdsForFlag?.has(c.lead_id))
+      const review = reviewMap[c.id]
       return {
         ...c,
         lead_name:  c.lead_id ? (leadNames[c.lead_id]  ?? null) : null,
@@ -1555,6 +1623,9 @@ export async function fetchCallHistory(params: CallHistoryParams): Promise<{ cal
         is_callback: isCallback,
         last_missed_outbound_at: isCallback && c.lead_id ? (lastMissedMap[c.lead_id] ?? null) : null,
         voicemail_left: (c.disconnected_reason === 'voicemail' || c.disconnected_reason === 'voicemail_reached') ? (voicemailLeftMap[c.id] ?? false) : null,
+        booking_attempted: review?.attempted ?? null,
+        booking_successful: review?.successful ?? null,
+        callback_requested: review?.callback ?? null,
       }
     }) as CallHistoryRow[],
     total: count ?? 0,

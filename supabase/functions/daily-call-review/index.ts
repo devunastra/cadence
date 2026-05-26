@@ -149,8 +149,11 @@ Deno.serve(async (req) => {
       })
     }
 
+    console.log("[daily-call-review] auth ok, computing date boundaries")
+
     const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     const { dateFrom, dateTo, dateLabel } = getYesterdayBoundaries()
+    console.log("[daily-call-review] dateFrom=", dateFrom, "dateTo=", dateTo, "dateLabel=", dateLabel)
 
     // Fetch yesterday's calls across all studios
     const { data: calls, error: fetchError } = await serviceClient
@@ -165,18 +168,23 @@ Deno.serve(async (req) => {
       .limit(DAILY_BATCH_LIMIT)
 
     if (fetchError) {
+      console.log("[daily-call-review] fetchError:", fetchError.message)
       return new Response(JSON.stringify({ error: fetchError.message }), {
         status: 500,
         headers: { "Content-Type": "application/json" },
       })
     }
 
+    console.log("[daily-call-review] fetched calls count=", calls?.length ?? 0, "ids=", (calls ?? []).map((c) => c.id))
+
     // Filter eligible (non-empty transcript after fetch)
     const eligible = (calls as CallRow[]).filter(
       (c) => c.transcript && c.transcript.trim().length > 0
     )
+    console.log("[daily-call-review] eligible count=", eligible.length)
 
     if (eligible.length === 0) {
+      console.log("[daily-call-review] no eligible calls, exiting")
       return new Response(
         JSON.stringify({ analyzed: 0, skipped: 0, total_eligible: 0, date: dateLabel, errors: [] }),
         { status: 200, headers: { "Content-Type": "application/json" } }
@@ -192,12 +200,14 @@ Deno.serve(async (req) => {
     const reviewedIds = new Set((existingReviews ?? []).map((r) => r.call_id))
     const callsToAnalyze = eligible.filter((c) => !reviewedIds.has(c.id))
     const skipped = eligible.length - callsToAnalyze.length
+    console.log("[daily-call-review] callsToAnalyze=", callsToAnalyze.length, "skipped(already-reviewed)=", skipped)
 
     // Process with concurrency
     const results = await processWithConcurrency(callsToAnalyze, serviceClient, "cron")
 
     const analyzed = results.filter((r) => r.success).length
     const errors = results.filter((r) => !r.success).map((r) => ({ callId: r.callId, error: r.error }))
+    console.log("[daily-call-review] DONE analyzed=", analyzed, "errors=", JSON.stringify(errors))
 
     return new Response(
       JSON.stringify({
@@ -222,6 +232,7 @@ async function analyzeCall(
   serviceClient: ReturnType<typeof createClient>,
   triggerType: "manual" | "cron"
 ): Promise<AnalyzeResult> {
+  console.log("[analyzeCall] starting", call.id)
   try {
     let userMessage = `Call transcript:\n\n${call.transcript}`
     if (call.transcript_summary) {
@@ -241,7 +252,7 @@ async function analyzeCall(
         },
         body: JSON.stringify({
           model: "gpt-5.5",
-          temperature: 0.3,
+          temperature: 1,
           max_completion_tokens: 1500,
           response_format: { type: "json_object" },
           messages: [
@@ -250,6 +261,7 @@ async function analyzeCall(
           ],
         }),
       })
+      console.log("[analyzeCall]", call.id, "OpenAI attempt", attempt, "status:", response.status)
 
       if (response.status === 429 || response.status === 503) {
         if (attempt === 0) {
@@ -262,14 +274,22 @@ async function analyzeCall(
 
     if (!response || !response.ok) {
       const errText = response ? await response.text() : "No response"
+      console.log("[analyzeCall]", call.id, "OpenAI ERROR body:", errText.slice(0, 800))
       return { success: false, callId: call.id, error: `OpenAI API error: ${response?.status} — ${errText}` }
     }
 
     const data = await response.json()
     const content = data.choices?.[0]?.message?.content ?? ""
+    console.log("[analyzeCall]", call.id, "OpenAI content length:", content.length)
 
     const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
-    const parsed = JSON.parse(cleaned)
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(cleaned)
+    } catch (parseErr) {
+      console.log("[analyzeCall]", call.id, "JSON parse error:", (parseErr as Error).message, "raw:", cleaned.slice(0, 400))
+      throw parseErr
+    }
 
     const grade = parsed.grade === "Fail" ? "Fail" : "Pass"
 
@@ -296,11 +316,14 @@ async function analyzeCall(
     )
 
     if (upsertError) {
+      console.log("[analyzeCall]", call.id, "upsert ERROR:", upsertError.message)
       return { success: false, callId: call.id, error: `DB upsert error: ${upsertError.message}` }
     }
 
+    console.log("[analyzeCall]", call.id, "SUCCESS")
     return { success: true, callId: call.id }
   } catch (err) {
+    console.log("[analyzeCall]", call.id, "caught error:", (err as Error).message)
     return { success: false, callId: call.id, error: (err as Error).message }
   }
 }

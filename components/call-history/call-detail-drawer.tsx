@@ -26,14 +26,30 @@ function capitalize(s: string | null): string {
   return s ? s[0].toUpperCase() + s.slice(1) : '\u2014'
 }
 
-function getCallResult(call: { disconnected_reason: string | null; picked_up: boolean | null; transferred: boolean | null; appointment_booked: boolean | null }): string | null {
-  if (call.disconnected_reason === 'voicemail' || call.disconnected_reason === 'voicemail_reached') return 'Voicemail'
-  if (call.disconnected_reason === 'dial_no_answer') return 'No Answer'
+function getCallResult(call: CallHistoryRow): string | null {
+  // Connection-level outcomes always win — call never properly connected.
+  if (call.disconnected_reason === 'voicemail' || call.disconnected_reason === 'voicemail_reached') return call.voicemail_left ? 'Left Voicemail' : 'Voicemail Reached'
+  if (call.disconnected_reason === 'dial_no_answer') return 'Did Not Pick Up'
   if (call.disconnected_reason === 'dial_busy') return 'Busy'
   if (call.transferred) return 'Transferred'
-  if (call.appointment_booked) return 'Booked'
+
+  // Booking outcome — prefer AI review (call_reviews) over calls.appointment_booked,
+  // which n8n sometimes flips true for attempts that didn't actually succeed.
+  if (call.booking_successful === true) return 'Booked'
+  if (call.callback_requested === true) return 'Callback Requested'
+  if (call.booking_successful === false) {
+    if (call.booking_attempted) return 'Booking Attempted'
+    // review confirms no booking + no callback — fall through to hangup labels
+  } else if (call.appointment_booked) {
+    // No review row yet — trust calls.appointment_booked as a temporary fallback.
+    return 'Booked'
+  }
+
+  if (call.disconnected_reason === 'ivr_reached') return 'IVR Reached'
+  if (call.disconnected_reason === 'inactivity') return 'Inactivity'
   if (call.disconnected_reason === 'user_hangup') return 'User Hung Up'
   if (call.disconnected_reason === 'agent_hangup') return 'Agent Hung Up'
+  if (call.outcome === 'unsuccessful') return 'Did Not Pick Up'
   return null
 }
 

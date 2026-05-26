@@ -63,13 +63,29 @@ function Badge({ value }: { value: string }) {
 
 
 function getCallResult(call: CallHistoryRow): string | null {
+  // Connection-level outcomes always win — call never properly connected.
   if (call.disconnected_reason === 'voicemail' || call.disconnected_reason === 'voicemail_reached') return call.voicemail_left ? 'Left Voicemail' : 'Voicemail Reached'
-  if (call.disconnected_reason === 'dial_no_answer') return 'No Answer'
+  if (call.disconnected_reason === 'dial_no_answer') return 'Did Not Pick Up'
   if (call.disconnected_reason === 'dial_busy') return 'Busy'
   if (call.transferred) return 'Transferred'
-  if (call.appointment_booked) return 'Booked'
+
+  // Booking outcome — prefer AI review (call_reviews) over calls.appointment_booked,
+  // which n8n sometimes flips true for attempts that didn't actually succeed.
+  if (call.booking_successful === true) return 'Booked'
+  if (call.callback_requested === true) return 'Callback Requested'
+  if (call.booking_successful === false) {
+    if (call.booking_attempted) return 'Booking Attempted'
+    // review confirms no booking + no callback — fall through to hangup labels
+  } else if (call.appointment_booked) {
+    // No review row yet — trust calls.appointment_booked as a temporary fallback.
+    return 'Booked'
+  }
+
+  if (call.disconnected_reason === 'ivr_reached') return 'IVR Reached'
+  if (call.disconnected_reason === 'inactivity') return 'Inactivity'
   if (call.disconnected_reason === 'user_hangup') return 'User Hung Up'
   if (call.disconnected_reason === 'agent_hangup') return 'Agent Hung Up'
+  if (call.outcome === 'unsuccessful') return 'Did Not Pick Up'
   return null
 }
 
@@ -131,31 +147,41 @@ const DEFAULT_FILTERS: CallHistoryFilters = {
 
 const RESULT_OPTIONS = [
   { value: 'Voicemail', label: 'Voicemail' },
-  { value: 'No Answer', label: 'No Answer' },
+  { value: 'Did Not Pick Up', label: 'Did Not Pick Up' },
   { value: 'Busy', label: 'Busy' },
   { value: 'Transferred', label: 'Transferred' },
   { value: 'Booked', label: 'Booked' },
+  { value: 'Booking Attempted', label: 'Booking Attempted' },
+  { value: 'Callback Requested', label: 'Callback Requested' },
+  { value: 'IVR Reached', label: 'IVR Reached' },
+  { value: 'Inactivity', label: 'Inactivity' },
   { value: 'User Hung Up', label: 'User Hung Up' },
   { value: 'Agent Hung Up', label: 'Agent Hung Up' },
 ]
 
 // Map result filter values back to server-side outcome + disconnectedReason filters
-function resultToServerFilters(results: string[]): { outcome: string; appointmentBooked: string; disconnectedReason: string[] } {
+function resultToServerFilters(results: string[]): { outcome: string; appointmentBooked: string; disconnectedReason: string[]; bookingAttempted: string; callbackRequested: string } {
   const disconnectedReason: string[] = []
   const outcome = ''
   let appointmentBooked = ''
+  let bookingAttempted = ''
+  let callbackRequested = ''
 
   for (const r of results) {
     if (r === 'Voicemail') { disconnectedReason.push('voicemail'); disconnectedReason.push('voicemail_reached') }
-    if (r === 'No Answer') disconnectedReason.push('dial_no_answer')
+    if (r === 'Did Not Pick Up') disconnectedReason.push('dial_no_answer')
     if (r === 'Busy') disconnectedReason.push('dial_busy')
     if (r === 'Transferred') disconnectedReason.push('call_transfer')
     if (r === 'Booked') appointmentBooked = 'yes'
+    if (r === 'Booking Attempted') bookingAttempted = 'yes'
+    if (r === 'Callback Requested') callbackRequested = 'yes'
+    if (r === 'IVR Reached') disconnectedReason.push('ivr_reached')
+    if (r === 'Inactivity') disconnectedReason.push('inactivity')
     if (r === 'User Hung Up') disconnectedReason.push('user_hangup')
     if (r === 'Agent Hung Up') disconnectedReason.push('agent_hangup')
   }
 
-  return { outcome, appointmentBooked, disconnectedReason }
+  return { outcome, appointmentBooked, disconnectedReason, bookingAttempted, callbackRequested }
 }
 
 function activeFilterCount(f: CallHistoryFilters): number {

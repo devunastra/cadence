@@ -79,6 +79,8 @@ export type CallDisconnectedReason =
   | 'dial_no_answer'
   | 'dial_busy'
   | 'call_transfer'
+  | 'ivr_reached'
+  | 'inactivity'
 
 export interface Call {
   id: string
