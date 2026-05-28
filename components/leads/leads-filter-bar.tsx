@@ -275,7 +275,7 @@ export function LeadsFilterBar({
     }
 
     return (
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
             {/* ── Search — full-width on mobile (first row), 240px on desktop ── */}
             <div className="order-first md:order-last basis-full md:basis-auto md:w-60 md:shrink-0">
                 {searchOpen ? (

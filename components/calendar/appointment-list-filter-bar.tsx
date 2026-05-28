@@ -474,8 +474,8 @@ export function AppointmentListFilterBar({
         )}
       </div>
 
-      {/* Search — first row on mobile, last on desktop */}
-      <div className="order-first md:order-last basis-full md:basis-auto md:w-60 md:shrink-0">
+      {/* Search — first row on mobile, inline after Sort on desktop */}
+      <div className="order-first md:order-none basis-full md:basis-auto md:w-60 md:shrink-0">
         {searchOpen ? (
           <div
             className="flex items-center gap-2 px-3 w-full"

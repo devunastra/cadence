@@ -608,9 +608,9 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
       </div>
 
       {/* Toolbar: search + filter */}
-      <div className="flex items-center gap-3 flex-shrink-0 flex-wrap">
-        {/* Search */}
-        <div className="relative w-full md:flex-1 md:min-w-[200px] md:max-w-[360px]">
+      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+        {/* Search — full-width on mobile (first row), 240px on desktop */}
+        <div className="relative order-first md:order-last basis-full md:basis-auto md:w-60 md:shrink-0">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-text-muted)' }} />
           <input
             type="text"
