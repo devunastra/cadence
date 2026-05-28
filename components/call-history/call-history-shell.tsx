@@ -791,10 +791,10 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                     {(() => { const r = getCallResult(call); return r ? <Badge value={r} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span> })()}
                   </td>
                   <td className="px-3 py-3 align-middle whitespace-nowrap" style={{
-                    color: call.appointment_booked ? NOTION_COLORS.green.text : 'var(--color-text-muted)',
-                    fontWeight: call.appointment_booked ? 500 : 400,
+                    color: getCallResult(call) === 'Booked' ? NOTION_COLORS.green.text : 'var(--color-text-muted)',
+                    fontWeight: getCallResult(call) === 'Booked' ? 500 : 400,
                   }}>
-                    {call.appointment_booked == null ? '\u2014' : call.appointment_booked ? 'Yes' : 'No'}
+                    {getCallResult(call) === 'Booked' ? 'Yes' : 'No'}
                   </td>
                   <td className="px-3 py-3 align-middle">
                     <div className="flex items-center gap-1.5">
@@ -838,10 +838,10 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                     {(() => { const r = getCallResult(call); return r ? <Badge value={r} /> : <span style={{ color: 'var(--color-text-muted)' }}>{'\u2014'}</span> })()}
                   </td>
                   <td className="px-3 py-3 align-middle whitespace-nowrap" style={{
-                    color: call.appointment_booked ? NOTION_COLORS.green.text : 'var(--color-text-muted)',
-                    fontWeight: call.appointment_booked ? 500 : 400,
+                    color: getCallResult(call) === 'Booked' ? NOTION_COLORS.green.text : 'var(--color-text-muted)',
+                    fontWeight: getCallResult(call) === 'Booked' ? 500 : 400,
                   }}>
-                    {call.appointment_booked == null ? '\u2014' : call.appointment_booked ? 'Yes' : 'No'}
+                    {getCallResult(call) === 'Booked' ? 'Yes' : 'No'}
                   </td>
                 </tr>
               ))

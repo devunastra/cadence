@@ -246,13 +246,9 @@ export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
             <div>
               <span style={{ color: 'var(--color-text-secondary)' }}>Appointment Booked</span>
               <p className="font-medium mt-0.5" style={{
-                color: call.appointment_booked == null
-                  ? 'var(--color-text-muted)'
-                  : call.appointment_booked
-                    ? NOTION_COLORS.green.text
-                    : 'var(--color-text-primary)'
+                color: getCallResult(call) === 'Booked' ? NOTION_COLORS.green.text : 'var(--color-text-primary)'
               }}>
-                {call.appointment_booked == null ? '\u2014' : call.appointment_booked ? 'Yes' : 'No'}
+                {getCallResult(call) === 'Booked' ? 'Yes' : 'No'}
               </p>
             </div>
             <div>
