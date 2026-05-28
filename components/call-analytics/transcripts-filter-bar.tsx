@@ -87,7 +87,7 @@ function FieldSelect({ label, value, onChange, options, placeholder = 'All' }: F
 
         {open && (
           <div
-            className="absolute left-0 top-full mt-1 z-[100] rounded-xl py-1 overflow-hidden"
+            className="absolute left-0 top-full mt-1 z-[100] rounded-xl py-1 max-h-[360px] overflow-y-auto"
             style={{
               minWidth: '100%',
               backgroundColor: 'var(--color-bg)',
@@ -210,12 +210,13 @@ function MultiFieldSelect({ label, values, onChange, options, placeholder = 'All
         {open && rect && (
           <div
             ref={panelRef}
-            className="rounded-xl py-1 overflow-hidden"
+            className="rounded-xl py-1 overflow-y-auto"
             style={{
               position: 'fixed',
               top: rect.bottom + 4,
               left: rect.left,
               width: rect.width,
+              maxHeight: Math.min(360, window.innerHeight - rect.bottom - 12),
               zIndex: 1000,
               backgroundColor: 'var(--color-bg)',
               border: '1px solid var(--color-border)',
@@ -308,7 +309,7 @@ function OpPicker({ value, onChange }: OpPickerProps) {
       </button>
       {open && (
         <div
-          className="absolute left-0 top-full mt-1 z-[100] rounded-xl py-1 overflow-hidden"
+          className="absolute left-0 top-full mt-1 z-[100] rounded-xl py-1 max-h-[360px] overflow-y-auto"
           style={{
             backgroundColor: 'var(--color-bg)',
             border: '1px solid var(--color-border)',

@@ -303,7 +303,7 @@ function MultiFieldSelect({ label, values, onChange, options, placeholder = 'All
           <ChevronDown size={13} className={`flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} style={{ color: 'var(--color-text-muted)' }} />
         </button>
         {open && rect && (
-          <div ref={panelRef} className="rounded-xl py-1 overflow-hidden" style={{ position: 'fixed', top: rect.bottom + 4, left: rect.left, width: rect.width, zIndex: 1000, backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', boxShadow: '0 8px 24px rgba(0,0,0,0.10)' }}>
+          <div ref={panelRef} className="rounded-xl py-1 overflow-y-auto" style={{ position: 'fixed', top: rect.bottom + 4, left: rect.left, width: rect.width, maxHeight: Math.min(360, window.innerHeight - rect.bottom - 12), zIndex: 1000, backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', boxShadow: '0 8px 24px rgba(0,0,0,0.10)' }}>
             <button type="button" onClick={() => onChange([])} className="w-full text-left px-3 py-2 text-sm whitespace-nowrap"
               style={{ backgroundColor: values.length === 0 ? 'var(--color-accent)' : 'transparent', color: values.length === 0 ? '#ffffff' : 'var(--color-text-muted)', transition: 'none' }}
               onMouseEnter={e => { if (values.length > 0) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface-hover)' }}
@@ -659,7 +659,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
           </button>
 
           {filterOpen && (
-            <div className="fixed left-5 right-5 md:absolute md:left-0 md:right-auto mt-1 z-50 rounded-xl shadow-xl p-4 md:w-[520px]"
+            <div className="fixed left-5 right-5 md:absolute md:left-0 md:right-auto mt-1 z-50 rounded-xl shadow-xl p-4 md:w-[520px] max-h-[calc(100vh-8rem)] overflow-y-auto"
               style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
               <div className="grid grid-cols-2 gap-3">
                 <FieldSelect label="Direction"

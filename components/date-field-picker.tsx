@@ -91,13 +91,17 @@ export function DateFieldPicker({ value, onChange, placeholder = 'Select date' }
         <ChevronDown size={13} className={`flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} style={{ color: 'var(--color-text-muted)' }} />
       </button>
 
-      {open && rect && (
+      {open && rect && (() => {
+        const calHeight = 310
+        const spaceBelow = window.innerHeight - rect.bottom - 8
+        const flipUp = spaceBelow < calHeight && rect.top > calHeight
+        return (
         <div
           ref={panelRef}
           className="rounded-xl shadow-xl p-3"
           style={{
             position: 'fixed',
-            top: rect.bottom + 4,
+            top: flipUp ? rect.top - calHeight - 4 : rect.bottom + 4,
             left: Math.min(rect.left, window.innerWidth - 268),
             width: 256,
             zIndex: 9999,
@@ -158,7 +162,8 @@ export function DateFieldPicker({ value, onChange, placeholder = 'Select date' }
             })}
           </div>
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

@@ -80,12 +80,13 @@ export function FilterDropdown({
             {open && rect && (
                 <div
                     ref={panelRef}
-                    className="rounded-xl py-1 max-h-[360px] overflow-y-auto"
+                    className="rounded-xl py-1 overflow-y-auto"
                     style={{
                         position: "fixed",
                         top: rect.bottom + 4,
                         left: rect.left,
                         width: rect.width,
+                        maxHeight: Math.min(360, window.innerHeight - rect.bottom - 12),
                         zIndex: 1000,
                         backgroundColor: "var(--color-bg)",
                         border: "1px solid var(--color-border)",
