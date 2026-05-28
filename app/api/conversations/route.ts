@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     ghlUrl += `&status=${encodeURIComponent(status)}`
   }
   if (q) {
-    ghlUrl += `&q=${encodeURIComponent(q)}` 
+    ghlUrl += `&query=${encodeURIComponent(q)}` 
   }
   if (startAfterDate) ghlUrl += `&startAfterDate=${encodeURIComponent(startAfterDate)}`
   if (startAfterId)   ghlUrl += `&startAfterId=${encodeURIComponent(startAfterId)}`

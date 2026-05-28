@@ -222,7 +222,7 @@ function ConversationSearchInput({ onChange }: { onChange: (v: string) => void }
     function handleChange(v: string) {
         setValue(v);
         if (timerRef.current) clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => onChange(v), 300);
+        timerRef.current = setTimeout(() => onChange(v), 500);
     }
 
     function handleClose() {
@@ -252,7 +252,7 @@ function ConversationSearchInput({ onChange }: { onChange: (v: string) => void }
                     onChange={(e) => handleChange(e.target.value)}
                     onFocus={() => setFocused(true)}
                     onBlur={() => setFocused(false)}
-                    onKeyDown={(e) => { if (e.key === 'Escape') handleClose() }}
+                    onKeyDown={(e) => { if (e.key === 'Escape') handleClose(); if (e.key === 'Enter') e.preventDefault() }}
                     className="text-base md:text-sm outline-none bg-transparent flex-1 min-w-0"
                     style={{ color: 'var(--color-text-primary)' }}
                 />
@@ -313,8 +313,7 @@ export default function ConversationsPage() {
     const [studioId, setStudioId] = useState<string | null>(null);
     const [ghlLocationId, setGhlLocationId] = useState<string | null>(null);
     const [debouncedSearch, setDebouncedSearch] = useState("");
-    const [searchResults, setSearchResults] = useState<GHLConversation[] | null>(null);
-    const [searchLoading, setSearchLoading] = useState(false);
+    const initialLoadDone = useRef(false);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [messages, setMessages] = useState<GHLMessage[]>([]);
     const [loadingConvs, setLoadingConvs] = useState(true);
@@ -379,7 +378,6 @@ export default function ConversationsPage() {
 
     const selectedConv =
         conversations.find((c) => c.id === selectedId) ??
-        searchResults?.find((c) => c.id === selectedId) ??
         null;
 
     function toggleConvSelection(e: React.ChangeEvent<HTMLInputElement>, convId: string) {
@@ -404,8 +402,7 @@ export default function ConversationsPage() {
         e.stopPropagation();
 
         const conv =
-            conversations.find((c) => c.id === convId) ??
-            searchResults?.find((c) => c.id === convId);
+            conversations.find((c) => c.id === convId);
         if (!conv) return;
 
         const newStarred = !conv.starred;
@@ -415,9 +412,8 @@ export default function ConversationsPage() {
         const revertStarred = (list: GHLConversation[]) =>
             list.map((c) => c.id === convId ? { ...c, starred: !newStarred } : c);
 
-        // Optimistic update — both lists
+        // Optimistic update
         setConversations((prev) => applyStarred(prev));
-        setSearchResults((prev) => prev ? applyStarred(prev) : prev);
 
         try {
             await fetch("/api/conversations", {
@@ -428,7 +424,6 @@ export default function ConversationsPage() {
         } catch (err) {
             console.error("Failed to toggle star", err);
             setConversations((prev) => revertStarred(prev));
-            setSearchResults((prev) => prev ? revertStarred(prev) : prev);
         }
     }
 
@@ -670,6 +665,8 @@ export default function ConversationsPage() {
                         );
                         return [...prev, ...newOnes];
                     }
+                    // Search or tab change: replace entirely with fresh results
+                    if (qParam) return incoming;
                     // Polling: replace fresh top-25, preserve older loaded pages
                     if (prev.length === 0) return incoming;
                     const incomingIds = new Set(incoming.map((c) => c.id));
@@ -684,6 +681,7 @@ export default function ConversationsPage() {
                 if (!cursor) setConvError("Network error");
             } finally {
                 setLoadingConvs(false);
+                initialLoadDone.current = true;
                 if (cursor) {
                     loadingMoreConvsRef.current = false;
                     setLoadingMoreConvs(false);
@@ -693,10 +691,8 @@ export default function ConversationsPage() {
         [],
     );
 
-    useEffect(() => {
-        fetchConversations();
-        // No polling — Supabase Realtime handles live conversation updates
-    }, [fetchConversations]);
+    // Initial fetch is handled by the filter/search useEffect below (activeTab + debouncedSearch).
+    // No polling — Supabase Realtime handles live conversation updates.
 
     // ── Auto-select conversation from ?ghlContactId= param ───────────────────
 
@@ -1178,7 +1174,6 @@ export default function ConversationsPage() {
     // ── Fetch Conversations on Filter/Search Change ──────────────────────────
 
     useEffect(() => {
-        setConversations([]);
         convsCursorRef.current = null;
         hasMoreConvsRef.current = false;
         setLoadingConvs(true);
@@ -1299,7 +1294,7 @@ export default function ConversationsPage() {
 
     // ─────────────────────────────────────────────────────────────────────────
 
-    if (loadingConvs) {
+    if (loadingConvs && !initialLoadDone.current) {
         return (
             <div
                 className="flex flex-col h-full"
@@ -1485,13 +1480,12 @@ export default function ConversationsPage() {
                         className="flex-1 overflow-y-auto"
                         onScroll={handleConvListScroll}
                     >
-                        {searchLoading && (
+                        {loadingConvs && (
                             <div className="flex items-center justify-center py-8">
                                 <Spinner />
                             </div>
                         )}
                         {!loadingConvs &&
-                            !searchLoading &&
                             !convError &&
                             sortedFiltered.length === 0 && (
                                 <p
@@ -1503,7 +1497,7 @@ export default function ConversationsPage() {
                             )}
 
                         {/* Select All */}
-                        {!loadingConvs && !searchLoading && !convError && sortedFiltered.length > 0 && (
+                        {!loadingConvs && !convError && sortedFiltered.length > 0 && (
                             <div className="sticky top-0 z-10 px-4 h-11 flex items-center gap-3 border-b" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-bg)' }}>
                                 <Checkbox
                                     checked={selectedConvIds.size > 0 && selectedConvIds.size === sortedFiltered.length}
