@@ -91,6 +91,7 @@ export const NOTION_COLORS = {
   gray:   { bg: '#F1F1EF', text: '#787774' },
   orange: { bg: '#FAEBDD', text: '#C97B48' },
   brown:  { bg: '#EEE0DA', text: '#9F6B53' },
+  teal:   { bg: '#E6F4E2', text: '#5A9A3F' },
 } as const
 
 // Color map using CSS classes defined in app/globals.css (status-bg-* / status-text-*)
@@ -185,13 +186,13 @@ export const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   Voicemail:                 { bg: 'status-bg-orange',  text: 'status-text-orange' },
   'Left Voicemail':          { bg: 'status-bg-blue',    text: 'status-text-blue' },
   'Voicemail Reached':       { bg: 'status-bg-blue',    text: 'status-text-blue' },
-  'Did Not Pick Up':         { bg: 'status-bg-yellow',  text: 'status-text-yellow' },
+  'Did Not Pick Up':         { bg: 'status-bg-orange',  text: 'status-text-orange' },
   Busy:                      { bg: 'status-bg-red',     text: 'status-text-red' },
-  Transferred:               { bg: 'status-bg-orange',  text: 'status-text-orange' },
+  Transferred:               { bg: 'status-bg-yellow',  text: 'status-text-yellow' },
   Booked:                    { bg: 'status-bg-green',   text: 'status-text-green' },
-  'Booking Attempted':       { bg: 'status-bg-yellow',  text: 'status-text-yellow' },
+  'Booking Attempted':       { bg: 'status-bg-teal',    text: 'status-text-teal' },
   'Callback Requested':      { bg: 'status-bg-brown',   text: 'status-text-brown' },
-  'IVR Reached':             { bg: 'status-bg-yellow',  text: 'status-text-yellow' },
+  'IVR Reached':             { bg: 'status-bg-orange',  text: 'status-text-orange' },
   Inactivity:                { bg: 'status-bg-gray',    text: 'status-text-gray' },
   'User Hung Up':            { bg: 'status-bg-pink',    text: 'status-text-pink' },
   'Agent Hung Up':           { bg: 'status-bg-purple',  text: 'status-text-purple' },

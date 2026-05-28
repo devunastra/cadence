@@ -337,6 +337,11 @@ select:focus {
 .dark .status-bg-yellow { background-color: #896a2c; }
 .dark .status-text-yellow { color: #f5e6c0; }
 
+.status-bg-teal { background-color: #E6F4E2; }
+.status-text-teal { color: #5A9A3F; }
+.dark .status-bg-teal { background-color: #4a7a35; }
+.dark .status-text-teal { color: #ddf0d7; }
+
 .status-bg-green { background-color: #EDF3EC; }
 .status-text-green { color: #448361; }
 .dark .status-bg-green { background-color: #3f6f54; }

@@ -130,6 +130,7 @@ Color is managed via two systems — use the right one for the context:
 | Gray / Default | `#F1F1EF` | `#787774` | `gray` / `default` |
 | Orange | `#FAEBDD` | `#C97B48` | `orange` |
 | Brown | `#EEE0DA` | `#9F6B53` | `brown` |
+| Teal | `#E6F4E2` | `#5A9A3F` | `teal` |
 
 ### Status → color mapping (examples)
 

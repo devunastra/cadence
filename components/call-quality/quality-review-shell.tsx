@@ -49,14 +49,27 @@ function qualityScoreColor(score: number): string {
   return NOTION_COLORS.red.text
 }
 
-function getCallResult(row: { disconnected_reason: string | null; picked_up: boolean | null; transferred: boolean | null; appointment_booked: boolean | null }): string | null {
-  if (row.disconnected_reason === 'voicemail' || row.disconnected_reason === 'voicemail_reached') return 'Voicemail'
-  if (row.disconnected_reason === 'dial_no_answer') return 'No Answer'
+function getCallResult(row: { disconnected_reason: string | null; picked_up: boolean | null; transferred: boolean | null; appointment_booked: boolean | null; booking_successful?: boolean | null; booking_attempted?: boolean | null; callback_requested?: boolean; voicemail_left?: boolean | null; outcome?: string | null }): string | null {
+  // Connection-level outcomes always win — call never properly connected.
+  if (row.disconnected_reason === 'voicemail' || row.disconnected_reason === 'voicemail_reached') return row.voicemail_left ? 'Left Voicemail' : 'Voicemail Reached'
+  if (row.disconnected_reason === 'dial_no_answer') return 'Did Not Pick Up'
   if (row.disconnected_reason === 'dial_busy') return 'Busy'
   if (row.transferred) return 'Transferred'
-  if (row.appointment_booked) return 'Booked'
+
+  // Booking outcome — prefer AI review (call_reviews) over calls.appointment_booked.
+  if (row.booking_successful === true) return 'Booked'
+  if (row.callback_requested === true) return 'Callback Requested'
+  if (row.booking_successful === false) {
+    if (row.booking_attempted) return 'Booking Attempted'
+  } else if (row.appointment_booked) {
+    return 'Booked'
+  }
+
+  if (row.disconnected_reason === 'ivr_reached') return 'IVR Reached'
+  if (row.disconnected_reason === 'inactivity') return 'Inactivity'
   if (row.disconnected_reason === 'user_hangup') return 'User Hung Up'
   if (row.disconnected_reason === 'agent_hangup') return 'Agent Hung Up'
+  if (row.outcome === 'unsuccessful') return 'Did Not Pick Up'
   return null
 }
 
@@ -83,11 +96,16 @@ const DEFAULT_FILTERS: QualityFilters = {
 }
 
 const RESULT_OPTIONS = [
-  { value: 'Voicemail', label: 'Voicemail' },
-  { value: 'No Answer', label: 'No Answer' },
+  { value: 'Left Voicemail', label: 'Left Voicemail' },
+  { value: 'Voicemail Reached', label: 'Voicemail Reached' },
+  { value: 'Did Not Pick Up', label: 'Did Not Pick Up' },
   { value: 'Busy', label: 'Busy' },
   { value: 'Transferred', label: 'Transferred' },
   { value: 'Booked', label: 'Booked' },
+  { value: 'Booking Attempted', label: 'Booking Attempted' },
+  { value: 'Callback Requested', label: 'Callback Requested' },
+  { value: 'IVR Reached', label: 'IVR Reached' },
+  { value: 'Inactivity', label: 'Inactivity' },
   { value: 'User Hung Up', label: 'User Hung Up' },
   { value: 'Agent Hung Up', label: 'Agent Hung Up' },
 ]

@@ -2377,6 +2377,7 @@ export type QualityReviewRow = {
   follow_up_needed: boolean
   follow_up_reason: string | null
   callback_requested: boolean
+  voicemail_left: boolean | null
   topics_discussed: string[]
   trigger_type: 'manual' | 'cron'
   review_created_at: string
@@ -2467,9 +2468,23 @@ export async function fetchQualityReviews(
   const callIds = allReviews.map(r => r.call_id)
   const { data: calls } = await client
     .from('calls')
-    .select('id, retell_call_id, created_at, duration_seconds, direction, sentiment, outcome, quality_score, appointment_booked, recording_url, lead_id, picked_up, transferred, disconnected_reason, transcript_summary')
+    .select('id, retell_call_id, created_at, duration_seconds, direction, sentiment, outcome, quality_score, appointment_booked, recording_url, lead_id, picked_up, transferred, disconnected_reason, transcript_summary, transcript')
     .in('id', callIds)
   const callMap = new Map((calls ?? []).map(c => [c.id, c]))
+
+  // Detect whether agent actually left a voicemail message (same heuristic as fetchCallHistory).
+  const voicemailLeftMap: Record<string, boolean> = {}
+  for (const c of calls ?? []) {
+    if (c.disconnected_reason !== 'voicemail' && c.disconnected_reason !== 'voicemail_reached') continue
+    const t = c.transcript as string | null
+    const dur = c.duration_seconds as number | null
+    if (!t) { voicemailLeftMap[c.id] = false; continue }
+    const agentText = t.split('\n')
+      .filter((l: string) => l.startsWith('Agent:'))
+      .map((l: string) => l.replace(/^Agent:\s*/, '').trim())
+      .join(' ')
+    voicemailLeftMap[c.id] = agentText.length >= 100 && (dur ?? 0) >= 10
+  }
 
   // 3. Apply call-side filters
   let filtered = allReviews.filter(r => {
@@ -2480,13 +2495,19 @@ export async function fetchQualityReviews(
     if (filters.result?.length) {
       const dr = c.disconnected_reason as string | null
       let result: string | null = null
-      if (dr === 'voicemail' || dr === 'voicemail_reached') result = 'Voicemail'
-      else if (dr === 'dial_no_answer') result = 'No Answer'
+      if (dr === 'voicemail' || dr === 'voicemail_reached') result = voicemailLeftMap[c.id] ? 'Left Voicemail' : 'Voicemail Reached'
+      else if (dr === 'dial_no_answer') result = 'Did Not Pick Up'
       else if (dr === 'dial_busy') result = 'Busy'
       else if (c.transferred) result = 'Transferred'
+      else if (r.booking_successful === true) result = 'Booked'
+      else if (r.callback_requested) result = 'Callback Requested'
+      else if (r.booking_successful === false && r.booking_attempted) result = 'Booking Attempted'
       else if (c.appointment_booked) result = 'Booked'
+      else if (dr === 'ivr_reached') result = 'IVR Reached'
+      else if (dr === 'inactivity') result = 'Inactivity'
       else if (dr === 'user_hangup') result = 'User Hung Up'
       else if (dr === 'agent_hangup') result = 'Agent Hung Up'
+      else if (c.outcome === 'unsuccessful') result = 'Did Not Pick Up'
       if (!result || !filters.result.includes(result)) return false
     }
     if (filters.qualityScore?.value) {
@@ -2553,6 +2574,7 @@ export async function fetchQualityReviews(
         follow_up_needed: r.follow_up_needed ?? false,
         follow_up_reason: r.follow_up_reason,
         callback_requested: r.callback_requested ?? false,
+        voicemail_left: (c.disconnected_reason === 'voicemail' || c.disconnected_reason === 'voicemail_reached') ? (voicemailLeftMap[c.id] ?? false) : null,
         topics_discussed: r.topics_discussed ?? [],
         trigger_type: r.trigger_type as 'manual' | 'cron',
         review_created_at: r.created_at,
