@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getCurrentUser, getMemberships, getStudios } from '@/lib/data-cache'
-import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server'
 import { MyStaffTable } from '@/components/settings/my-staff-table'
 import type { Role, StudioUser } from '@/lib/types'
 
@@ -15,29 +15,42 @@ export default async function MyStaffPage() {
 
   const isSuperAdmin = role === 'super_admin'
   const allStudios = await getStudios(isSuperAdmin, memberships.map(m => m.studio_id))
+  const studioNameMap: Record<string, string> = Object.fromEntries(allStudios.map(s => [s.id, s.name]))
+  const scopeStudioIds = allStudios.map(s => s.id)
 
   const ROLE_ORDER: Record<string, number> = { super_admin: 0, studio_owner: 1, studio_staff: 2 }
 
-  const supabase = await createClient()
-  const { data: members } = await supabase
+  // One row per membership across every studio the viewer can see
+  // (super_admin: all studios; owner: their own studios). Uses the service client so a
+  // super_admin can read memberships for studios they have no row in — RLS would hide those.
+  // Scoping stays correct because scopeStudioIds is already limited per role (getStudios).
+  const serviceClient = createServiceClient()
+  const { data: members } = await serviceClient
     .from('studio_users')
     .select('*')
-    .eq('studio_id', myMembership.studio_id)
+    .in('studio_id', scopeStudioIds)
 
-  const serviceClient = createServiceClient()
-  const userIds = (members ?? []).map(m => m.user_id)
+  const uniqueUserIds = Array.from(new Set((members ?? []).map(m => m.user_id)))
 
   const emailMap: Record<string, string> = {}
   await Promise.all(
-    userIds.map(async (id) => {
+    uniqueUserIds.map(async (id) => {
       const { data } = await serviceClient.auth.admin.getUserById(id)
       if (data?.user?.email) emailMap[id] = data.user.email
     })
   )
 
   const membersWithEmail = (members ?? [])
-    .map(m => ({ ...(m as StudioUser), email: emailMap[m.user_id] ?? m.user_id }))
-    .sort((a, b) => (ROLE_ORDER[a.role] ?? 99) - (ROLE_ORDER[b.role] ?? 99))
+    .map(m => ({
+      ...(m as StudioUser),
+      email: emailMap[m.user_id] ?? m.user_id,
+      studio_name: studioNameMap[m.studio_id] ?? '—',
+    }))
+    .sort((a, b) =>
+      a.studio_name.localeCompare(b.studio_name) ||
+      (ROLE_ORDER[a.role] ?? 99) - (ROLE_ORDER[b.role] ?? 99) ||
+      a.email.localeCompare(b.email)
+    )
 
   return (
     <MyStaffTable

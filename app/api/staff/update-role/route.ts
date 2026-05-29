@@ -21,19 +21,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'You cannot change your own role.' }, { status: 400 })
   }
 
-  // Verify requester's role in this studio
-  const { data: requesterMembership } = await supabase
+  // Authority: super_admin in ANY studio, else owner of the target studio.
+  const { data: anyAdminRow } = await supabase
     .from('studio_users')
     .select('role')
     .eq('user_id', user.id)
-    .eq('studio_id', studioId)
-    .single()
+    .eq('role', 'super_admin')
+    .limit(1)
+    .maybeSingle()
+  const requesterIsSuperAdmin = !!anyAdminRow
 
-  if (!requesterMembership || requesterMembership.role === 'studio_staff') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!requesterIsSuperAdmin) {
+    const { data: requesterMembership } = await supabase
+      .from('studio_users')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('studio_id', studioId)
+      .single()
+    if (!requesterMembership || requesterMembership.role !== 'studio_owner') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
   }
-
-  const requesterIsSuperAdmin = requesterMembership.role === 'super_admin'
 
   // Fetch target's current role
   const { data: targetMembership } = await supabase

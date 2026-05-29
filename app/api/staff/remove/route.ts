@@ -11,21 +11,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
-  // Verify requester is owner or super_admin of this studio
-  const { data: requesterMembership } = await supabase
-    .from('studio_users')
-    .select('role')
-    .eq('user_id', user.id)
-    .eq('studio_id', studioId)
-    .single()
-
-  if (!requesterMembership || requesterMembership.role === 'studio_staff') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
-
   // Prevent removing yourself
   if (userId === user.id) {
     return NextResponse.json({ error: 'You cannot remove yourself.' }, { status: 400 })
+  }
+
+  // Authority: super_admin in ANY studio, else owner of the target studio.
+  const { data: anyAdminRow } = await supabase
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('role', 'super_admin')
+    .limit(1)
+    .maybeSingle()
+  const requesterIsSuperAdmin = !!anyAdminRow
+
+  if (!requesterIsSuperAdmin) {
+    const { data: requesterMembership } = await supabase
+      .from('studio_users')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('studio_id', studioId)
+      .single()
+    if (!requesterMembership || requesterMembership.role !== 'studio_owner') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
   }
 
   // Prevent a non-super_admin from removing a super_admin
@@ -37,14 +47,13 @@ export async function POST(request: NextRequest) {
     .limit(1)
     .maybeSingle()
 
-  const requesterIsSuperAdmin = requesterMembership.role === 'super_admin'
   if (targetSuperAdminRow && !requesterIsSuperAdmin) {
     return NextResponse.json({ error: 'Cannot remove a super_admin.' }, { status: 403 })
   }
 
   const serviceClient = createServiceClient()
 
-  // Remove from studio_users
+  // Revoke access to this studio only.
   const { error: membershipError } = await serviceClient
     .from('studio_users')
     .delete()
@@ -55,11 +64,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: membershipError.message }, { status: 500 })
   }
 
-  // Delete from auth entirely
-  const { error: deleteError } = await serviceClient.auth.admin.deleteUser(userId)
-  if (deleteError) {
-    return NextResponse.json({ error: deleteError.message }, { status: 500 })
+  // Only delete the auth account if this was the user's last studio membership.
+  const { data: remaining } = await serviceClient
+    .from('studio_users')
+    .select('id')
+    .eq('user_id', userId)
+    .limit(1)
+
+  if (!remaining || remaining.length === 0) {
+    const { error: deleteError } = await serviceClient.auth.admin.deleteUser(userId)
+    if (deleteError) {
+      return NextResponse.json({ error: deleteError.message }, { status: 500 })
+    }
+    return NextResponse.json({ ok: true, accountDeleted: true })
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, accountDeleted: false })
 }
