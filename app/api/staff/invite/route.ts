@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { sendStudioOwnerInvite } from '@/lib/email'
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -40,17 +41,34 @@ export async function POST(request: NextRequest) {
     if (role !== 'studio_owner') {
       return NextResponse.json({ error: 'A new-studio invite must use the Owner role.' }, { status: 400 })
     }
-    const { error: inviteError } = await serviceClient.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '')}/auth/callback?type=invite`,
-      data: {
-        invited_by: user.email ?? 'your administrator',
-        onboarding_complete: false,
-        studio_setup_complete: false,
-        role_intent: 'studio_owner',
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ?? ''
+    // Create the invited user + a one-time token WITHOUT sending Supabase's email,
+    // then send our own branded invite via Resend (see lib/email.ts).
+    const { data: linkData, error: linkError } = await serviceClient.auth.admin.generateLink({
+      type: 'invite',
+      email,
+      options: {
+        redirectTo: `${siteUrl}/auth/callback`,
+        data: {
+          invited_by: user.email ?? 'your administrator',
+          onboarding_complete: false,
+          studio_setup_complete: false,
+          role_intent: 'studio_owner',
+        },
       },
     })
-    if (inviteError) {
-      return NextResponse.json({ error: inviteError.message }, { status: 400 })
+    if (linkError || !linkData?.properties?.hashed_token) {
+      return NextResponse.json({ error: linkError?.message ?? 'Failed to create invite.' }, { status: 400 })
+    }
+    const inviteUrl = `${siteUrl}/auth/callback?token_hash=${linkData.properties.hashed_token}&type=invite`
+    try {
+      await sendStudioOwnerInvite({
+        to: email,
+        inviteUrl,
+        invitedBy: user.email ?? 'your administrator',
+      })
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Failed to send invite email.' }, { status: 502 })
     }
     return NextResponse.json({ ok: true })
   }

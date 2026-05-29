@@ -14,14 +14,15 @@ A guided flow for onboarding a new client (studio owner) and their studio(s), re
 
 ---
 
-## Prerequisites (blocking)
+## Prerequisites
 
-| ID | Item | Why |
+| ID | Item | Status / Why |
 |---|---|---|
-| **P1** | Supabase Pro + environment branching | Separate Cadence (Netlify) auth config from AMLS-live; some redirect/site URLs still point at the Vercel live DB. |
-| **P2** | Resend or SendGrid (custom SMTP) | Current SMTP is tied to AMLS-live. Needed to send the branded invite email with the Loom tutorial embed. Recommended: `auth.admin.generateLink({ type: 'invite' })` + a fully custom Resend email for template control. |
+| **P1** | Supabase Pro + environment branching | Separate Cadence (Netlify) auth config from AMLS-live. **Outstanding:** Supabase Auth **Site URL** is still `amls-dashboard.vercel.app` (the Vercel live app); leave it until cutover. The Netlify callback `https://cadence-amls.netlify.app/auth/callback` IS already in the redirect allowlist, so the invite link resolves to Netlify (not Vercel) as long as `redirectTo` matches it. |
+| **P2** | Custom invite email via Resend | **Built.** `lib/email.ts` + the invite route use `auth.admin.generateLink({ type: 'invite' })` (creates user + token, no Supabase email) and send a branded Resend email; link = `{SITE_URL}/auth/callback?token_hash=…&type=invite`. No Supabase SMTP / Site URL touched, so Vercel-live is unaffected. From-address via `RESEND_FROM` env. |
+| **P3** | Verified Resend sending domain | **Blocked.** Required to send invites to *arbitrary* recipients. Resend free plan allows only **1 domain, already used by another project.** Until resolved (paid Resend plan, or a dedicated domain / Resend account for Cadence), invites can only deliver to the Resend-account's own email via the `onboarding@resend.dev` test sender. |
 
-Do not begin implementation until P1 and P2 are in place.
+Note: P2 is implemented. P1 (Site URL cutover) and P3 (sending domain) remain before a real, arbitrary-recipient invite can be sent. Both `RESEND_API_KEY` and `RESEND_FROM` must be set in **Netlify** env vars (not just `.env.local`) for the Netlify-hosted invite to send.
 
 ---
 
