@@ -50,6 +50,14 @@ const ENUM_FIELDS = Object.keys(ALL_LEAD_ENUM_FIELDS) as (keyof typeof ALL_LEAD_
 const BOOLEAN_FIELDS: (keyof Lead)[] = ['showed', 'bought', 'old']
 const DATE_FIELDS: (keyof Lead)[] = ['last_contacted', 'first_lesson']
 
+// Token-driven styling for inline cell edit inputs — keeps them consistent
+// with the design system and correct in dark mode (no hardcoded grays).
+const EDIT_INPUT_STYLE: React.CSSProperties = {
+  border: '1px solid var(--color-border)',
+  backgroundColor: 'var(--color-bg)',
+  color: 'var(--color-text-primary)',
+}
+
 const DEFAULT_COL_WIDTHS: Partial<Record<keyof Lead, number>> = {
   created_at:     210,
   name:           170,
@@ -128,6 +136,28 @@ function PageInput({ page, totalPages, onJump }: { page: number; totalPages: num
   )
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  function copy(e: React.MouseEvent) {
+    e.stopPropagation()
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <button
+      onClick={copy}
+      title="Copy"
+      className="flex-shrink-0 opacity-0 group-hover/cell:opacity-100 p-0.5 rounded transition-all"
+      style={{ color: 'var(--color-text-muted)' }}
+      onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-accent)'}
+      onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-text-muted)'}
+    >
+      {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+    </button>
+  )
+}
+
 const ALL_COLUMNS: { key: keyof Lead; label: string; icon?: LucideIcon }[] = [
   { key: 'created_at',     label: 'Created Time',  icon: Clock },
   { key: 'name',           label: 'Name',           icon: User },
@@ -185,7 +215,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
   const resizeRef = useRef<{ field: string; startX: number; startWidth: number; minWidth: number } | null>(null)
   const prefSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const filterSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const skipFirstFetch = useRef(false)
+  const [prefsReady, setPrefsReady] = useState(false)
   const initializing = useRef(true)
   const editingRef = useRef<EditingCell | null>(null)
   const editCommittedRef = useRef(false)
@@ -450,13 +480,11 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
     }, 1000)
   }, [colWidths, studioId, mounted, activeViewId, theme])
 
-  // Fetch a page from the server action — skip on first mount if SSR data was provided
+  // Single source of truth for the leads list. Waits for prefsReady so the saved
+  // filters/sort (loaded by the mount effect below) are applied before the first fetch —
+  // otherwise the initial view would diverge from filtered/searched results.
   useEffect(() => {
-    if (!mounted) return
-    if (skipFirstFetch.current) {
-      skipFirstFetch.current = false
-      return
-    }
+    if (!mounted || !prefsReady) return
     setLoading(true)
     fetchLeadsPage({ studioId, page, pageSize, search: debouncedSearch, statusFilter, levelFilter, actionFilter, sourceFilter, reasonFilter, sortField, sortAscending })
       .then(({ leads: data, total: count }) => {
@@ -465,52 +493,28 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
       })
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [mounted, studioId, page, pageSize, debouncedSearch, statusFilter, levelFilter, actionFilter, sourceFilter, reasonFilter, sortField, sortAscending, refreshKey])
+  }, [mounted, prefsReady, studioId, page, pageSize, debouncedSearch, statusFilter, levelFilter, actionFilter, sourceFilter, reasonFilter, sortField, sortAscending, refreshKey])
 
   // Reset confirm-delete state whenever the selection changes
   useEffect(() => { setShowConfirmDelete(false) }, [selectedIds])
 
-  // Fetch everything on mount via browser client
+  // Load prefs, views, and field options on mount via the browser client.
+  // Leads themselves are fetched by the fetchLeadsPage effect above (single source
+  // of truth) once prefsReady flips true — so saved filters/sort apply from the first render.
   useEffect(() => {
     if (!studioId) return
+    setPrefsReady(false)
 
-    // Fetch everything on mount via browser client
     let cancelled = false
     const supabase = createClient()
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (cancelled || !user) { if (!cancelled) setLoading(false); return }
-      const ENUM_JOIN = `
-        id, studio_id, created_at, name, phone, email,
-        last_contacted, first_lesson, comments, available,
-        showed, bought, old, ghl_contact_id, created_by_email,
-        status:studio_field_options!leads_status_fkey(id, value),
-        level:studio_field_options!leads_level_fkey(id, value),
-        action:studio_field_options!leads_action_fkey(id, value),
-        source:studio_field_options!leads_source_fkey(id, value),
-        reason:studio_field_options!leads_reason_fkey(id, value),
-        partnership:studio_field_options!leads_partnership_fkey(id, value)
-      `.trim()
-      type RawEnumField = { id: string; value: string } | null
-      const [viewsRes, fieldOptsRes, prefsRes, leadsRes] = await Promise.all([
+      const [viewsRes, fieldOptsRes, prefsRes] = await Promise.all([
         supabase.from('lead_views').select('*').eq('studio_id', studioId).order('created_at', { ascending: true }),
         supabase.from('studio_field_options').select('id, field, value, bg, text').eq('studio_id', studioId).order('sort_order', { ascending: true, nullsFirst: false }),
         supabase.from('user_preferences').select('col_widths, active_view_id, theme, page_filters, notify_lead_created, notify_lead_updated, notify_lead_deleted').eq('user_id', user.id).eq('studio_id', studioId).maybeSingle(),
-        supabase.from('leads').select(ENUM_JOIN, { count: 'exact' }).eq('studio_id', studioId).order('created_at', { ascending: false }).range(0, 49),
       ])
       if (cancelled) return
-      // Flatten leads
-      const rawLeads = (leadsRes.data ?? []) as unknown as Array<Omit<Lead, 'status'|'level'|'action'|'source'|'reason'|'partnership'> & { status: RawEnumField; level: RawEnumField; action: RawEnumField; source: RawEnumField; reason: RawEnumField; partnership: RawEnumField }>
-      const flatLeads: Lead[] = rawLeads.map(r => ({
-        ...r,
-        status: r.status?.value ?? null,
-        level: r.level?.value ?? null,
-        action: r.action?.value ?? null,
-        source: r.source?.value ?? null,
-        reason: r.reason?.value ?? null,
-        partnership: r.partnership?.value ?? null,
-      }))
-      setLeads(flatLeads)
-      setTotal(leadsRes.count ?? 0)
       // Views
       const customViews = (viewsRes.data ?? []).map((v: { id: string; name: string; columns: string[] }) => ({
         id: v.id, name: v.name, columns: v.columns,
@@ -552,12 +556,12 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
         })
       }
       setFieldOptions(merged)
-      setLoading(false)
-      // Skip the next fetchLeadsPage/save triggers caused by state changes above
-      skipFirstFetch.current = true
-      // Clear initializing flag after a tick so dependent useEffects skip this batch
+      // Prefs (incl. saved filters/sort) are applied — release the fetchLeadsPage effect
+      // so it fetches leads with the correct filters/sort as the single source of truth.
+      setPrefsReady(true)
+      // Clear initializing flag after a tick so dependent save effects skip this batch
       setTimeout(() => { initializing.current = false }, 0)
-    }).catch(() => { if (!cancelled) setLoading(false) })
+    }).catch(() => { if (!cancelled) setPrefsReady(true) })  // still load leads with defaults if prefs fail
     return () => { cancelled = true }
   }, [studioId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -719,28 +723,6 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
     setDropdown({ leadId: lead.id, field, anchorRect: rect })
   }
 
-  function CopyButton({ text }: { text: string }) {
-    const [copied, setCopied] = useState(false)
-    function copy(e: React.MouseEvent) {
-      e.stopPropagation()
-      navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    }
-    return (
-      <button
-        onClick={copy}
-        title="Copy"
-        className="flex-shrink-0 opacity-0 group-hover/cell:opacity-100 p-0.5 rounded transition-all"
-        style={{ color: 'var(--color-text-muted)' }}
-        onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-accent)'}
-        onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-text-muted)'}
-      >
-        {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
-      </button>
-    )
-  }
-
   function renderCell(lead: Lead, field: keyof Lead) {
     const isEditing = editing?.leadId === lead.id && editing?.field === field
     const value = lead[field]
@@ -804,7 +786,8 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
             onChange={e => setEditValue(e.target.value)}
             onBlur={() => commitEdit(lead, field)}
             onKeyDown={e => { if (e.key === 'Enter') commitEdit(lead, field) }}
-            className="text-base md:text-sm border border-gray-300 rounded px-1 py-0.5 w-full focus:outline-none"
+            className="text-base md:text-sm rounded px-1 py-0.5 w-full focus:outline-none"
+            style={EDIT_INPUT_STYLE}
           />
         )
       }
@@ -831,7 +814,8 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
             onChange={e => setEditValue(e.target.value)}
             onBlur={() => commitEdit(lead, field)}
             onKeyDown={e => { if (e.key === 'Enter') commitEdit(lead, field) }}
-            className="text-base md:text-sm border border-gray-300 rounded px-1 py-0.5 w-full focus:outline-none"
+            className="text-base md:text-sm rounded px-1 py-0.5 w-full focus:outline-none"
+            style={EDIT_INPUT_STYLE}
           />
         )
       }
@@ -866,7 +850,8 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
             onBlur={() => commitEdit(lead, field)}
             onKeyDown={e => { if (e.key === 'Escape') setEditing(null) }}
             rows={3}
-            className="text-base md:text-sm border border-gray-300 rounded px-1 py-0.5 w-full focus:outline-none resize-none"
+            className="text-base md:text-sm rounded px-1 py-0.5 w-full focus:outline-none resize-none"
+            style={EDIT_INPUT_STYLE}
           />
         )
       }
@@ -888,7 +873,8 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
           onChange={e => setEditValue(e.target.value)}
           onBlur={() => commitEdit(lead, field)}
           onKeyDown={e => { if (e.key === 'Enter') commitEdit(lead, field) }}
-          className="text-base md:text-sm border border-gray-300 rounded px-1 py-0.5 w-full min-w-[80px] focus:outline-none"
+          className="text-base md:text-sm rounded px-1 py-0.5 w-full min-w-[80px] focus:outline-none"
+          style={EDIT_INPUT_STYLE}
         />
       )
     }

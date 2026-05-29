@@ -634,7 +634,7 @@ export async function fetchLeadsPage({
   if (filterIds['reason']?.length)    query = query.in('reason', filterIds['reason'])
 
   const VALID_LEAD_SORT_FIELDS = new Set([
-    'created_at', 'name', 'last_contacted', 'first_lesson',
+    'created_at', 'name', 'phone', 'last_contacted', 'first_lesson',
     'status', 'level', 'action', 'source', 'reason',
   ])
   const safeSortField = VALID_LEAD_SORT_FIELDS.has(sortField) ? sortField : 'created_at'
