@@ -41,7 +41,9 @@ export async function POST(request: NextRequest) {
     if (role !== 'studio_owner') {
       return NextResponse.json({ error: 'A new-studio invite must use the Owner role.' }, { status: 400 })
     }
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ?? ''
+    // Use the origin the invite was triggered from (e.g. the staging branch deploy) so the
+    // link + redirect stay on that same deploy; fall back to the configured site URL.
+    const siteUrl = (request.headers.get('origin') ?? process.env.NEXT_PUBLIC_SITE_URL ?? '').replace(/\/$/, '')
     // Create the invited user + a one-time token WITHOUT sending Supabase's email,
     // then send our own branded invite via Resend (see lib/email.ts).
     const { data: linkData, error: linkError } = await serviceClient.auth.admin.generateLink({

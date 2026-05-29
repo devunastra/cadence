@@ -34,6 +34,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   ])
 
   if (studios.length === 0) {
+    // Invited studio owners who haven't created their studio yet belong in the wizard,
+    // not this dead-end. Done server-side so it runs on Netlify even if proxy.ts middleware doesn't.
+    if (user.user_metadata?.studio_setup_complete === false) {
+      redirect('/onboarding')
+    }
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p className="text-gray-500">No studios assigned to your account. Contact your administrator.</p>
