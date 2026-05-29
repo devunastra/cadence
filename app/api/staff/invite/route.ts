@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { sendStudioOwnerInvite } from '@/lib/email'
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -9,7 +10,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json()
   const { email, role, studioId } = body
 
-  if (!email || !role || !studioId) {
+  if (!email || !role) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
@@ -28,6 +29,53 @@ export async function POST(request: NextRequest) {
 
   const isSuperAdmin = !!anyAdminRow
 
+  const serviceClient = createServiceClient()
+
+  // ── Studio-less invite: onboard a brand-new studio owner ──
+  // No studio exists yet — the owner creates it in the /onboarding wizard.
+  // role_intent + studio_setup_complete:false drive the proxy gate to /onboarding.
+  if (!studioId) {
+    if (!isSuperAdmin) {
+      return NextResponse.json({ error: 'Only a super admin can invite a new studio owner.' }, { status: 403 })
+    }
+    if (role !== 'studio_owner') {
+      return NextResponse.json({ error: 'A new-studio invite must use the Owner role.' }, { status: 400 })
+    }
+    // Use the origin the invite was triggered from (e.g. the staging branch deploy) so the
+    // link + redirect stay on that same deploy; fall back to the configured site URL.
+    const siteUrl = (request.headers.get('origin') ?? process.env.NEXT_PUBLIC_SITE_URL ?? '').replace(/\/$/, '')
+    // Create the invited user + a one-time token WITHOUT sending Supabase's email,
+    // then send our own branded invite via Resend (see lib/email.ts).
+    const { data: linkData, error: linkError } = await serviceClient.auth.admin.generateLink({
+      type: 'invite',
+      email,
+      options: {
+        redirectTo: `${siteUrl}/auth/callback`,
+        data: {
+          invited_by: user.email ?? 'your administrator',
+          onboarding_complete: false,
+          studio_setup_complete: false,
+          role_intent: 'studio_owner',
+        },
+      },
+    })
+    if (linkError || !linkData?.properties?.hashed_token) {
+      return NextResponse.json({ error: linkError?.message ?? 'Failed to create invite.' }, { status: 400 })
+    }
+    const inviteUrl = `${siteUrl}/auth/callback?token_hash=${linkData.properties.hashed_token}&type=invite`
+    try {
+      await sendStudioOwnerInvite({
+        to: email,
+        inviteUrl,
+        invitedBy: user.email ?? 'your administrator',
+      })
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Failed to send invite email.' }, { status: 502 })
+    }
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Invite into an existing studio ──
   if (!isSuperAdmin) {
     // Verify requester is an owner of this specific studio
     const { data: requesterMembership } = await supabase
@@ -47,8 +95,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // Use service client to invite the user
-  const serviceClient = createServiceClient()
   const { data: inviteData, error: inviteError } = await serviceClient.auth.admin.inviteUserByEmail(email, {
     redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '')}/auth/callback?type=invite`,
     data: { invited_by: user.email ?? 'your administrator', onboarding_complete: false },

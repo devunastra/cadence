@@ -9,11 +9,13 @@ import type { StudioUser, Role } from '@/lib/types'
 
 interface MyStaffTableProps {
   studioId: string
-  initialMembers: (StudioUser & { email: string })[]
+  initialMembers: (StudioUser & { email: string; studio_name: string })[]
   currentUserId: string
   isSuperAdmin?: boolean
   studios: { id: string; name: string }[]
 }
+
+type Member = StudioUser & { email: string; studio_name: string }
 
 const INPUT = 'w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-base md:text-sm text-[var(--color-text-primary)] bg-[var(--color-bg)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]'
 const LABEL = 'block text-sm font-medium text-[var(--color-text-secondary)] mb-1'
@@ -34,6 +36,9 @@ const SUPER_ROLE_OPTIONS = [
   { value: 'super_admin', label: 'Super Admin' },
 ]
 
+// Sentinel studio value for inviting a brand-new studio owner with no studio yet.
+const NEW_STUDIO = '__new_studio__'
+
 export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperAdmin = false, studios }: MyStaffTableProps) {
   const [members, setMembers] = useState(initialMembers)
   const [inviteEmail, setInviteEmail] = useState('')
@@ -41,14 +46,18 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
   const [inviteStudioId, setInviteStudioId] = useState(studioId)
   const { showError } = useToast()
   const [inviting, setInviting] = useState(false)
-  const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null)
+  const [pendingRemove, setPendingRemove] = useState<{ userId: string; studioId: string; studioName: string; membershipId: string } | null>(null)
   const [isRemoving, setIsRemoving] = useState(false)
   const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
   if (!mounted) return null
 
-  const studioOptions = studios.map(s => ({ value: s.id, label: s.name }))
+  const isNewStudio = inviteStudioId === NEW_STUDIO
+  const studioOptions = [
+    ...(isSuperAdmin ? [{ value: NEW_STUDIO, label: '+ New studio (blank)' }] : []),
+    ...studios.map(s => ({ value: s.id, label: s.name })),
+  ]
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault()
@@ -57,7 +66,11 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
     const res = await fetch('/api/staff/invite', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: inviteEmail, role: inviteRole, studioId: inviteStudioId }),
+      body: JSON.stringify(
+        isNewStudio
+          ? { email: inviteEmail, role: 'studio_owner' }
+          : { email: inviteEmail, role: inviteRole, studioId: inviteStudioId },
+      ),
     })
 
     setInviting(false)
@@ -72,54 +85,61 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
     window.location.reload()
   }
 
-  async function handleRoleChange(userId: string, newRole: Role) {
-    const prev = members.find(m => m.user_id === userId)?.role
-    // Optimistic update
-    setMembers(ms => ms.map(m => m.user_id === userId ? { ...m, role: newRole } : m))
-    setUpdatingRoleId(userId)
+  async function handleRoleChange(member: Member, newRole: Role) {
+    const prev = member.role
+    // Optimistic update — match the specific membership row, not all of a user's rows
+    setMembers(ms => ms.map(m => m.id === member.id ? { ...m, role: newRole } : m))
+    setUpdatingRoleId(member.id)
     const res = await fetch('/api/staff/update-role', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, studioId, role: newRole }),
+      body: JSON.stringify({ userId: member.user_id, studioId: member.studio_id, role: newRole }),
     })
     setUpdatingRoleId(null)
     if (!res.ok) {
       const data = await res.json()
       showError(data.error ?? 'Failed to update role')
       // Rollback
-      setMembers(ms => ms.map(m => m.user_id === userId ? { ...m, role: prev as Role } : m))
+      setMembers(ms => ms.map(m => m.id === member.id ? { ...m, role: prev } : m))
     }
   }
 
   async function handleRemove() {
-    if (!pendingRemoveId) return
+    if (!pendingRemove) return
     setIsRemoving(true)
-    await fetch('/api/staff/remove', {
+    const res = await fetch('/api/staff/remove', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: pendingRemoveId, studioId }),
+      body: JSON.stringify({ userId: pendingRemove.userId, studioId: pendingRemove.studioId }),
     })
-    setMembers(prev => prev.filter(m => m.user_id !== pendingRemoveId))
+    if (!res.ok) {
+      const data = await res.json()
+      showError(data.error ?? 'Failed to remove')
+      setIsRemoving(false)
+      setPendingRemove(null)
+      return
+    }
+    setMembers(prev => prev.filter(m => m.id !== pendingRemove.membershipId))
     setIsRemoving(false)
-    setPendingRemoveId(null)
+    setPendingRemove(null)
   }
 
   return (
     <>
-    {pendingRemoveId && (
+    {pendingRemove && (
       <ConfirmDeleteModal
-        title="Remove Staff Member?"
-        message="Are you sure you want to remove this staff member? They will lose access to this studio."
+        title="Remove access?"
+        message={`Remove this person's access to ${pendingRemove.studioName}? If it's their only studio, their account will be deleted entirely.`}
         confirmLabel="Remove"
         isDeleting={isRemoving}
         onConfirm={handleRemove}
-        onCancel={() => setPendingRemoveId(null)}
+        onCancel={() => setPendingRemove(null)}
       />
     )}
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold mb-1" style={{ color: 'var(--color-text-primary)' }}>My Staff</h2>
-        <p className="text-base" style={{ color: 'var(--color-text-secondary)' }}>Manage who has access to this studio.</p>
+        <p className="text-base" style={{ color: 'var(--color-text-secondary)' }}>Manage who has access{isSuperAdmin ? ' across all studios' : ' to your studios'}.</p>
       </div>
 
       <form onSubmit={handleInvite}>
@@ -131,6 +151,7 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
               <thead style={{ backgroundColor: 'var(--color-surface)' }}>
                 <tr>
                   <th className="text-left px-4 md:px-6 py-3 text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>Email</th>
+                  <th className="text-left px-4 md:px-6 py-3 text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>Studio</th>
                   <th className="text-left px-4 md:px-6 py-3 text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>Role</th>
                   <th className="px-4 md:px-6 py-3" />
                 </tr>
@@ -138,7 +159,7 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
               <tbody>
                 {members.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="px-6 py-8 text-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                    <td colSpan={4} className="px-6 py-8 text-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
                       No other staff members yet.
                     </td>
                   </tr>
@@ -161,15 +182,18 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
                         </div>
                       </td>
                       <td className="px-4 md:px-6 py-3">
+                        <span className="text-sm" style={{ color: 'var(--color-text-body)' }}>{member.studio_name}</span>
+                      </td>
+                      <td className="px-4 md:px-6 py-3">
                         {/* Inline role edit: super_admin can edit everyone; studio_owner can edit non-super_admin rows that aren't themselves */}
                         {(isSuperAdmin || (member.role !== 'super_admin' && member.user_id !== currentUserId)) && member.user_id !== currentUserId ? (
                           <div style={{ width: 150 }}>
                             <SimpleSelect
                               value={member.role}
-                              onChange={v => handleRoleChange(member.user_id, v as Role)}
+                              onChange={v => handleRoleChange(member, v as Role)}
                               options={isSuperAdmin ? SUPER_ROLE_OPTIONS : BASE_ROLE_OPTIONS}
                               clearable={false}
-                              disabled={updatingRoleId === member.user_id}
+                              disabled={updatingRoleId === member.id}
                               fullWidth
                               triggerBg="transparent"
                               triggerClassName="py-1 text-sm"
@@ -185,7 +209,7 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
                         {member.role !== 'super_admin' && member.user_id !== currentUserId && (
                           <button
                             type="button"
-                            onClick={() => setPendingRemoveId(member.user_id)}
+                            onClick={() => setPendingRemove({ userId: member.user_id, studioId: member.studio_id, studioName: member.studio_name, membershipId: member.id })}
                             className="p-1 transition-colors"
                             style={{ color: '#dc2626' }}
                             onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#b91c1c'}
@@ -221,7 +245,10 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
                 <label className={LABEL}>Studio</label>
                 <SimpleSelect
                   value={inviteStudioId}
-                  onChange={v => setInviteStudioId(v)}
+                  onChange={v => {
+                    setInviteStudioId(v)
+                    if (v === NEW_STUDIO) setInviteRole('studio_owner')
+                  }}
                   options={studioOptions}
                   fullWidth
                   clearable={false}
@@ -237,6 +264,7 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
                   options={isSuperAdmin ? SUPER_ROLE_OPTIONS : BASE_ROLE_OPTIONS}
                   fullWidth
                   clearable={false}
+                  disabled={isNewStudio}
                   triggerBg="var(--color-bg)"
                   triggerClassName="py-2"
                 />

@@ -16,8 +16,7 @@ export default function AcceptInvitePage() {
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data }) => {
-      const meta = data.user?.user_metadata
-      setInvitedBy(meta?.invited_by ?? 'your administrator')
+      setInvitedBy(data.user?.user_metadata?.invited_by ?? 'your administrator')
     })
   }, [])
 
@@ -34,7 +33,7 @@ export default function AcceptInvitePage() {
     setLoading(true)
 
     const supabase = createClient()
-    const { error } = await supabase.auth.updateUser({
+    const { data: updated, error } = await supabase.auth.updateUser({
       password,
       data: { onboarding_complete: true },
     })
@@ -45,7 +44,10 @@ export default function AcceptInvitePage() {
       return
     }
 
-    router.push('/leads')
+    // Decide from the freshly-returned metadata — avoids a race with the mount-time fetch.
+    const meta = updated.user?.user_metadata
+    const goOnboarding = meta?.role_intent === 'studio_owner' && meta?.studio_setup_complete === false
+    router.push(goOnboarding ? '/onboarding' : '/leads')
   }
 
   return (

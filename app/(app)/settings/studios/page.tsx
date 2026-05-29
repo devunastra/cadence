@@ -1,43 +1,20 @@
-'use client'
-
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { useCurrentStudio } from '@/components/studio-context'
-import { createClient } from '@/lib/supabase/client'
+import { redirect } from 'next/navigation'
+import { getCurrentUser, getMemberships, getStudios } from '@/lib/data-cache'
 import { StudiosForm } from '@/components/settings/studios-form'
-import { Spinner } from '@/components/spinner'
-import type { Studio } from '@/lib/types'
 
-export default function StudiosPage() {
-  const router = useRouter()
-  const { userRole, isSuper, memberships } = useCurrentStudio()
-  const isOwner = userRole === 'studio_owner' || isSuper
+// Server component: fetch studios via getStudios, which uses the service client for
+// super_admins (returns ALL studios). A client-side fetch here would be RLS-filtered to
+// only the studios the user has a membership row in, hiding other studios from super_admins.
+export default async function StudiosPage() {
+  const user = await getCurrentUser()
+  if (!user) redirect('/login')
 
-  const [studios, setStudios] = useState<Studio[] | null>(null)
+  const memberships = await getMemberships(user.id)
+  const isSuper = memberships.some(m => m.role === 'super_admin')
+  const isOwner = isSuper || memberships.some(m => m.role === 'studio_owner')
+  if (!isOwner) redirect('/settings/my-profile')
 
-  useEffect(() => {
-    if (!isOwner) {
-      router.replace('/settings/my-profile')
-      return
-    }
-
-    let cancelled = false
-    async function fetchStudios() {
-      const supabase = createClient()
-      const studioIds = memberships.map(m => m.studio_id)
-      let query = supabase.from('studios').select('*').is('deleted_at', null).order('name')
-      if (!isSuper) {
-        query = query.in('id', studioIds)
-      }
-      const { data } = await query
-      if (!cancelled) setStudios((data ?? []) as Studio[])
-    }
-    fetchStudios()
-    return () => { cancelled = true }
-  }, [isOwner, isSuper, memberships, router])
-
-  if (!isOwner) return null
-  if (!studios) return <div className="flex items-center justify-center py-12"><Spinner /></div>
+  const studios = await getStudios(isSuper, memberships.map(m => m.studio_id))
 
   return <StudiosForm initialStudios={studios} />
 }
