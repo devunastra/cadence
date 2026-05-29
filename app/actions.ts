@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { createGHLContact, updateGHLContact, deleteGHLContact, deleteGHLAppointment, updateGHLAppointment, createGHLAppointment, patchGHLAppointmentDetails } from '@/lib/ghl'
 import { getRetellPhoneNumber, updateRetellPhoneNumberInboundAgent } from '@/lib/retell'
-import type { Lead, ScheduledCallback, StudioSlotConfig } from '@/lib/types'
+import type { Lead, ScheduledCallback, StudioSlotConfig, OnboardingStudioInput } from '@/lib/types'
 import type { FieldOption } from '@/lib/field-options'
 
 // Converts a naive Chicago-local ISO string ("2026-05-08T17:00:00") to a UTC ISO string
@@ -2885,4 +2885,163 @@ export async function cancelScheduledCallback(
   )
 
   return { success: true, rowsUpdated: response.rowsUpdated ?? 0 }
+}
+
+// ─── Client Onboarding ────────────────────────────────────────────────────────
+
+/** Normalised key used to detect duplicate studios (name + address). */
+function onboardingDupeKey(s: OnboardingStudioInput): string {
+  return [s.name, s.street_address, s.city, s.postal_code]
+    .map(v => (v ?? '').trim().toLowerCase())
+    .join('|')
+}
+
+/**
+ * Completes the studio-owner onboarding wizard: creates one or more studios,
+ * links the current user as studio_owner, seeds default field options + lead
+ * sources, writes calendar config + timezone, then flips the
+ * studio_setup_complete metadata flag. Modeled on createStudio + saveCalendarSettings.
+ *
+ * Auth: allowed for a freshly-invited studio_owner (role_intent === 'studio_owner'
+ * AND studio_setup_complete === false) or a super_admin (test path before the
+ * invite flow exists).
+ */
+export async function completeStudioOnboarding(
+  studios: OnboardingStudioInput[],
+): Promise<{ studioIds: string[] }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  // Auth guard — freshly-invited owner OR a super_admin (test path).
+  const meta = user.user_metadata ?? {}
+  const isFreshOwner = meta.role_intent === 'studio_owner' && meta.studio_setup_complete === false
+  const { data: memberships } = await supabase
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+  const isSuperAdmin = memberships?.some(m => m.role === 'super_admin') ?? false
+  if (!isFreshOwner && !isSuperAdmin) throw new Error('Forbidden')
+
+  // Validate: at least one studio.
+  if (!Array.isArray(studios) || studios.length === 0) {
+    throw new Error('At least one studio is required.')
+  }
+
+  // Validate: required business fields + no duplicate name+address.
+  const seenKeys = new Set<string>()
+  for (const s of studios) {
+    if (!s.name?.trim()) throw new Error('Each location must have a studio name.')
+    if (!s.street_address?.trim()) throw new Error(`"${s.name}" is missing a street address.`)
+    if (!s.city?.trim()) throw new Error(`"${s.name}" is missing a city.`)
+    if (!s.state?.trim()) throw new Error(`"${s.name}" is missing a state.`)
+    if (!s.postal_code?.trim()) throw new Error(`"${s.name}" is missing a postal / zip code.`)
+    const key = onboardingDupeKey(s)
+    if (seenKeys.has(key)) {
+      throw new Error('Two locations share the same name and address. Please make each location unique.')
+    }
+    seenKeys.add(key)
+  }
+
+  const serviceClient = createServiceClient()
+  const createdIds: string[] = []
+
+  for (const s of studios) {
+    const location = [s.city, s.state].filter(Boolean).join(', ')
+
+    const { data: studio, error: insertError } = await serviceClient
+      .from('studios')
+      .insert({
+        name: s.name.trim(),
+        street_address: s.street_address.trim(),
+        city: s.city.trim(),
+        state: s.state.trim(),
+        postal_code: s.postal_code.trim(),
+        country: s.country?.trim() || '',
+        location,
+        ghl_account_id: s.ghl_account_id?.trim() || '',
+        ghl_calendar_id: s.ghl_calendar_id?.trim() || null,
+        ghl_api_key: s.ghl_api_key?.trim() || null,
+        retell_agent_id: s.retell_agent_id?.trim() || '',
+        retell_inbound_agent_id: s.retell_inbound_agent_id?.trim() || null,
+        retell_api_key: s.retell_api_key?.trim() || null,
+        retell_phone_number: s.retell_phone_number?.trim() || null,
+        timezone: s.timezone || 'America/Chicago',
+        calendar_start_hour: s.calendar_start_hour,
+        calendar_end_hour: s.calendar_end_hour,
+        appointment_duration_minutes: s.appointment_duration_minutes,
+        appointment_min_advance_weeks: s.appointment_min_advance_weeks,
+        appointment_slots: s.appointment_slots,
+      })
+      .select('id')
+      .single()
+
+    if (insertError || !studio) throw new Error(insertError?.message ?? 'Failed to create studio.')
+    const studioId = studio.id as string
+
+    // Link the current user as studio_owner.
+    const { error: linkError } = await serviceClient
+      .from('studio_users')
+      .insert({ studio_id: studioId, user_id: user.id, role: 'studio_owner' })
+    if (linkError) throw new Error(linkError.message)
+
+    // Seed default enum options (status/level/action/source/reason/partnership).
+    // Lead views auto-seed via the AFTER INSERT ON studios trigger — not touched here.
+    const { error: seedError } = await serviceClient.rpc('seed_studio_field_options', { p_studio_id: studioId })
+    if (seedError) throw new Error(seedError.message)
+
+    // Reconcile lead sources to the owner's chosen list. Safe to delete seeded
+    // sources the owner removed because a brand-new studio has no leads yet.
+    const chosen = Array.from(
+      new Set(s.sources.map(v => v.trim()).filter(Boolean)),
+    )
+    const { data: seededSources } = await serviceClient
+      .from('studio_field_options')
+      .select('id, value')
+      .eq('studio_id', studioId)
+      .eq('field', 'source')
+
+    const seededValues = (seededSources ?? []).map(o => o.value)
+    const chosenLower = new Set(chosen.map(v => v.toLowerCase()))
+
+    // Delete seeded sources the owner removed.
+    const toDelete = (seededSources ?? [])
+      .filter(o => !chosenLower.has(o.value.toLowerCase()))
+      .map(o => o.id)
+    if (toDelete.length > 0) {
+      const { error: delError } = await serviceClient
+        .from('studio_field_options')
+        .delete()
+        .in('id', toDelete)
+      if (delError) throw new Error(delError.message)
+    }
+
+    // Insert any custom sources not already seeded (case-insensitive match).
+    const seededLower = new Set(seededValues.map(v => v.toLowerCase()))
+    const toInsert = chosen
+      .filter(v => !seededLower.has(v.toLowerCase()))
+      .map((value, i) => ({
+        studio_id: studioId,
+        field: 'source',
+        value,
+        sort_order: seededValues.length + i,
+      }))
+    if (toInsert.length > 0) {
+      const { error: insError } = await serviceClient
+        .from('studio_field_options')
+        .insert(toInsert)
+      if (insError) throw new Error(insError.message)
+    }
+
+    createdIds.push(studioId)
+  }
+
+  // Flip studio_setup_complete to true — preserve all existing metadata.
+  const { error: metaError } = await serviceClient.auth.admin.updateUserById(user.id, {
+    user_metadata: { ...meta, studio_setup_complete: true },
+  })
+  if (metaError) throw new Error(metaError.message)
+
+  revalidatePath('/', 'layout')
+  return { studioIds: createdIds }
 }

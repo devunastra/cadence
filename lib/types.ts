@@ -35,6 +35,30 @@ export interface Studio {
   created_at: string
 }
 
+// Payload for a single studio location submitted by the client-onboarding wizard.
+export interface OnboardingStudioInput {
+  name: string
+  street_address: string
+  city: string
+  state: string
+  postal_code: string
+  country: string
+  ghl_account_id: string
+  ghl_calendar_id: string
+  ghl_api_key: string
+  retell_agent_id: string
+  retell_inbound_agent_id: string
+  retell_api_key: string
+  retell_phone_number: string
+  sources: string[]
+  timezone: string
+  calendar_start_hour: number
+  calendar_end_hour: number
+  appointment_duration_minutes: number
+  appointment_min_advance_weeks: number
+  appointment_slots: Record<string, string[]>
+}
+
 export interface StudioUser {
   id: string
   studio_id: string
