@@ -54,6 +54,17 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/accept-invite', request.url))
   }
 
+  // Invited studio owners who set a password but haven't created their studio yet
+  // are forced into the onboarding wizard until they finish (flag flips to true on submit).
+  if (
+    user &&
+    user.user_metadata?.studio_setup_complete === false &&
+    !pathname.startsWith('/onboarding') &&
+    !pathname.startsWith('/accept-invite')
+  ) {
+    return NextResponse.redirect(new URL('/onboarding', request.url))
+  }
+
   // Redirect logged-in users away from login page
   if (user && pathname === '/login') {
     return NextResponse.redirect(new URL('/leads', request.url))

@@ -12,12 +12,14 @@ export default function AcceptInvitePage() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [needsStudioSetup, setNeedsStudioSetup] = useState(false)
 
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data }) => {
       const meta = data.user?.user_metadata
       setInvitedBy(meta?.invited_by ?? 'your administrator')
+      setNeedsStudioSetup(meta?.role_intent === 'studio_owner' && meta?.studio_setup_complete === false)
     })
   }, [])
 
@@ -45,7 +47,7 @@ export default function AcceptInvitePage() {
       return
     }
 
-    router.push('/leads')
+    router.push(needsStudioSetup ? '/onboarding' : '/leads')
   }
 
   return (

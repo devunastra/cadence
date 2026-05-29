@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json()
   const { email, role, studioId } = body
 
-  if (!email || !role || !studioId) {
+  if (!email || !role) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
@@ -28,6 +28,34 @@ export async function POST(request: NextRequest) {
 
   const isSuperAdmin = !!anyAdminRow
 
+  const serviceClient = createServiceClient()
+
+  // ── Studio-less invite: onboard a brand-new studio owner ──
+  // No studio exists yet — the owner creates it in the /onboarding wizard.
+  // role_intent + studio_setup_complete:false drive the proxy gate to /onboarding.
+  if (!studioId) {
+    if (!isSuperAdmin) {
+      return NextResponse.json({ error: 'Only a super admin can invite a new studio owner.' }, { status: 403 })
+    }
+    if (role !== 'studio_owner') {
+      return NextResponse.json({ error: 'A new-studio invite must use the Owner role.' }, { status: 400 })
+    }
+    const { error: inviteError } = await serviceClient.auth.admin.inviteUserByEmail(email, {
+      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '')}/auth/callback?type=invite`,
+      data: {
+        invited_by: user.email ?? 'your administrator',
+        onboarding_complete: false,
+        studio_setup_complete: false,
+        role_intent: 'studio_owner',
+      },
+    })
+    if (inviteError) {
+      return NextResponse.json({ error: inviteError.message }, { status: 400 })
+    }
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Invite into an existing studio ──
   if (!isSuperAdmin) {
     // Verify requester is an owner of this specific studio
     const { data: requesterMembership } = await supabase
@@ -47,8 +75,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // Use service client to invite the user
-  const serviceClient = createServiceClient()
   const { data: inviteData, error: inviteError } = await serviceClient.auth.admin.inviteUserByEmail(email, {
     redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '')}/auth/callback?type=invite`,
     data: { invited_by: user.email ?? 'your administrator', onboarding_complete: false },
