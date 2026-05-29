@@ -190,6 +190,7 @@ export const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   Busy:                      { bg: 'status-bg-red',     text: 'status-text-red' },
   Transferred:               { bg: 'status-bg-yellow',  text: 'status-text-yellow' },
   Booked:                    { bg: 'status-bg-green',   text: 'status-text-green' },
+  'Pending Review':          { bg: 'status-bg-gray',    text: 'status-text-gray' },
   'Booking Attempted':       { bg: 'status-bg-teal',    text: 'status-text-teal' },
   'Callback Requested':      { bg: 'status-bg-brown',   text: 'status-text-brown' },
   'IVR Reached':             { bg: 'status-bg-orange',  text: 'status-text-orange' },

@@ -77,8 +77,10 @@ function getCallResult(call: CallHistoryRow): string | null {
     if (call.booking_attempted) return 'Booking Attempted'
     // review confirms no booking + no callback — fall through to hangup labels
   } else if (call.appointment_booked) {
-    // No review row yet — trust calls.appointment_booked as a temporary fallback.
-    return 'Booked'
+    // n8n flagged a booking but the AI review hasn't run yet to confirm it.
+    // Don't show "Booked" until the review verifies it — calls.appointment_booked
+    // is unreliable (set true on attempts that didn't succeed).
+    return 'Pending Review'
   }
 
   if (call.disconnected_reason === 'ivr_reached') return 'IVR Reached'
