@@ -103,6 +103,17 @@ Goals satisfied: a co-owner never fills the wizard; a returning owner is never r
 ### Phase 7 — QA
 - Full invite matrix, RLS isolation across studios, no `(app)` layout dead-end, JWT-refresh gate release, calendar correctness post-timezone, multi-studio name+address uniqueness, dark mode on the wizard.
 
+### Phase 8 — Internationalization (worldwide studios) — FUTURE, address before wrap-up
+**Confirmed 2026-05-30: studios are worldwide, not US-only.** The current build bakes in a US-only assumption that must be revisited before client onboarding is considered done:
+- **State/Region** is a fixed US-states `SimpleSelect` (`components/onboarding/step-business-profile.tsx` and `components/settings/studios-form.tsx`); **Country** is free text. The region list does NOT change with the selected country.
+- The **state → timezone** auto-suggest map (`components/onboarding/onboarding-types.ts`) is US-only, and the timezone picker lists only common US IANA zones.
+- `America/Chicago` is still hardcoded app-wide (see Phase 5).
+
+Future work:
+- Make **Country** a select that drives the region options (US states / Canadian provinces / generic free-text for other countries) — in both the wizard and the Settings studios form.
+- Widen the **timezone** picker to the full IANA list (or country-filtered), not just US zones.
+- Ensure Phase 5 timezone threading honors any per-studio IANA timezone, not just US ones.
+
 ---
 
 ## Out of Scope (manual for now)

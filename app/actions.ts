@@ -2889,8 +2889,8 @@ export async function cancelScheduledCallback(
 
 // ─── Client Onboarding ────────────────────────────────────────────────────────
 
-/** Normalised key used to detect duplicate studios (name + address). */
-function onboardingDupeKey(s: OnboardingStudioInput): string {
+/** Normalised key used to detect duplicate studios (name + address), case-insensitive. */
+function onboardingDupeKey(s: { name: string; street_address: string; city: string; postal_code: string }): string {
   return [s.name, s.street_address, s.city, s.postal_code]
     .map(v => (v ?? '').trim().toLowerCase())
     .join('|')
@@ -2944,6 +2944,20 @@ export async function completeStudioOnboarding(
   }
 
   const serviceClient = createServiceClient()
+
+  // Reject any studio whose name + address already matches an existing (non-deleted)
+  // studio in the DB. The validation above only dedupes within this submission.
+  const { data: existingStudios } = await serviceClient
+    .from('studios')
+    .select('name, street_address, city, postal_code')
+    .is('deleted_at', null)
+  const existingKeys = new Set((existingStudios ?? []).map(s => onboardingDupeKey(s)))
+  for (const s of studios) {
+    if (existingKeys.has(onboardingDupeKey(s))) {
+      throw new Error(`A studio named "${s.name}" at that address already exists.`)
+    }
+  }
+
   const createdIds: string[] = []
 
   for (const s of studios) {
