@@ -31,6 +31,7 @@ export interface Studio {
   appointment_duration_minutes: number
   appointment_min_advance_weeks: number
   appointment_slots: Record<string, string[]>
+  timezone: string
   created_at: string
 }
 

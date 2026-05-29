@@ -46,12 +46,20 @@ export const ACTION_OPTIONS = [
   'AI Called',
 ] as const
 
+// New-studio default sources are seeded server-side (seed_studio_field_options, migration 033).
+// This list is the frontend color/type registry, so it also keeps legacy values still in use by
+// existing studios (e.g. Arthur Murray Lincolnshire) so their badges keep their fallback colors.
 export const SOURCE_OPTIONS = [
+  // Current default set (new studios)
+  'Website Form',
+  'Facebook',
+  'Email',
+  'Walk-In',
+  // Legacy values retained for existing studios' color fallback
   'Facebook Ads',
   'Online',
   'Guest',
   'Phone',
-  'Walk-In',
   'Event',
 ] as const
 
@@ -145,6 +153,10 @@ export const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   'bought gift certificate': { bg: 'status-bg-blue',    text: 'status-text-blue' },
   'AI Called':               { bg: 'status-bg-purple',  text: 'status-text-purple' },
   // Source field
+  'Website Form':            { bg: 'status-bg-blue',    text: 'status-text-blue' },
+  Facebook:                  { bg: 'status-bg-purple',  text: 'status-text-purple' },
+  Email:                     { bg: 'status-bg-orange',  text: 'status-text-orange' },
+  // Legacy source values — kept so existing studios' source badges keep their colors
   'Facebook Ads':            { bg: 'status-bg-purple',  text: 'status-text-purple' },
   Online:                    { bg: 'status-bg-brown',   text: 'status-text-brown' },
   Phone:                     { bg: 'status-bg-blue',    text: 'status-text-blue' },
