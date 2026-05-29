@@ -46,6 +46,16 @@ function formatDateTime(iso: string | null): string {
   }).replace(' at ', ', ')
 }
 
+// Last Contacted is a date-only field. Render the stored calendar day directly with NO
+// timezone conversion, so it always shows the correct day and no spurious "12:00 AM".
+function formatDateOnly(iso: string | null): string {
+  if (!iso) return '—'
+  const m = String(iso).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return formatDateTime(iso)
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+  return `${months[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`
+}
+
 const ENUM_FIELDS = Object.keys(ALL_LEAD_ENUM_FIELDS) as (keyof typeof ALL_LEAD_ENUM_FIELDS)[]
 const BOOLEAN_FIELDS: (keyof Lead)[] = ['showed', 'bought', 'old']
 const DATE_FIELDS: (keyof Lead)[] = ['last_contacted', 'first_lesson']
@@ -772,7 +782,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
           }}
           className="cursor-pointer text-sm text-[var(--color-text-body)] hover:bg-[rgba(55,53,47,0.06)] dark:hover:bg-[rgba(255,255,255,0.06)] rounded px-1 py-0.5 block overflow-hidden whitespace-nowrap min-h-[20px] min-w-[40px]"
         >
-          {value ? formatDateTime(value as string | null) : ''}
+          {value ? (field === 'last_contacted' ? formatDateOnly(value as string | null) : formatDateTime(value as string | null)) : ''}
         </span>
       )
     }
