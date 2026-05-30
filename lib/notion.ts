@@ -176,6 +176,73 @@ async function notionQueryAll(dbId: string): Promise<any[]> {
   return out
 }
 
+// Build the Supabase update for one Notion page vs the current lead row (value-comparison).
+// Only includes fields that actually differ. Enum labels resolved via labelToId (`${field}:${label}`).
+function buildLeadUpdateFromPage(
+  props: any, lead: any, labelToId: Map<string, string>, unmatched: Set<string>,
+): { update: Record<string, string | boolean | null>; detail: Record<string, unknown> } {
+  const update: Record<string, string | boolean | null> = {}
+  const detail: Record<string, unknown> = {}
+  for (const [propName, { field, kind }] of Object.entries(NOTION_TO_FIELD)) {
+    const nv = readNotionProp(props, propName, kind)
+    if (kind === 'select') {
+      if (nv == null) continue // Notion-empty select: leave Supabase as-is
+      const id = labelToId.get(`${field}:${nv}`)
+      if (!id) { unmatched.add(`${field}:${nv}`); continue } // no matching option -> skip field
+      if (id !== lead[field]) { update[field] = id; detail[field] = { to: nv } }
+    } else if (kind === 'checkbox') {
+      if (Boolean(nv) !== Boolean(lead[field])) { update[field] = Boolean(nv); detail[field] = { to: nv } }
+    } else if (kind === 'date') {
+      if (!nv) continue // don't clear from a Notion-empty date
+      const day = String(nv).slice(0, 10)
+      const curDay = lead[field] ? String(lead[field]).slice(0, 10) : null
+      if (day !== curDay) { update[field] = day + 'T00:00:00.000Z'; detail[field] = { to: day } }
+    } else { // title / text
+      const cur = (lead[field] ?? null) as string | null
+      const val = (nv ?? null) as string | null
+      if (val !== cur) { update[field] = val; detail[field] = { to: val } }
+    }
+  }
+  return { update, detail }
+}
+
+const LEAD_SYNC_COLS = 'id,notion_page_id,name,phone,email,comments,available,status,level,action,source,reason,partnership,showed,bought,old,texted,last_contacted'
+
+/**
+ * Sync a SINGLE Notion page into Supabase (used by the webhook for fast, near-instant updates).
+ * Fetches the page, finds the linked lead, applies only changed fields. Non-fatal.
+ */
+export async function syncOneNotionPageToSupabase(client: SupabaseClient, pageId: string): Promise<{ status: 'updated' | 'nochange' | 'unlinked' | 'skipped' | 'error'; detail?: unknown }> {
+  const mode = notionSyncMode()
+  if (mode === 'off') return { status: 'skipped' }
+
+  const { data: lead } = await client.from('leads').select(LEAD_SYNC_COLS).eq('notion_page_id', pageId).maybeSingle()
+  if (!lead) return { status: 'unlinked' } // no linked lead (e.g. a brand-new Notion page) — handled separately
+  const studioId = (lead as { id: string }) && (await client.from('leads').select('studio_id').eq('id', (lead as any).id).single()).data?.studio_id
+  if (!studioId) return { status: 'error', detail: 'no studio' }
+
+  const { data: opts } = await client.from('studio_field_options').select('id,field,value').eq('studio_id', studioId)
+  const labelToId = new Map<string, string>()
+  for (const o of (opts ?? []) as { id: string; field: string; value: string }[]) labelToId.set(`${o.field}:${o.value}`, o.id)
+
+  const res = await notionFetch(`/pages/${pageId}`, { method: 'GET' })
+  if (!res.ok) { await logSync(client, { studio_id: studioId, lead_id: (lead as any).id, notion_page_id: pageId, action: 'error', detail: { op: 'pull_one', status: res.status } }, 'notion_to_app'); return { status: 'error' } }
+  const page = await res.json() as { properties: any }
+
+  const unmatched = new Set<string>()
+  const { update, detail } = buildLeadUpdateFromPage(page.properties, lead, labelToId, unmatched)
+  if (Object.keys(update).length === 0) return { status: 'nochange' }
+
+  if (mode === 'log') {
+    await logSync(client, { studio_id: studioId, lead_id: (lead as any).id, notion_page_id: pageId, action: 'skip', detail: { mode: 'log', would_update: detail } }, 'notion_to_app')
+    return { status: 'updated', detail }
+  }
+  const { error } = await client.from('leads').update(update).eq('id', (lead as any).id).eq('studio_id', studioId)
+  if (error) { await logSync(client, { studio_id: studioId, lead_id: (lead as any).id, notion_page_id: pageId, action: 'error', detail: { op: 'pull_one', message: error.message } }, 'notion_to_app'); return { status: 'error' } }
+  await logSync(client, { studio_id: studioId, lead_id: (lead as any).id, notion_page_id: pageId, action: 'update', detail: { updated: detail } }, 'notion_to_app')
+  return { status: 'updated', detail }
+}
+
 /**
  * Pull Notion edits into Supabase for one studio's linked leads.
  * Echo suppression = value comparison: only writes a field when Notion ≠ Supabase, so a prior
@@ -216,30 +283,7 @@ export async function syncNotionToSupabase(client: SupabaseClient, studioId: str
     const lead = leadByPage.get(page.id)
     if (!lead) continue
     checked++
-    const update: Record<string, string | boolean | null> = {}
-    const detail: Record<string, unknown> = {}
-
-    for (const [propName, { field, kind }] of Object.entries(NOTION_TO_FIELD)) {
-      const nv = readNotionProp(page.properties, propName, kind)
-      if (kind === 'select') {
-        if (nv == null) continue // Notion-empty select: leave Supabase as-is (don't clear)
-        const id = labelToId.get(`${field}:${nv}`)
-        if (!id) { unmatched.add(`${field}:${nv}`); continue } // no matching option -> skip field
-        if (id !== lead[field]) { update[field] = id; detail[field] = { to: nv } }
-      } else if (kind === 'checkbox') {
-        if (Boolean(nv) !== Boolean(lead[field])) { update[field] = Boolean(nv); detail[field] = { to: nv } }
-      } else if (kind === 'date') {
-        if (!nv) continue // don't clear from a Notion-empty date
-        const day = String(nv).slice(0, 10)
-        const curDay = lead[field] ? String(lead[field]).slice(0, 10) : null
-        if (day !== curDay) { update[field] = day + 'T00:00:00.000Z'; detail[field] = { to: day } }
-      } else { // title / text
-        const cur = (lead[field] ?? null) as string | null
-        const val = (nv ?? null) as string | null
-        if (val !== cur) { update[field] = val; detail[field] = { to: val } }
-      }
-    }
-
+    const { update, detail } = buildLeadUpdateFromPage(page.properties, lead, labelToId, unmatched)
     if (Object.keys(update).length === 0) { skipped++; continue }
     if (mode === 'log') {
       pushLog(lead.id, page.id, 'skip', { mode: 'log', would_update: detail })

@@ -44,7 +44,7 @@ export async function proxy(request: NextRequest) {
   const user = session?.user ?? null
 
   // Allow unauthenticated access to public paths
-  const PUBLIC_PATHS = ['/login', '/auth/callback', '/accept-invite', '/api/webhooks']
+  const PUBLIC_PATHS = ['/login', '/auth/callback', '/accept-invite', '/api/webhooks', '/api/notion-sync']
   if (!user && !PUBLIC_PATHS.some(p => pathname.startsWith(p))) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
