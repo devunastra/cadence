@@ -28,9 +28,18 @@ describe('constants', () => {
     expect(ACTION_OPTIONS).toContain('Bought Gift Certificate')
   })
 
-  it('SOURCE_OPTIONS contains all 6 source values', () => {
-    expect(SOURCE_OPTIONS).toHaveLength(6)
+  it('SOURCE_OPTIONS contains all 9 source values (current defaults + legacy)', () => {
+    expect(SOURCE_OPTIONS).toHaveLength(9)
+    // Current defaults (seeded for new studios via the onboarding wizard)
+    expect(SOURCE_OPTIONS).toContain('Website Form')
+    expect(SOURCE_OPTIONS).toContain('Facebook')
+    expect(SOURCE_OPTIONS).toContain('Email')
+    expect(SOURCE_OPTIONS).toContain('Walk-In')
+    // Legacy values retained for color-fallback on existing studios' data
     expect(SOURCE_OPTIONS).toContain('Facebook Ads')
+    expect(SOURCE_OPTIONS).toContain('Online')
+    expect(SOURCE_OPTIONS).toContain('Guest')
+    expect(SOURCE_OPTIONS).toContain('Phone')
     expect(SOURCE_OPTIONS).toContain('Event')
   })
 
