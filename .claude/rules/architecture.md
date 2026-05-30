@@ -29,7 +29,7 @@ app/
       ghl-appointment/# Appointment create/update/delete → upserts appointment
       retell-call/    # Post-call → inserts call record
     conversations/    # GET list, GET messages, POST send, outbound-call, email/recording
-    staff/            # invite, remove
+    staff/            # invite, remove, update-role  (see docs/specs/invite-scenarios.md for the invite matrix)
     admin/            # backfill-lead-links (one-time admin utility)
   actions.ts          # All server actions (mutations + data fetching)
   globals.css         # Design tokens + global styles

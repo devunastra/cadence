@@ -26,6 +26,21 @@ Note: P2 is implemented. P1 (Site URL cutover) and P3 (sending domain) remain be
 
 ---
 
+## Pending / To-do
+
+Core invite → onboarding flow is **built and validated end-to-end** on `staging--cadence-amls.netlify.app` (2026-05-30). Remaining:
+
+- [ ] **Phase 5 — timezone threading:** replace hardcoded `America/Chicago` in `lib/appointment-slots.ts`, `lib/ghl.ts`, `lib/date-utils.ts` with the studio's `timezone`. (Regression risk — calendar/appointments.)
+- [x] **Existing-email invite branch:** ✅ DONE — `app/api/staff/invite/route.ts` now looks up existing users via `findUserByEmail` and skips Supabase's invite path: studio-less invite re-arms `role_intent`/`studio_setup_complete` + sends a "Sign in & set up studio" email; into-existing-studio just upserts the membership + sends a branded "you've been added" email. `lib/email.ts` gained `sendExistingOwnerNewStudioInvite` and `sendStudioMembershipNotification`.
+- [x] **Settings → My Staff — multi-studio display:** ✅ DONE — `components/settings/my-staff-table.tsx` now groups rows by user (one expandable row per person, "N studios" badge, role summary like "Owner / Staff", expand to see + edit + remove per-studio memberships).
+- [ ] **Email template redesign:** polish the Resend invite email (`lib/email.ts`) — proper Cadence branding, a real Loom embed/thumbnail (currently a placeholder link), improved layout/spacing.
+- [ ] **Phase 8 — internationalization:** country-driven region select + full timezone list (studios are worldwide).
+- [ ] **P3 — verified Resend sending domain:** required to invite *any* address (not just the Resend-account email); blocked by the free-plan 1-domain limit.
+- [ ] **Deploy — merge `staging` → `main`** on completion (production `cadence-amls.netlify.app` builds from `main`).
+- [x] **Invite scenario matrix locked** — see "Invite Decision Matrix" below; covers a/b/c/d/e/f/g/h/i/j with the guardrails enforced in `app/api/staff/invite/route.ts`.
+
+---
+
 ## Target Flow (brand-new client)
 
 1. Super admin sends a **studio-less invite** to the new owner (Settings → My Staff).
@@ -38,19 +53,28 @@ Note: P2 is implemented. P1 (Site URL cutover) and P3 (sending domain) remain be
 
 ## Invite Decision Matrix
 
-Two independent axes determine the flow:
+Locked behavior in `app/api/staff/invite/route.ts`. Labels (a–j) match the scenario log used during build. Full reference (request/response shapes, DB writes, email per scenario, decision tree): [`invite-scenarios.md`](./invite-scenarios.md).
 
-- **Password axis** — driven by whether the email already exists in auth.
-- **Wizard axis** — driven by whether a studio is assigned at invite time.
-
-| Email exists? | Studio assigned? | Password step | Wizard | Lands on |
+| # | Email exists? | Studio target | Pre-existing membership | Result |
 |---|---|---|---|---|
-| New | No (blank) | Yes | **Yes** | wizard → `/leads` |
-| New | Yes (existing studio) | Yes | No | `/leads` (co-owner case) |
-| Existing | Yes (another studio) | No — add membership + notify | No | `/leads` (new studio in switcher) |
-| Existing | No (blank) | — | — | **Blocked** — "add via Settings" |
+| a | New | Blank | — | Branded Resend invite → /accept-invite → /onboarding wizard → studio created |
+| b | New | Existing studio | n/a | Supabase invite email → /accept-invite → studio_users row inserted → /leads |
+| c | Existing | Blank | n/a | Metadata re-armed (`role_intent=studio_owner`, `studio_setup_complete=false`) → "Sign in & set up studio" email → /login → proxy redirects to /onboarding → studio created |
+| d | Existing | Existing studio | Same role already | **No-op success.** Returns `{ ok:true, already:true }`. No email. UI shows "Already a member." |
+| e/f | Existing | Existing studio | None | Membership upserted + branded "You've been added to {studio}" email. |
+| i | Existing | Existing studio | Different role | **Requires confirmation.** Route returns 409 `{ requires_role_change_confirmation, current_role, new_role, studio_name }`. UI shows a modal; on confirm the client re-POSTs with `confirmRoleChange:true`, route updates `studio_users.role`, sends "Your role at {studio} changed" email. |
 
-Goals satisfied: a co-owner never fills the wizard; a returning owner is never re-onboarded. Additional studios for existing owners are added via **Settings**, never the invite wizard.
+### Guardrails (also enforced)
+
+| # | Case | Result |
+|---|---|---|
+| g | Inviter's own email | 400 — "You can't invite yourself." |
+| h | Target studio is soft-deleted / non-existent | 400 — "Studio not found." |
+| j | Race — two inviters hit the same brand-new email | Loser falls through to the existing-user path (c for blank, d/e/f/i for assigned) instead of erroring. |
+| 1.6 | Non-super_admin attempting a blank-studio invite | 403 — "Only a super admin can invite a new studio owner." |
+| 2.6/2.7 | Owner-of-A inviting into studio B / staff inviting at all | 403 — "Forbidden." |
+
+Goals satisfied: a co-owner never fills the wizard; a returning owner is never re-onboarded; role changes via re-invite are explicit, not silent.
 
 ---
 
