@@ -5,6 +5,8 @@
 Supabase Auth — email + password only. No OAuth, no magic links, no public signup.
 Accounts are created by a `super_admin` only.
 
+**Invite scenarios:** the `/api/staff/invite` route handles 10 scenarios (new vs existing email × blank vs existing studio × role state). Full reference with request/response shapes, DB writes, email per scenario, and decision tree: [`docs/specs/invite-scenarios.md`](../../docs/specs/invite-scenarios.md). **Read it before touching the invite route, the My Staff UI, or the `/accept-invite` and `/onboarding` flows.**
+
 ---
 
 ## Roles

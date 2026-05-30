@@ -358,8 +358,9 @@ Realtime: enabled via `supabase_realtime` publication.
 | `/api/conversations/outbound-call` | POST | Initiates outbound call via GHL |
 | `/api/conversations/messages/email/[emailId]` | GET | Fetches full email body |
 | `/api/conversations/messages/[msgId]/recording` | GET | Proxies Retell recording audio |
-| `/api/staff/invite` | POST | Sends staff invite email |
+| `/api/staff/invite` | POST | Invite or assign a user. Handles 10 scenarios (new vs existing email × blank vs existing studio × role state) — see [`docs/specs/invite-scenarios.md`](docs/specs/invite-scenarios.md). |
 | `/api/staff/remove` | POST | Removes staff member |
+| `/api/staff/update-role` | POST | Update an existing membership's role |
 | `/api/admin/backfill-lead-links` | POST | One-time admin: links calls to leads by contact ID |
 
 ---

@@ -301,7 +301,7 @@ docs/                       # Project documentation
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/staff/invite` | Invite user to studio (owner/super_admin only) |
+| POST | `/api/staff/invite` | Invite or assign a user. Handles 10 scenarios (new/existing email × blank/existing studio × role state). Full matrix + decision tree: [`docs/specs/invite-scenarios.md`](specs/invite-scenarios.md). |
 | POST | `/api/staff/remove` | Remove user from studio |
 | POST | `/api/staff/update-role` | Change user's studio role |
 
@@ -663,7 +663,7 @@ Role is stored in `studio_users.role` per studio — a user can have different r
 - **Accounts created by:** `super_admin` only (via invite)
 - **Session:** Supabase SSR client (`lib/supabase/server.ts`) reads from cookies
 - **Middleware:** `proxy.ts` protects all `(app)` routes, redirects unauthenticated users to `/login`
-- **Invite flow:** Admin sends invite -> user clicks link -> `/accept-invite` -> sets password -> `onboarding_complete = true`
+- **Invite flow:** Branches by (new vs existing email) × (blank vs existing studio). All emails are sent via Resend through branded templates in `lib/email.ts` — Supabase's built-in invite email is never used. New + blank → "set up your studio" → `/accept-invite` → `/onboarding` wizard. New + existing studio → "you're invited to {studio}" → `/accept-invite` → `/leads`. Existing + blank → metadata re-armed → "set up another studio" login email → proxy redirects to `/onboarding`. Existing + existing studio → membership upsert + branded "added to studio" email (or 409 confirmation if it would change their role). Same-role re-invite is a no-op. Full matrix: [`docs/specs/invite-scenarios.md`](specs/invite-scenarios.md).
 - **Authorization helper:** `getAuthorizedClient()` in `actions.ts` returns service client for super_admin, user's client (RLS-scoped) otherwise
 
 ---
