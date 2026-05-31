@@ -181,7 +181,11 @@ export function SimpleSelect({
                 className="px-3 py-2 text-sm"
                 style={{ color: 'var(--color-text-muted)' }}
               >
-                No matches
+                {query.trim()
+                  ? 'No matches'
+                  : options.length === 0
+                    ? 'No options available'
+                    : 'No matches'}
               </div>
             ) : (
               filtered.map(o => (

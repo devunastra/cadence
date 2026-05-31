@@ -431,6 +431,7 @@ export function LeadInfoPanel({
           anchorRect={datePicker.anchorRect}
           onSelect={iso => save(datePicker.field, iso)}
           onClose={() => setDatePicker(null)}
+          tz={tz}
         />
       )}
     </>

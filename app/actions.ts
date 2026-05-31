@@ -393,6 +393,15 @@ export async function createStudio({
     await serviceClient.from('studio_users').insert({ studio_id: studio.id, user_id: user.id, role: 'studio_owner' })
   }
 
+  // Seed default enum options (status / level / action / source / reason /
+  // partnership) so the leads form has dropdown values to pick from on day one.
+  // The onboarding wizard already does this; createStudio used to skip it,
+  // which left Settings-created studios with empty dropdowns.
+  if (studio) {
+    const { error: seedError } = await serviceClient.rpc('seed_studio_field_options', { p_studio_id: studio.id })
+    if (seedError) throw new Error(seedError.message)
+  }
+
   revalidatePath('/', 'layout')
 }
 
@@ -808,6 +817,30 @@ export async function updateStudioFieldOptionOrder(updates: Array<{ id: string; 
       client.from('studio_field_options').update({ sort_order: sortOrder }).eq('id', id)
     )
   )
+}
+
+/**
+ * Fetches enum field options for a studio (Status / Level / Action / Source /
+ * Reason / Partnership rows). Goes through `getAuthorizedClient`, which returns
+ * the service client for super_admin — so the browser-side leads table doesn't
+ * silently lose options to RLS when the super_admin isn't a `studio_users`
+ * member of the studio they're viewing. Same fix as updateStudio,
+ * analyze-call-quality, and update-role.
+ *
+ * Returns a flat array of `{ id, field, value, bg, text }`; the caller groups
+ * by `field`.
+ */
+export async function fetchStudioFieldOptions(studioId: string): Promise<
+  Array<{ id: string; field: string; value: string; bg: string | null; text: string | null }>
+> {
+  const { client } = await getAuthorizedClient()
+  const { data, error } = await client
+    .from('studio_field_options')
+    .select('id, field, value, bg, text')
+    .eq('studio_id', studioId)
+    .order('sort_order', { ascending: true, nullsFirst: false })
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Array<{ id: string; field: string; value: string; bg: string | null; text: string | null }>
 }
 
 // Add a new option — returns the new row with its ID

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { tzCalendarParts, naiveTzPartsToUtcIso } from '@/lib/date-utils'
 
 const DAY_HEADERS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const MONTHS = [
@@ -20,27 +21,37 @@ interface DatePickerPopupProps {
   onSelect: (iso: string | null) => void
   onClose: () => void
   showTime?: boolean
+  /**
+   * Studio IANA timezone. The picker reads and writes calendar dates + times
+   * in this zone so the displayed/saved value matches what every other
+   * Phase-5-threaded surface (calendar, analytics, conversations) shows.
+   */
+  tz: string
 }
 
 function pad(n: number) { return String(n).padStart(2, '0') }
 
-export function DatePickerPopup({ currentValue, anchorRect, onSelect, onClose, showTime = true }: DatePickerPopupProps) {
-  const selected = currentValue ? new Date(currentValue) : null
-  const today = new Date()
+export function DatePickerPopup({ currentValue, anchorRect, onSelect, onClose, showTime = true, tz }: DatePickerPopupProps) {
+  // Decompose the stored UTC ISO into the studio's wall-clock parts. "Today"
+  // is also read in studio tz so the highlighted day matches the studio's
+  // current local date, not the browser's.
+  const selectedParts = currentValue ? tzCalendarParts(currentValue, tz) : null
+  const todayParts = tzCalendarParts(new Date(), tz)
   const ref = useRef<HTMLDivElement>(null)
 
-  const [viewMonth, setViewMonth] = useState((selected ?? today).getMonth())
-  const [viewYear, setViewYear] = useState((selected ?? today).getFullYear())
+  const [viewMonth, setViewMonth] = useState(selectedParts?.month ?? todayParts.month)
+  const [viewYear, setViewYear]   = useState(selectedParts?.year ?? todayParts.year)
 
   // Selected date parts (driven by calendar clicks, also editable via text)
-  const [selYear, setSelYear]   = useState(selected?.getFullYear() ?? null)
-  const [selMonth, setSelMonth] = useState(selected ? selected.getMonth() : null) // 0-based
-  const [selDay, setSelDay]     = useState(selected?.getDate() ?? null)
+  const [selYear, setSelYear]   = useState<number | null>(selectedParts?.year ?? null)
+  const [selMonth, setSelMonth] = useState<number | null>(selectedParts?.month ?? null) // 0-based
+  const [selDay, setSelDay]     = useState<number | null>(selectedParts?.day ?? null)
 
-  // Time parts
-  const [hour, setHour]     = useState(selected ? (selected.getHours() % 12 || 12) : 12)
-  const [minute, setMinute] = useState(selected?.getMinutes() ?? 0)
-  const [ampm, setAmpm]     = useState<'AM' | 'PM'>(selected ? (selected.getHours() >= 12 ? 'PM' : 'AM') : 'AM')
+  // Time parts — convert the 24h studio-local hour into the 12h + AM/PM the UI uses.
+  const initial24h = selectedParts?.hour ?? null
+  const [hour, setHour]     = useState(initial24h === null ? 12 : (initial24h % 12 || 12))
+  const [minute, setMinute] = useState(selectedParts?.minute ?? 0)
+  const [ampm, setAmpm]     = useState<'AM' | 'PM'>(initial24h === null ? 'AM' : (initial24h >= 12 ? 'PM' : 'AM'))
 
   // Header text input
   const [headerText, setHeaderText] = useState(formatHeader(selYear, selMonth, selDay))
@@ -54,7 +65,10 @@ export function DatePickerPopup({ currentValue, anchorRect, onSelect, onClose, s
   function buildISO(y: number, m: number, d: number, h: number, min: number, ap: 'AM' | 'PM') {
     let hours24 = h % 12
     if (ap === 'PM') hours24 += 12
-    return new Date(y, m, d, hours24, min, 0).toISOString()
+    // Interpret the picked wall-clock as studio-local; convert to UTC ISO so
+    // it matches the storage convention used everywhere else (start_time,
+    // last_contacted, etc.).
+    return naiveTzPartsToUtcIso(y, m, d, hours24, min, tz)
   }
 
   function applyAndClose() {
@@ -113,8 +127,8 @@ export function DatePickerPopup({ currentValue, anchorRect, onSelect, onClose, s
     else setViewMonth(m => m + 1)
   }
   function goToday() {
-    setViewMonth(today.getMonth())
-    setViewYear(today.getFullYear())
+    setViewMonth(todayParts.month)
+    setViewYear(todayParts.year)
   }
   function selectDay(day: number) {
     setSelYear(viewYear)
@@ -131,9 +145,9 @@ export function DatePickerPopup({ currentValue, anchorRect, onSelect, onClose, s
     selYear === viewYear && selMonth === viewMonth && selDay === day
 
   const isToday = (day: number) =>
-    today.getFullYear() === viewYear &&
-    today.getMonth() === viewMonth &&
-    today.getDate() === day
+    todayParts.year === viewYear &&
+    todayParts.month === viewMonth &&
+    todayParts.day === day
 
   return createPortal(
     <div

@@ -15,7 +15,8 @@ import { useCurrentStudio } from '@/components/studio-context'
 import { ALL_LEAD_ENUM_FIELDS, STATUS_COLORS } from '@/lib/constants'
 import { buildDefaultOptions } from '@/lib/field-options'
 import { ALL_COLUMNS_VIEW } from '@/lib/views'
-import { createLeadView, deleteLeadView, updateLeadView, fetchLeadsPage, fetchLeadById, deleteLeads, bulkUpdateLeads, updateLead, saveUserPreferences, addStudioFieldOption, renameStudioFieldOption, deleteStudioFieldOption, logLeadActivity, savePageFilters } from '@/app/actions'
+import { tzCalendarParts } from '@/lib/date-utils'
+import { createLeadView, deleteLeadView, updateLeadView, fetchLeadsPage, fetchLeadById, deleteLeads, bulkUpdateLeads, updateLead, saveUserPreferences, addStudioFieldOption, renameStudioFieldOption, deleteStudioFieldOption, logLeadActivity, savePageFilters, fetchStudioFieldOptions } from '@/app/actions'
 import type { PageFilters } from '@/app/actions'
 import { createClient } from '@/lib/supabase/client'
 import { useTheme } from 'next-themes'
@@ -47,15 +48,27 @@ function formatDateTime(iso: string | null, tz: string): string {
   }).replace(' at ', ', ')
 }
 
-// Last Contacted is a date-only field. Render the stored calendar day directly with NO
-// timezone conversion, so it always shows the correct day and no spurious "12:00 AM".
-// `tz` is only used for the malformed-input fallback.
+// Last Contacted is rendered as a date-only field — we strip the time part to
+// avoid spurious "12:00 AM". The Y/M/D MUST be read in the studio's tz (not
+// sliced from the UTC ISO prefix), or values close to the day-boundary
+// display as the wrong calendar date (e.g. picking June 2 00:00 Manila stored
+// 2026-06-01T16:00:00Z, and a slice-prefix render would show "June 1").
 function formatDateOnly(iso: string | null, tz: string): string {
   if (!iso) return '—'
-  const m = String(iso).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!m) return formatDateTime(iso, tz)
   const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-  return `${months[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`
+  // YYYY-MM-DD-only strings (no time component) get parsed naively to avoid
+  // a tz round-trip that could shift the calendar day.
+  const datePrefixOnly = /^\d{4}-\d{2}-\d{2}$/.test(String(iso).trim())
+  if (datePrefixOnly) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso).trim())!
+    return `${months[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`
+  }
+  try {
+    const { year, month, day } = tzCalendarParts(iso, tz)
+    return `${months[month]} ${day}, ${year}`
+  } catch {
+    return formatDateTime(iso, tz)
+  }
 }
 
 const ENUM_FIELDS = Object.keys(ALL_LEAD_ENUM_FIELDS) as (keyof typeof ALL_LEAD_ENUM_FIELDS)[]
@@ -523,9 +536,14 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
     const supabase = createClient()
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (cancelled || !user) { if (!cancelled) setLoading(false); return }
-      const [viewsRes, fieldOptsRes, prefsRes] = await Promise.all([
+      // studio_field_options is fetched via a server action (fetchStudioFieldOptions)
+      // because it's RLS-scoped on the browser client. Super_admins who don't have
+      // a studio_users row in `studioId` would otherwise see an empty list and the
+      // New Lead modal's dropdowns would show "No matches".
+      // (Same RLS gap pattern as updateStudio / analyze-call-quality / update-role.)
+      const [viewsRes, fieldOptsRows, prefsRes] = await Promise.all([
         supabase.from('lead_views').select('*').eq('studio_id', studioId).order('created_at', { ascending: true }),
-        supabase.from('studio_field_options').select('id, field, value, bg, text').eq('studio_id', studioId).order('sort_order', { ascending: true, nullsFirst: false }),
+        fetchStudioFieldOptions(studioId).catch(() => [] as Array<{ id: string; field: string; value: string; bg: string | null; text: string | null }>),
         supabase.from('user_preferences').select('col_widths, active_view_id, theme, page_filters, notify_lead_created, notify_lead_updated, notify_lead_deleted').eq('user_id', user.id).eq('studio_id', studioId).maybeSingle(),
       ])
       if (cancelled) return
@@ -552,9 +570,9 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
         if (pf.leads?.sort?.field) setSortField(pf.leads.sort.field)
         if (pf.leads?.sort?.ascending != null) setSortAscending(pf.leads.sort.ascending)
       }
-      // Field options
+      // Field options (already RLS-bypassed via the server action above)
       const fieldOpts: Record<string, Array<{ id: string; value: string; bg: string | null; text: string | null }>> = {}
-      for (const row of (fieldOptsRes.data ?? []) as { id: string; field: string; value: string; bg: string | null; text: string | null }[]) {
+      for (const row of fieldOptsRows) {
         if (!fieldOpts[row.field]) fieldOpts[row.field] = []
         if (fieldOpts[row.field].some(o => o.value === row.value)) continue
         fieldOpts[row.field].push({ id: row.id, value: row.value, bg: row.bg ?? null, text: row.text ?? null })
@@ -1358,6 +1376,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
             anchorRect={datePicker.anchorRect}
             onSelect={iso => commitDateSelect(lead, datePicker.field, iso)}
             onClose={() => setDatePicker(null)}
+            tz={tz}
           />
         ) : null
       })()}

@@ -435,6 +435,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
           showTime={false}
           onSelect={iso => { if (iso) navigateTo(new Date(iso)) }}
           onClose={() => setDatePickerOpen(false)}
+          tz={tz}
         />
       )}
 

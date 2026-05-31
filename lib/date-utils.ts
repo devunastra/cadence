@@ -17,6 +17,63 @@ function tzOffsetMsAt(tz: string, instant: Date): number {
   return localAsUtc - instant.getTime()
 }
 
+/**
+ * Calendar parts (year, month [0-based], day, hour, minute) of a UTC instant
+ * as seen in `tz`. The natural pair to `naiveTzPartsToUtcIso` below; together
+ * they let UI components edit a UTC ISO as wall-clock in the studio's tz.
+ */
+export function tzCalendarParts(d: Date | string, tz: string): {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+} {
+  const date = typeof d === 'string' ? new Date(d) : d
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(date)
+  const p = Object.fromEntries(parts.map(({ type, value }) => [type, value]))
+  return {
+    year: parseInt(p.year, 10),
+    // Intl returns 'hour: 24' for midnight under some locales; normalise to 0.
+    month: parseInt(p.month, 10) - 1,
+    day: parseInt(p.day, 10),
+    hour: parseInt(p.hour === '24' ? '0' : p.hour, 10),
+    minute: parseInt(p.minute, 10),
+  }
+}
+
+/**
+ * Interpret a calendar Y/M/D/H/M as wall-clock in `tz` and return the matching
+ * UTC ISO. Inverse of `tzCalendarParts`.
+ *
+ * Handles DST cutover via one self-correction pass: read the offset at the
+ * naive-as-UTC moment, then re-read at the candidate result; if they disagree
+ * (which happens when the input straddles a spring-forward / fall-back), use
+ * the candidate's offset for the second pass. Same pattern as
+ * studioMidnightFromStr.
+ */
+export function naiveTzPartsToUtcIso(
+  year: number,
+  month: number, // 0-based to match Date.getMonth()
+  day: number,
+  hour: number,
+  minute: number,
+  tz: string,
+): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const naive = `${year}-${pad(month + 1)}-${pad(day)}T${pad(hour)}:${pad(minute)}:00`
+  const asUtcMs = new Date(naive + 'Z').getTime()
+  const offset1 = tzOffsetMsAt(tz, new Date(asUtcMs))
+  const guessMs = asUtcMs - offset1
+  const offset2 = tzOffsetMsAt(tz, new Date(guessMs))
+  if (offset1 === offset2) return new Date(guessMs).toISOString()
+  return new Date(asUtcMs - offset2).toISOString()
+}
+
 /** Returns the UTC Date for midnight on the YYYY-MM-DD date string in `tz`. */
 export function studioMidnightFromStr(dateStr: string, tz: string): Date {
   // First pass: read offset at noon (side-steps the DST-cutover hour itself).
