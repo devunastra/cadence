@@ -5,6 +5,8 @@ import { revalidatePath } from 'next/cache'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { createGHLContact, updateGHLContact, deleteGHLContact, deleteGHLAppointment, updateGHLAppointment, createGHLAppointment, patchGHLAppointmentDetails } from '@/lib/ghl'
 import { getRetellPhoneNumber, updateRetellPhoneNumberInboundAgent } from '@/lib/retell'
+import { NOTION_ENUM_FIELDS, NOTION_SYNCED_FIELDS, notionSyncMode, syncLeadUpdateToNotion, syncLeadCreateToNotion, syncLeadArchiveToNotion } from '@/lib/notion'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Lead, ScheduledCallback, StudioSlotConfig, OnboardingStudioInput } from '@/lib/types'
 import type { FieldOption } from '@/lib/field-options'
 
@@ -45,6 +47,32 @@ async function getAuthorizedClient() {
   return { client: isSuper ? createServiceClient() : supabase, user }
 }
 
+// Resolve a raw lead-update map into Notion-ready fields: keep only synced fields, and
+// convert enum FK UUIDs (status/level/action/source/reason/partnership) into their option labels.
+async function resolveNotionFields(
+  client: SupabaseClient,
+  raw: Record<string, string | boolean | null>,
+): Promise<Record<string, string | boolean | null>> {
+  const out: Record<string, string | boolean | null> = {}
+  const enumIds: string[] = []
+  for (const [k, v] of Object.entries(raw)) {
+    if (!NOTION_SYNCED_FIELDS.has(k)) continue
+    if (NOTION_ENUM_FIELDS.has(k)) { if (typeof v === 'string' && v) enumIds.push(v) }
+    else out[k] = v
+  }
+  let valueById = new Map<string, string>()
+  if (enumIds.length) {
+    const { data } = await client.from('studio_field_options').select('id,value').in('id', enumIds)
+    valueById = new Map((data ?? []).map((o: { id: string; value: string }) => [o.id, o.value]))
+  }
+  for (const [k, v] of Object.entries(raw)) {
+    if (NOTION_SYNCED_FIELDS.has(k) && NOTION_ENUM_FIELDS.has(k)) {
+      out[k] = typeof v === 'string' && v ? (valueById.get(v) ?? null) : null
+    }
+  }
+  return out
+}
+
 export async function createLeadView(studioId: string, name: string, columns: string[]) {
   const { client, user } = await getAuthorizedClient()
   const { data, error } = await client
@@ -59,7 +87,7 @@ export async function createLeadView(studioId: string, name: string, columns: st
 // Note: 'tick' is intentionally excluded — the field exists in Notion but is not present in the dashboard schema
 const BULK_UPDATABLE_LEAD_FIELDS = new Set([
   'status', 'level', 'action', 'source', 'reason', 'partnership',
-  'showed', 'bought', 'old', 'comments', 'available',
+  'showed', 'bought', 'old', 'comments', 'available', 'texted',
 ])
 
 export async function bulkUpdateLeads(ids: string[], field: string, value: string | null) {
@@ -68,6 +96,15 @@ export async function bulkUpdateLeads(ids: string[], field: string, value: strin
   const { client } = await getAuthorizedClient()
   const { error } = await client.from('leads').update({ [field]: value }).in('id', ids)
   if (error) throw new Error(error.message)
+
+  // Push to Notion (app -> Notion) for each affected lead. Gated by NOTION_SYNC_MODE.
+  if (notionSyncMode() !== 'off' && NOTION_SYNCED_FIELDS.has(field)) {
+    const { data: rows } = await client.from('leads').select('id, studio_id, notion_page_id').in('id', ids)
+    const fields = await resolveNotionFields(client, { [field]: value })
+    for (const r of (rows ?? []) as { id: string; studio_id: string; notion_page_id: string | null }[]) {
+      await syncLeadUpdateToNotion(client, { leadId: r.id, studioId: r.studio_id, notionPageId: r.notion_page_id, fields })
+    }
+  }
 }
 
 const GHL_SYNCED_FIELDS = new Set(['name', 'phone', 'email'])
@@ -75,7 +112,7 @@ const GHL_SYNCED_FIELDS = new Set(['name', 'phone', 'email'])
 
 const UPDATABLE_LEAD_FIELDS = new Set([
   'name', 'phone', 'email', 'status', 'level', 'action', 'source', 'reason', 'partnership',
-  'showed', 'bought', 'old', 'comments', 'available', 'last_contacted', 'first_lesson',
+  'showed', 'bought', 'old', 'comments', 'available', 'last_contacted', 'first_lesson', 'texted',
 ])
 
 export async function updateLead(id: string, updates: Record<string, string | boolean | null>): Promise<void> {
@@ -107,6 +144,18 @@ export async function updateLead(id: string, updates: Record<string, string | bo
       }, studio?.ghl_api_key ?? undefined)
     }
   }
+
+  // Push to Notion (app -> Notion). Resolves enum UUIDs -> option labels. Gated by NOTION_SYNC_MODE.
+  if (notionSyncMode() !== 'off') {
+    const notionRaw = Object.fromEntries(Object.entries(updates).filter(([k]) => NOTION_SYNCED_FIELDS.has(k)))
+    if (Object.keys(notionRaw).length > 0) {
+      const { data: leadRow } = await client.from('leads').select('notion_page_id, studio_id').eq('id', id).single()
+      if (leadRow?.studio_id) {
+        const fields = await resolveNotionFields(client, notionRaw)
+        await syncLeadUpdateToNotion(client, { leadId: id, studioId: leadRow.studio_id, notionPageId: leadRow.notion_page_id, fields })
+      }
+    }
+  }
 }
 
 export async function deleteLeads(ids: string[]) {
@@ -116,7 +165,7 @@ export async function deleteLeads(ids: string[]) {
   // Fetch names + GHL IDs + Studio IDs before deleting
   const { data: toDelete } = await client
     .from('leads')
-    .select('id, name, ghl_contact_id, studio_id')
+    .select('id, name, ghl_contact_id, studio_id, notion_page_id')
     .in('id', ids)
 
   // Fetch unique studio API keys needed for deletion
@@ -133,6 +182,15 @@ export async function deleteLeads(ids: string[]) {
       .filter(l => l.ghl_contact_id && l.studio_id)
       .map(l => deleteGHLContact(l.ghl_contact_id!, apiKeysByStudio[l.studio_id!] ?? undefined))
   )
+
+  // Archive the matching Notion pages (app -> Notion). Soft-delete only — never hard-delete in Notion.
+  if (notionSyncMode() !== 'off') {
+    await Promise.allSettled(
+      (toDelete ?? [])
+        .filter(l => l.notion_page_id && l.studio_id)
+        .map(l => syncLeadArchiveToNotion(client, { leadId: l.id, studioId: l.studio_id!, notionPageId: l.notion_page_id }))
+    )
+  }
 
   const { error } = await client.from('leads').delete().in('id', ids)
   if (error) throw new Error(error.message)
@@ -219,6 +277,17 @@ export async function createLead({
     if (ghlContactId) {
       await client.from('leads').update({ ghl_contact_id: ghlContactId }).eq('id', inserted.id)
     }
+  }
+
+  // Create the matching Notion page (app -> Notion); store its id for future sync. Gated by NOTION_SYNC_MODE.
+  if (notionSyncMode() !== 'off') {
+    const { data: studioN } = await client.from('studios').select('notion_leads_db_id').eq('id', studioId).single()
+    const fields = await resolveNotionFields(client, {
+      name, phone: phone ?? null, email: email ?? null, available: available ?? null, comments: comments ?? null,
+      status: statusId ?? null, level: levelId ?? null, source: sourceId ?? null, reason: reasonId ?? null,
+    })
+    const pageId = await syncLeadCreateToNotion(client, { leadId: inserted.id, studioId, notionDbId: studioN?.notion_leads_db_id ?? null, fields })
+    if (pageId) await client.from('leads').update({ notion_page_id: pageId, notion_last_synced_at: new Date().toISOString() }).eq('id', inserted.id)
   }
 
   // Fetch back with display names via joins
