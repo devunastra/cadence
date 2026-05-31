@@ -45,6 +45,9 @@ const SUPER_ROLE_OPTIONS = [
 // Sentinel studio value for inviting a brand-new studio owner with no studio yet.
 const NEW_STUDIO = '__new_studio__'
 
+// Sentinel filter value for "show every studio's members" — the default.
+const ALL_STUDIOS = '__all_studios__'
+
 interface UserGroup {
   user_id: string
   email: string
@@ -74,6 +77,10 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
     email: string; studioId: string; role: Role; currentRole: Role; newRole: Role; studioName: string
   } | null>(null)
   const [isConfirmingRoleChange, setIsConfirmingRoleChange] = useState(false)
+  // Super_admin-only studio filter for the staff table. Defaults to ALL_STUDIOS
+  // so today's UX is unchanged; super_admins managing 10+ studios can narrow
+  // the view to one. Session-only — no persistence (casual view filter).
+  const [filterStudioId, setFilterStudioId] = useState<string>(ALL_STUDIOS)
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
@@ -103,6 +110,18 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
       return primaryA - primaryB || a.email.localeCompare(b.email)
     })
   }, [members])
+
+  // Outer-list filter only: keep users with *any* membership in the selected
+  // studio. The inner expanded view still shows all studios for context
+  // ("who has access here, and what else do they have access to?").
+  const visibleGroups: UserGroup[] = useMemo(() => {
+    if (filterStudioId === ALL_STUDIOS) return userGroups
+    return userGroups.filter(g => g.memberships.some(m => m.studio_id === filterStudioId))
+  }, [userGroups, filterStudioId])
+
+  const filterStudioName = filterStudioId === ALL_STUDIOS
+    ? null
+    : (studios.find(s => s.id === filterStudioId)?.name ?? 'this studio')
 
   if (!mounted) return null
 
@@ -290,6 +309,44 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
       <form onSubmit={handleInvite}>
         <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
 
+          {/* Super_admin-only studio filter. Hidden for studio_owner / studio_staff
+              since RLS already scopes them to a single studio. */}
+          {isSuperAdmin && studios.length > 1 && (
+            <div
+              className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3 px-4 md:px-6 py-3"
+              style={{ borderBottom: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)' }}
+            >
+              <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>
+                Filter by studio
+              </span>
+              <div className="md:min-w-[260px]">
+                <SimpleSelect
+                  value={filterStudioId === ALL_STUDIOS ? '' : filterStudioId}
+                  onChange={v => setFilterStudioId(v || ALL_STUDIOS)}
+                  options={[
+                    { value: ALL_STUDIOS, label: `All studios (${userGroups.length})` },
+                    ...studios.map(s => ({ value: s.id, label: s.name })),
+                  ]}
+                  placeholder="All studios"
+                  clearable={false}
+                  fullWidth
+                  triggerBg="var(--color-bg)"
+                  triggerClassName="py-2"
+                />
+              </div>
+              {filterStudioName && (
+                <button
+                  type="button"
+                  onClick={() => setFilterStudioId(ALL_STUDIOS)}
+                  className="text-xs underline transition-opacity hover:opacity-70 self-start md:self-auto"
+                  style={{ color: 'var(--color-text-secondary)' }}
+                >
+                  Clear filter
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Staff table — grouped by user; each row expands to show per-studio memberships */}
           <div className="overflow-x-auto" style={{ borderBottom: '1px solid var(--color-border)' }}>
             <table className="w-full text-sm" style={{ minWidth: 400 }}>
@@ -302,14 +359,16 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
                 </tr>
               </thead>
               <tbody>
-                {userGroups.length === 0 ? (
+                {visibleGroups.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-6 py-8 text-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
-                      No other staff members yet.
+                      {filterStudioName
+                        ? `No staff in ${filterStudioName} yet.`
+                        : 'No other staff members yet.'}
                     </td>
                   </tr>
                 ) : (
-                  userGroups.map(group => {
+                  visibleGroups.map(group => {
                     const isExpanded = expandedUserIds.has(group.user_id)
                     const studioCount = group.memberships.length
                     return (
