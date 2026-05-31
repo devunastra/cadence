@@ -8,7 +8,7 @@ A guided flow for onboarding a new client (studio owner) and their studio(s), re
 | Studio creation | Owner creates studio(s) on wizard submit |
 | Scope of client form | Everything: business profile, GHL/Retell IDs, lead sources, calendar/schedule, timezone |
 | Auth gate | `studio_setup_complete` user-metadata flag, enforced in `proxy.ts` |
-| Status | **Planned** — blocked on prerequisites P1 + P2 below |
+| Status | **Built & deployed on `staging`** — Phases 1–5 + 8 complete (2026-05-31). Remaining: email-template redesign, manual QA pass under a non-Chicago studio, P3 (Resend domain), merge `staging` → `main`. |
 
 > Schema already supports **multiple owners per studio** and **multiple studios per owner** (`studio_users` is unique on `(studio_id, user_id)`). No migration needed for those.
 
@@ -30,14 +30,16 @@ Note: P2 is implemented. P1 (Site URL cutover) and P3 (sending domain) remain be
 
 Core invite → onboarding flow is **built and validated end-to-end** on `staging--cadence-amls.netlify.app` (2026-05-30). Remaining:
 
-- [ ] **Phase 5 — timezone threading:** replace hardcoded `America/Chicago` in `lib/appointment-slots.ts`, `lib/ghl.ts`, `lib/date-utils.ts` with the studio's `timezone`. (Regression risk — calendar/appointments.)
+- [x] **Phase 5 — timezone threading:** ✅ DONE (2026-05-31, commit `95eae66` + edge-fn redeploys) — replaced hardcoded `America/Chicago` in `lib/date-utils.ts`, `lib/appointment-slots.ts`, `lib/ghl.ts`, and threaded studio tz through every consumer: calendar (week boundaries, grid, modals, date picker), call analytics (charts, presets, custom range), call history / quality / follow-ups, conversations (thread separators, chips, email card, message thread), leads, activity log, server actions (`rescheduleAppointment`, `createAppointment`, `fetchCallsAnalytics`), and the conversations API route. `studioMidnightFromStr` rewritten with offset-based math + DST self-correction (fixes east-of-UTC zones). Settings UI: tz pickers in Studios (create form + inline edit per row) and Business Profile. `updateStudio` role check fixed so super_admin is treated as global. Supabase Edge Functions redeployed via local MCP: `daily-call-review` v5 (per-studio yesterday-in-tz windows), `analyze-call-quality` v5 (same super_admin global auth fix).
 - [x] **Existing-email invite branch:** ✅ DONE — `app/api/staff/invite/route.ts` now looks up existing users via `findUserByEmail` and skips Supabase's invite path: studio-less invite re-arms `role_intent`/`studio_setup_complete` + sends a "Sign in & set up studio" email; into-existing-studio just upserts the membership + sends a branded "you've been added" email. `lib/email.ts` gained `sendExistingOwnerNewStudioInvite` and `sendStudioMembershipNotification`.
 - [x] **Settings → My Staff — multi-studio display:** ✅ DONE — `components/settings/my-staff-table.tsx` now groups rows by user (one expandable row per person, "N studios" badge, role summary like "Owner / Staff", expand to see + edit + remove per-studio memberships).
-- [ ] **Email template redesign:** polish the Resend invite email (`lib/email.ts`) — proper Cadence branding, a real Loom embed/thumbnail (currently a placeholder link), improved layout/spacing.
-- [ ] **Phase 8 — internationalization:** country-driven region select + full timezone list (studios are worldwide).
+- [x] **Email template redesign:** ✅ DONE (2026-05-31) — UI/UX pass on `lib/email.ts` kept the original simple visual language (no header band, no eyebrow labels, no role pills, inline `▶ Watch this short walkthrough first` link, 480px card, 20px heading, 14px body, left-aligned CTA) and layered under-the-hood improvements: HTML-escaped all user-supplied strings (`esc()`), preheader snippet for inbox previews, plain-text alt body for deliverability + accessibility, explicit `font-family` on every text element (fixes default browser serif), `@media (max-width: 480px)` mobile breakpoint, `@media (prefers-color-scheme: dark)` overrides with `.cd-primary`/`.cd-secondary`/`.cd-muted` classes on every text element so dark-mode actually inverts (the previous templates only inverted the footer). Subject lines unchanged. All 5 templates (`sendStudioOwnerInvite`, `sendCoStaffInvite`, `sendExistingOwnerNewStudioInvite`, `sendStudioMembershipNotification`, `sendRoleChangedNotification`) rewritten through the shared shell. Loom URL placeholder retained per user decision. CTA hardened against an HTML-attribute quoting bug: font stack switched from `"Segoe UI"` to `'Segoe UI'` to avoid closing the inline `style=""` attribute prematurely (was silently stripping `color:#ffffff` and `text-decoration:none`, rendering buttons as underlined link-blue text).
+- [x] **Phase 8 — internationalization:** ✅ DONE (2026-05-31, commit `5b9fd99`) — country/region/tz pickers + searchable `SimpleSelect`. New `lib/locale-data.ts` carries the full ISO 3166-1 alpha-2 country list (names via `Intl.DisplayNames`), curated subdivisions for the top 15 expected studio countries (US, CA, GB, AU, NZ, IE, PH, IN, MX, AE, JP, DE, FR, ES) with free-text fallback elsewhere, country→IANA tz mapping, and the full IANA list (~418 zones via `Intl.supportedValuesOf('timeZone')`) as fallback. `defaultTimezoneForCountryRegion` only auto-fills for single-tz countries to avoid wrong defaults. Wired into all three forms (onboarding step-business-profile, Settings → Studios, Settings → Business Profile) with identical UX: searchable country picker, country-aware region dropdown/free-text, country-filtered tz picker. Layout: country/region row above city/postal. Onboarding `*` markers added for the 5 server-required fields + country, Next button disabled on Business Profile step when country is blank.
 - [ ] **P3 — verified Resend sending domain:** required to invite *any* address (not just the Resend-account email); blocked by the free-plan 1-domain limit.
+- [ ] **Manual QA pass — non-Chicago studio:** end-to-end exercise of calendar, appointments, analytics presets, conversations, and follow-ups under a non-US tz to validate Phase 5 + 8 before merge. Highest regression risk; deferred from earlier in the build.
 - [ ] **Deploy — merge `staging` → `main`** on completion (production `cadence-amls.netlify.app` builds from `main`).
 - [x] **Invite scenario matrix locked** — see "Invite Decision Matrix" below; covers a/b/c/d/e/f/g/h/i/j with the guardrails enforced in `app/api/staff/invite/route.ts`.
+- [x] **Onboarding dedupe fix:** ✅ DONE (2026-05-31, commit `770324e`) — `onboardingDupeKey` no longer includes name; dedupes by `street_address + city + state + postal_code + country`. Without this, the wizard's "Duplicate location" button (which appends " (copy)" to the name) let unedited dupes slip through. Verified in prod by two `test meryel` rows that bypassed the check; cleaned up post-fix.
 
 ---
 
@@ -119,8 +121,13 @@ Goals satisfied: a co-owner never fills the wizard; a returning owner is never r
 - `app/(auth)/accept-invite/page.tsx`: route `role_intent === 'studio_owner'` (blank-studio) users to `/onboarding`; everyone else to `/leads`.
 - **JWT refresh:** after the metadata flips, call `supabase.auth.refreshSession()` before `router.push('/leads')`, or the proxy bounces the user back to `/onboarding`.
 
-### Phase 5 — Timezone threading (regression risk)
-- Replace hardcoded `'America/Chicago'` in `lib/appointment-slots.ts:22`, `lib/ghl.ts:149,259`, `lib/date-utils.ts:4` with the studio's `timezone`. Thread the studio TZ through callers — touches calendar render + appointment/slot math. **Heaviest QA focus.**
+### Phase 5 — Timezone threading (regression risk) ✅ DONE 2026-05-31
+- Replaced hardcoded `'America/Chicago'` across `lib/date-utils.ts`, `lib/appointment-slots.ts`, `lib/ghl.ts` and threaded studio tz through every consumer (calendar, analytics, conversations, server actions, conversations API route). `studioMidnightFromStr` rewritten with offset-based math + DST self-correction.
+- Settings UI: tz pickers added to **Settings → Studios** (create form + inline edit-tz dropdown per row) and **Settings → Business Profile**.
+- Server actions: `createStudio` + `updateStudio` accept `timezone`. `updateStudio` role check fixed so super_admin is treated as global (per-studio query was rejecting super_admins on studios where they had no `studio_users` row).
+- Supabase Edge Functions redeployed via local MCP — `daily-call-review` v5 (per-studio yesterday-in-tz window + wide-UTC fetch + per-call filter), `analyze-call-quality` v5 (same super_admin global auth fix).
+- Commits: `95eae66` (tz threading) + `770324e` (onboarding dedupe fix).
+- **Manual QA pass deferred** — see Pending / To-do list at the top.
 
 ### Phase 6 — Reuse wizard in Settings
 - Settings → Studios → "Add studio" opens the same wizard (minus account/password) so existing owners get fully-configured additional studios.
@@ -128,16 +135,20 @@ Goals satisfied: a co-owner never fills the wizard; a returning owner is never r
 ### Phase 7 — QA
 - Full invite matrix, RLS isolation across studios, no `(app)` layout dead-end, JWT-refresh gate release, calendar correctness post-timezone, multi-studio name+address uniqueness, dark mode on the wizard.
 
-### Phase 8 — Internationalization (worldwide studios) — FUTURE, address before wrap-up
-**Confirmed 2026-05-30: studios are worldwide, not US-only.** The current build bakes in a US-only assumption that must be revisited before client onboarding is considered done:
-- **State/Region** is a fixed US-states `SimpleSelect` (`components/onboarding/step-business-profile.tsx` and `components/settings/studios-form.tsx`); **Country** is free text. The region list does NOT change with the selected country.
-- The **state → timezone** auto-suggest map (`components/onboarding/onboarding-types.ts`) is US-only, and the timezone picker lists only common US IANA zones.
-- `America/Chicago` is still hardcoded app-wide (see Phase 5).
+### Phase 8 — Internationalization (worldwide studios) ✅ DONE 2026-05-31
+- **Country**: full ISO 3166-1 alpha-2 list, names via `Intl.DisplayNames`, searchable `SimpleSelect` (new `searchable` prop).
+- **Region**: country-aware dropdown for top 15 expected studio countries (US, CA, GB, AU, NZ, IE, PH, IN, MX, AE, JP, DE, FR, ES); free-text input for everywhere else. Label adapts ("State", "Province", "Prefecture", "Emirate", …).
+- **Timezone**: country-filtered IANA list when a curated mapping exists; otherwise the full IANA list (~418 zones) via `Intl.supportedValuesOf('timeZone')`. `defaultTimezoneForCountryRegion` only auto-fills for single-tz countries to avoid wrong defaults.
+- Data shipped via hand-built `lib/locale-data.ts` (~5 KB) — no npm dependency.
+- Wired into all three forms with identical UX: onboarding `step-business-profile`, Settings → Studios, Settings → Business Profile. Layout: country/region row above city/postal.
+- Onboarding `*` markers added for the 5 server-required fields + country; Next button disabled on the Business Profile step when country is blank.
+- Storage convention unchanged: we still write display labels (`"United States"`, `"Illinois"`, `"America/Chicago"`) so existing rows render in the new dropdowns with no migration.
+- Commit: `5b9fd99`.
 
-Future work:
-- Make **Country** a select that drives the region options (US states / Canadian provinces / generic free-text for other countries) — in both the wizard and the Settings studios form.
-- Widen the **timezone** picker to the full IANA list (or country-filtered), not just US zones.
-- Ensure Phase 5 timezone threading honors any per-studio IANA timezone, not just US ones.
+**Open follow-ups** (not blocking client onboarding):
+- Subdivisions beyond the top 15 countries — free-text covers them for now; extend `lib/locale-data.ts` when a studio in a long-tail country needs the dropdown.
+- Per-row tz formatting in Settings → Activity Log for super_admin viewing rows from multiple studios (cosmetic; defensible UX).
+- Country-specific postal-code validation (none today).
 
 ---
 
