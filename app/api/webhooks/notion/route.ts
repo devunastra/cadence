@@ -20,6 +20,8 @@ export async function POST(request: NextRequest) {
   // 1) Verification handshake — capture the token from logs, then set NOTION_WEBHOOK_SECRET.
   if (body?.verification_token) {
     console.log('[notion-webhook] VERIFICATION TOKEN (set as NOTION_WEBHOOK_SECRET):', body.verification_token)
+    // Persist so it can be retrieved (service-role only) and pasted back into Notion to verify.
+    try { await createServiceClient().from('notion_webhook_verifications').insert({ token: body.verification_token }) } catch { /* non-fatal */ }
     return NextResponse.json({ ok: true })
   }
 
