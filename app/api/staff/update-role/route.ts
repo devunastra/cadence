@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 
 const VALID_ROLES = new Set(['studio_staff', 'studio_owner', 'super_admin'])
 
@@ -43,8 +43,15 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Use the service client for everything that touches another user's studio_users
+  // row. RLS only returns rows for studios the *requester* is a member of, so a
+  // super_admin who has no `studio_users` row in `studioId` would otherwise read
+  // null here and we'd 404 the request as "User not found in this studio."
+  // (Same RLS gap as updateStudio + analyze-call-quality.)
+  const serviceClient = createServiceClient()
+
   // Fetch target's current role
-  const { data: targetMembership } = await supabase
+  const { data: targetMembership } = await serviceClient
     .from('studio_users')
     .select('role')
     .eq('user_id', userId)
@@ -65,7 +72,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const { error } = await supabase
+  const { error } = await serviceClient
     .from('studio_users')
     .update({ role })
     .eq('user_id', userId)
