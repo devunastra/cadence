@@ -2965,9 +2965,16 @@ export async function cancelScheduledCallback(
 
 // ─── Client Onboarding ────────────────────────────────────────────────────────
 
-/** Normalised key used to detect duplicate studios (name + address), case-insensitive. */
-function onboardingDupeKey(s: { name: string; street_address: string; city: string; postal_code: string }): string {
-  return [s.name, s.street_address, s.city, s.postal_code]
+/**
+ * Normalised key used to detect duplicate studios by physical address (case-insensitive).
+ * Name is intentionally excluded: the wizard's "Duplicate location" button appends
+ * " (copy)" to the name, which would otherwise let an unedited dupe slip through.
+ * Two studios at the same physical address are almost certainly accidental.
+ */
+function onboardingDupeKey(
+  s: { street_address: string; city: string; state: string; postal_code: string; country: string },
+): string {
+  return [s.street_address, s.city, s.state, s.postal_code, s.country]
     .map(v => (v ?? '').trim().toLowerCase())
     .join('|')
 }
@@ -3014,23 +3021,31 @@ export async function completeStudioOnboarding(
     if (!s.postal_code?.trim()) throw new Error(`"${s.name}" is missing a postal / zip code.`)
     const key = onboardingDupeKey(s)
     if (seenKeys.has(key)) {
-      throw new Error('Two locations share the same name and address. Please make each location unique.')
+      throw new Error('Two locations share the same physical address. Please give each location a unique address.')
     }
     seenKeys.add(key)
   }
 
   const serviceClient = createServiceClient()
 
-  // Reject any studio whose name + address already matches an existing (non-deleted)
+  // Reject any studio whose physical address already matches an existing (non-deleted)
   // studio in the DB. The validation above only dedupes within this submission.
   const { data: existingStudios } = await serviceClient
     .from('studios')
-    .select('name, street_address, city, postal_code')
+    .select('street_address, city, state, postal_code, country')
     .is('deleted_at', null)
-  const existingKeys = new Set((existingStudios ?? []).map(s => onboardingDupeKey(s)))
+  const existingKeys = new Set(
+    ((existingStudios ?? []) as Array<{
+      street_address: string
+      city: string
+      state: string
+      postal_code: string
+      country: string
+    }>).map(s => onboardingDupeKey(s)),
+  )
   for (const s of studios) {
     if (existingKeys.has(onboardingDupeKey(s))) {
-      throw new Error(`A studio named "${s.name}" at that address already exists.`)
+      throw new Error(`A studio at "${s.street_address}, ${s.city}" already exists.`)
     }
   }
 
