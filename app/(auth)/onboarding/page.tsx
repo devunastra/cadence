@@ -81,12 +81,18 @@ export default function OnboardingPage() {
     if (step === 0) {
       if (!active.name.trim()) return 'Please enter a studio name.'
       if (!active.street_address.trim()) return 'Please enter a street address.'
-      if (!active.city.trim()) return 'Please enter a city.'
+      if (!active.country.trim()) return 'Please select a country.'
       if (!active.state.trim()) return 'Please select a state.'
+      if (!active.city.trim()) return 'Please enter a city.'
       if (!active.postal_code.trim()) return 'Please enter a postal / zip code.'
     }
     return null
   }
+
+  // Cheap UX-gate: disable Next on step 0 when country is blank so the dependent
+  // region picker isn't sitting there empty. validateStep() above still catches
+  // the rest if the user somehow gets past this.
+  const nextDisabled = step === 0 && !active.country.trim()
 
   function goNext() {
     const err = validateStep()
@@ -268,9 +274,10 @@ export default function OnboardingPage() {
               <button
                 type="button"
                 onClick={goNext}
-                className="inline-flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
+                disabled={nextDisabled}
+                className="inline-flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 style={{ backgroundColor: 'var(--color-accent)' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent-hover)'}
+                onMouseEnter={e => { if (!nextDisabled) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent-hover)' }}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent)'}
               >
                 Next

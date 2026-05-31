@@ -5,20 +5,15 @@ import { Eye, EyeOff } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { SimpleSelect } from '@/components/simple-select'
 import { useCurrentStudio } from '@/components/studio-context'
-import { TIMEZONE_OPTIONS } from '@/components/onboarding/onboarding-types'
+import {
+  getCountryOptions,
+  getSubdivisionsFor,
+  getRegionLabelFor,
+  getTimezoneOptionsFor,
+} from '@/lib/locale-data'
 import type { Studio } from '@/lib/types'
 
-const US_STATE_OPTIONS = [
-  'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado',
-  'Connecticut', 'Delaware', 'District of Columbia', 'Florida', 'Georgia',
-  'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky',
-  'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan', 'Minnesota',
-  'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire',
-  'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota',
-  'Ohio', 'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina',
-  'South Dakota', 'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia',
-  'Washington', 'West Virginia', 'Wisconsin', 'Wyoming',
-].map(s => ({ value: s, label: s }))
+const COUNTRY_OPTIONS = getCountryOptions()
 
 interface BusinessProfileFormProps {
   studio: Studio
@@ -105,6 +100,54 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
+                <label className={LABEL}>Country</label>
+                <SimpleSelect
+                  value={country}
+                  onChange={(c) => {
+                    // Changing country resets the region — it's meaningless under a different country.
+                    setCountry(c)
+                    setState('')
+                  }}
+                  options={COUNTRY_OPTIONS}
+                  placeholder="Select country"
+                  searchable
+                  searchPlaceholder="Search countries…"
+                  fullWidth
+                  triggerBg="var(--color-bg)"
+                  triggerClassName="py-2"
+                />
+              </div>
+              <div>
+                <label className={LABEL}>{getRegionLabelFor(country)}</label>
+                {(() => {
+                  const subs = getSubdivisionsFor(country)
+                  return subs ? (
+                    <SimpleSelect
+                      value={state}
+                      onChange={setState}
+                      options={subs.options.map(o => ({ value: o, label: o }))}
+                      placeholder={`Select ${subs.label.toLowerCase()}`}
+                      searchable
+                      searchPlaceholder={`Search ${subs.label.toLowerCase()}…`}
+                      fullWidth
+                      triggerBg="var(--color-bg)"
+                      triggerClassName="py-2"
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={state}
+                      onChange={e => setState(e.target.value)}
+                      placeholder="e.g. London"
+                      className={INPUT}
+                      disabled={!country}
+                    />
+                  )
+                })()}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
                 <label htmlFor="city" className={LABEL}>City</label>
                 <input id="city" type="text" value={city} onChange={e => setCity(e.target.value)} placeholder="e.g. Lincolnshire" className={INPUT} />
               </div>
@@ -113,36 +156,20 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
                 <input id="postalCode" type="text" value={postalCode} onChange={e => setPostalCode(e.target.value)} placeholder="e.g. 60069" className={INPUT} />
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="state" className={LABEL}>State / Prov / Region</label>
-                <SimpleSelect
-                  value={state}
-                  onChange={setState}
-                  options={US_STATE_OPTIONS}
-                  placeholder="Select State"
-                  fullWidth
-                  triggerBg="var(--color-bg)"
-                  triggerClassName="py-2"
-                />
-              </div>
-              <div>
-                <label htmlFor="country" className={LABEL}>Country</label>
-                <input id="country" type="text" value={country} onChange={e => setCountry(e.target.value)} placeholder="e.g. United States" className={INPUT} />
-              </div>
-            </div>
             <div>
               <label htmlFor="timezone" className={LABEL}>Timezone</label>
               <SimpleSelect
                 value={timezone}
                 onChange={(v) => { if (v) setTimezone(v) }}
-                options={TIMEZONE_OPTIONS}
-                placeholder="Select Timezone"
+                options={getTimezoneOptionsFor(country)}
+                placeholder="Select timezone"
+                searchable
+                searchPlaceholder="Search timezones…"
                 fullWidth
                 triggerBg="var(--color-bg)"
                 triggerClassName="py-2"
               />
-              <p className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>Drives calendar, appointment slots, and analytics date ranges for this studio.</p>
+              <p className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>Drives the calendar, appointment slots, and analytics date ranges for this studio.</p>
             </div>
           </div>
 

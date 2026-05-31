@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { ChevronDown } from 'lucide-react'
 
 interface SimpleSelectProps {
@@ -14,14 +14,39 @@ interface SimpleSelectProps {
   disabled?: boolean
   triggerBg?: string
   triggerClassName?: string
+  /** When true, renders a search input above the options list and filters them as the user types. */
+  searchable?: boolean
+  /** Placeholder for the search box when `searchable` is on. */
+  searchPlaceholder?: string
 }
 
-export function SimpleSelect({ value, onChange, options, placeholder = 'Selectâ€¦', fullWidth = false, minWidth, clearable = true, disabled = false, triggerBg, triggerClassName }: SimpleSelectProps) {
+export function SimpleSelect({
+  value,
+  onChange,
+  options,
+  placeholder = 'Selectâ€¦',
+  fullWidth = false,
+  minWidth,
+  clearable = true,
+  disabled = false,
+  triggerBg,
+  triggerClassName,
+  searchable = false,
+  searchPlaceholder = 'Searchâ€¦',
+}: SimpleSelectProps) {
   const [open, setOpen] = useState(false)
   const [rect, setRect] = useState<DOMRect | null>(null)
+  const [query, setQuery] = useState('')
   const buttonRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
   const selected = options.find(o => o.value === value)
+
+  const filtered = useMemo(() => {
+    if (!searchable || !query.trim()) return options
+    const q = query.trim().toLowerCase()
+    return options.filter(o => o.label.toLowerCase().includes(q))
+  }, [options, query, searchable])
 
   function handleToggle() {
     if (disabled) return
@@ -30,6 +55,18 @@ export function SimpleSelect({ value, onChange, options, placeholder = 'Selectâ€
     }
     setOpen(o => !o)
   }
+
+  // Reset the search filter and auto-focus the input every time the panel opens.
+  useEffect(() => {
+    if (!open) {
+      setQuery('')
+      return
+    }
+    if (searchable) {
+      // Defer focus until after the panel is in the DOM.
+      requestAnimationFrame(() => searchRef.current?.focus())
+    }
+  }, [open, searchable])
 
   useEffect(() => {
     if (!open) return
@@ -102,8 +139,28 @@ export function SimpleSelect({ value, onChange, options, placeholder = 'Selectâ€
             overflow: 'hidden',
           }}
         >
-          <div className="py-1" style={{ maxHeight: 260, overflowY: 'auto' }}>
-            {clearable && (
+          {searchable && (
+            <div
+              className="px-2 pt-2 pb-1"
+              style={{ borderBottom: '1px solid var(--color-border)' }}
+            >
+              <input
+                ref={searchRef}
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="w-full px-2 py-1 text-base md:text-sm rounded-md focus:outline-none"
+                style={{
+                  backgroundColor: 'var(--color-surface)',
+                  color: 'var(--color-text-primary)',
+                  border: '1px solid var(--color-border)',
+                }}
+              />
+            </div>
+          )}
+          <div className="py-1" style={{ maxHeight: 220, overflowY: 'auto' }}>
+            {clearable && !query && (
               <button
                 type="button"
                 onClick={() => { onChange(''); setOpen(false) }}
@@ -119,24 +176,33 @@ export function SimpleSelect({ value, onChange, options, placeholder = 'Selectâ€
                 {placeholder}
               </button>
             )}
-            {options.map(o => (
-              <button
-                key={o.value}
-                type="button"
-                onClick={() => { onChange(o.value); setOpen(false) }}
-                className="w-full text-left px-3 py-2 text-sm whitespace-nowrap"
-                style={{
-                  backgroundColor: value === o.value ? 'var(--color-accent)' : 'transparent',
-                  color: value === o.value ? '#ffffff' : 'var(--color-text-primary)',
-                  fontWeight: value === o.value ? 500 : 400,
-                  transition: 'none',
-                }}
-                onMouseEnter={e => { if (value !== o.value) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface-hover)' }}
-                onMouseLeave={e => { if (value !== o.value) (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
+            {filtered.length === 0 ? (
+              <div
+                className="px-3 py-2 text-sm"
+                style={{ color: 'var(--color-text-muted)' }}
               >
-                {o.label}
-              </button>
-            ))}
+                No matches
+              </div>
+            ) : (
+              filtered.map(o => (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => { onChange(o.value); setOpen(false) }}
+                  className="w-full text-left px-3 py-2 text-sm whitespace-nowrap"
+                  style={{
+                    backgroundColor: value === o.value ? 'var(--color-accent)' : 'transparent',
+                    color: value === o.value ? '#ffffff' : 'var(--color-text-primary)',
+                    fontWeight: value === o.value ? 500 : 400,
+                    transition: 'none',
+                  }}
+                  onMouseEnter={e => { if (value !== o.value) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface-hover)' }}
+                  onMouseLeave={e => { if (value !== o.value) (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
+                >
+                  {o.label}
+                </button>
+              ))
+            )}
           </div>
         </div>
         )

@@ -7,7 +7,13 @@ import { useToast } from "@/components/ui/toast-provider";
 import { NOTION_COLORS } from "@/lib/constants";
 import { SimpleSelect } from "@/components/simple-select";
 import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
-import { TIMEZONE_OPTIONS, defaultTimezoneForState } from "@/components/onboarding/onboarding-types";
+import {
+    getCountryOptions,
+    getSubdivisionsFor,
+    getRegionLabelFor,
+    getTimezoneOptionsFor,
+    defaultTimezoneForCountryRegion,
+} from "@/lib/locale-data";
 import type { Studio } from "@/lib/types";
 
 interface StudiosFormProps {
@@ -19,59 +25,7 @@ const INPUT =
 const LABEL =
     "block text-sm font-medium text-[var(--color-text-secondary)] mb-1";
 
-const US_STATE_OPTIONS = [
-    "Alabama",
-    "Alaska",
-    "Arizona",
-    "Arkansas",
-    "California",
-    "Colorado",
-    "Connecticut",
-    "Delaware",
-    "District of Columbia",
-    "Florida",
-    "Georgia",
-    "Hawaii",
-    "Idaho",
-    "Illinois",
-    "Indiana",
-    "Iowa",
-    "Kansas",
-    "Kentucky",
-    "Louisiana",
-    "Maine",
-    "Maryland",
-    "Massachusetts",
-    "Michigan",
-    "Minnesota",
-    "Mississippi",
-    "Missouri",
-    "Montana",
-    "Nebraska",
-    "Nevada",
-    "New Hampshire",
-    "New Jersey",
-    "New Mexico",
-    "New York",
-    "North Carolina",
-    "North Dakota",
-    "Ohio",
-    "Oklahoma",
-    "Oregon",
-    "Pennsylvania",
-    "Rhode Island",
-    "South Carolina",
-    "South Dakota",
-    "Tennessee",
-    "Texas",
-    "Utah",
-    "Vermont",
-    "Virginia",
-    "Washington",
-    "West Virginia",
-    "Wisconsin",
-    "Wyoming",
-].map((s) => ({ value: s, label: s }));
+const COUNTRY_OPTIONS = getCountryOptions();
 
 export function StudiosForm({ initialStudios }: StudiosFormProps) {
     const [studios, setStudios] = useState(initialStudios);
@@ -88,8 +42,8 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
     const [retellAgentId, setRetellAgentId] = useState("");
     const [retellApiKey, setRetellApiKey] = useState("");
     const [showApiKey, setShowApiKey] = useState(false);
-    const [timezone, setTimezone] = useState<string>(defaultTimezoneForState(""));
-    // Tracks whether the owner has manually picked a tz; lets state changes drive it otherwise.
+    const [timezone, setTimezone] = useState<string>("America/Chicago");
+    // Tracks whether the owner has manually picked a tz; lets country changes drive it otherwise.
     const [timezoneAuto, setTimezoneAuto] = useState(true);
     const { showError } = useToast();
     const [saving, setSaving] = useState(false);
@@ -133,7 +87,7 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
             setGhlCalendarId("");
             setRetellAgentId("");
             setRetellApiKey("");
-            setTimezone(defaultTimezoneForState(""));
+            setTimezone("America/Chicago");
             setTimezoneAuto(true);
             window.location.reload();
         } catch (err) {
@@ -301,8 +255,10 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                                                         handleTimezoneChange(studio.id, v);
                                                     }
                                                 }}
-                                                options={TIMEZONE_OPTIONS}
-                                                placeholder="Select Timezone"
+                                                options={getTimezoneOptionsFor(studio.country)}
+                                                placeholder="Select timezone"
+                                                searchable
+                                                searchPlaceholder="Search timezones…"
                                                 fullWidth
                                                 triggerBg="var(--color-bg)"
                                                 triggerClassName="py-1.5"
@@ -404,6 +360,65 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className={LABEL}>
+                                        Country <span className="text-red-500">*</span>
+                                    </label>
+                                    <SimpleSelect
+                                        value={country}
+                                        onChange={(c) => {
+                                            // Changing country resets the region and may auto-fill the timezone
+                                            // (only when single-tz country and tz still on auto).
+                                            setCountry(c);
+                                            setState("");
+                                            if (timezoneAuto) {
+                                                const guess = defaultTimezoneForCountryRegion(c, "");
+                                                if (guess) setTimezone(guess);
+                                            }
+                                        }}
+                                        options={COUNTRY_OPTIONS}
+                                        placeholder="Select country"
+                                        searchable
+                                        searchPlaceholder="Search countries…"
+                                        fullWidth
+                                        triggerBg="var(--color-bg)"
+                                        triggerClassName="py-2"
+                                    />
+                                </div>
+                                <div>
+                                    <label className={LABEL}>
+                                        {getRegionLabelFor(country)}{" "}
+                                        <span className="text-red-500">*</span>
+                                    </label>
+                                    {(() => {
+                                        const subs = getSubdivisionsFor(country);
+                                        return subs ? (
+                                            <SimpleSelect
+                                                value={state}
+                                                onChange={setState}
+                                                options={subs.options.map((o) => ({ value: o, label: o }))}
+                                                placeholder={`Select ${subs.label.toLowerCase()}`}
+                                                searchable
+                                                searchPlaceholder={`Search ${subs.label.toLowerCase()}…`}
+                                                fullWidth
+                                                triggerBg="var(--color-bg)"
+                                                triggerClassName="py-2"
+                                            />
+                                        ) : (
+                                            <input
+                                                type="text"
+                                                required
+                                                value={state}
+                                                onChange={(e) => setState(e.target.value)}
+                                                placeholder="e.g. London"
+                                                className={INPUT}
+                                                disabled={!country}
+                                            />
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className={LABEL}>
                                         City <span className="text-red-500">*</span>
                                     </label>
                                     <input
@@ -432,40 +447,6 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                                     />
                                 </div>
                             </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className={LABEL}>
-                                        State / Prov / Region{" "}
-                                        <span className="text-red-500">*</span>
-                                    </label>
-                                    <SimpleSelect
-                                        value={state}
-                                        onChange={(s) => {
-                                            setState(s);
-                                            if (timezoneAuto) setTimezone(defaultTimezoneForState(s));
-                                        }}
-                                        options={US_STATE_OPTIONS}
-                                        placeholder="Select State"
-                                        fullWidth
-                                        triggerBg="var(--color-bg)"
-                                        triggerClassName="py-2"
-                                    />
-                                </div>
-                                <div>
-                                    <label className={LABEL}>
-                                        Country{" "}
-                                        <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        required
-                                        value={country}
-                                        onChange={(e) => setCountry(e.target.value)}
-                                        placeholder="e.g. United States"
-                                        className={INPUT}
-                                    />
-                                </div>
-                            </div>
                             <div>
                                 <label className={LABEL}>
                                     Timezone <span className="text-red-500">*</span>
@@ -477,8 +458,10 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                                         setTimezone(v);
                                         setTimezoneAuto(false);
                                     }}
-                                    options={TIMEZONE_OPTIONS}
-                                    placeholder="Select Timezone"
+                                    options={getTimezoneOptionsFor(country)}
+                                    placeholder="Select timezone"
+                                    searchable
+                                    searchPlaceholder="Search timezones…"
                                     fullWidth
                                     triggerBg="var(--color-bg)"
                                     triggerClassName="py-2"
@@ -487,7 +470,7 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                                     className="mt-1 text-xs"
                                     style={{ color: "var(--color-text-muted)" }}
                                 >
-                                    Auto-set from the selected state. Override here if needed.
+                                    Auto-set from the selected country when unambiguous. Override here if needed.
                                 </p>
                             </div>
                         </div>

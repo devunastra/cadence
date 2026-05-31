@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, AlertCircle, Copy } from 'lucide-react'
 import { SimpleSelect } from '@/components/simple-select'
+import { getTimezoneOptionsFor } from '@/lib/locale-data'
 import type { OnboardingStudioInput } from '@/lib/types'
-import { INPUT, LABEL, TIMEZONE_OPTIONS } from './onboarding-types'
+import { INPUT, LABEL } from './onboarding-types'
 
 interface StepScheduleProps {
   studio: OnboardingStudioInput
@@ -200,14 +201,16 @@ export function StepSchedule({ studio, onChange, onTimezoneOverride }: StepSched
       <div className={CARD} style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
         <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--color-text-primary)' }}>Timezone</h3>
         <p className="text-xs mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-          Used for booking and displaying appointment times. We&apos;ve suggested one based on your studio&apos;s state.
+          Used for booking and displaying appointment times. We&apos;ve narrowed the list to your country&apos;s zones when possible.
         </p>
-        <div className="max-w-xs">
+        <div className="max-w-sm">
           <SimpleSelect
             value={studio.timezone}
             onChange={v => { if (v) { onTimezoneOverride(); onChange({ timezone: v }) } }}
-            options={TIMEZONE_OPTIONS}
+            options={getTimezoneOptionsFor(studio.country)}
             clearable={false}
+            searchable
+            searchPlaceholder="Search timezones…"
             fullWidth
             triggerBg="var(--color-bg)"
             triggerClassName="py-2"
