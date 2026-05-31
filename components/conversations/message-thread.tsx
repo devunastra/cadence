@@ -2,6 +2,7 @@
 
 import { MessageSquare, AlertTriangle } from 'lucide-react'
 import { Spinner } from '@/components/spinner'
+import { useCurrentStudio } from '@/components/studio-context'
 import type React from 'react'
 
 // ── Types shared between conversations page and lead profile ──────────────────
@@ -49,30 +50,28 @@ function callStatusLabel(status: string | undefined): { label: string; success: 
   return { label: 'Call', success: true }
 }
 
-const STUDIO_TZ = 'America/Chicago'
-
-function formatTime24H(dateStr: string | null): string {
+function formatTime24H(dateStr: string | null, tz: string): string {
   if (!dateStr) return ''
   return new Date(dateStr).toLocaleTimeString('en-GB', {
-    hour: '2-digit', minute: '2-digit', timeZone: STUDIO_TZ,
+    hour: '2-digit', minute: '2-digit', timeZone: tz,
   })
 }
 
-function getDateKey(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-CA', { timeZone: STUDIO_TZ })
+function getDateKey(dateStr: string, tz: string): string {
+  return new Date(dateStr).toLocaleDateString('en-CA', { timeZone: tz })
 }
 
-function getDateLabel(dateStr: string): string {
+function getDateLabel(dateStr: string, tz: string): string {
   const date = new Date(dateStr)
   const now = new Date()
-  const todayKey = now.toLocaleDateString('en-CA', { timeZone: STUDIO_TZ })
-  const yesterdayKey = new Date(now.getTime() - 86_400_000).toLocaleDateString('en-CA', { timeZone: STUDIO_TZ })
-  const weekAgoKey = new Date(now.getTime() - 6 * 86_400_000).toLocaleDateString('en-CA', { timeZone: STUDIO_TZ })
-  const key = date.toLocaleDateString('en-CA', { timeZone: STUDIO_TZ })
+  const todayKey = now.toLocaleDateString('en-CA', { timeZone: tz })
+  const yesterdayKey = new Date(now.getTime() - 86_400_000).toLocaleDateString('en-CA', { timeZone: tz })
+  const weekAgoKey = new Date(now.getTime() - 6 * 86_400_000).toLocaleDateString('en-CA', { timeZone: tz })
+  const key = date.toLocaleDateString('en-CA', { timeZone: tz })
   if (key === todayKey) return 'Today'
   if (key === yesterdayKey) return 'Yesterday'
-  if (key >= weekAgoKey) return date.toLocaleDateString('en-US', { weekday: 'long', timeZone: STUDIO_TZ })
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: STUDIO_TZ })
+  if (key >= weekAgoKey) return date.toLocaleDateString('en-US', { weekday: 'long', timeZone: tz })
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: tz })
 }
 
 // ── Thread items builder ──────────────────────────────────────────────────────
@@ -81,14 +80,14 @@ type ThreadItem =
   | { type: 'separator'; date: string; label: string }
   | { type: 'message'; msg: ThreadMessage }
 
-function buildThreadItems(messages: ThreadMessage[]): ThreadItem[] {
+function buildThreadItems(messages: ThreadMessage[], tz: string): ThreadItem[] {
   const items: ThreadItem[] = []
   let lastDateKey = ''
   for (const msg of messages) {
-    const key = getDateKey(msg.dateAdded)
+    const key = getDateKey(msg.dateAdded, tz)
     if (key !== lastDateKey) {
       lastDateKey = key
-      items.push({ type: 'separator', date: key, label: getDateLabel(msg.dateAdded) })
+      items.push({ type: 'separator', date: key, label: getDateLabel(msg.dateAdded, tz) })
     }
     items.push({ type: 'message', msg })
   }
@@ -119,7 +118,9 @@ export function MessageThread({
   headerSlot,
   contactEmail,
 }: MessageThreadProps) {
-  const threadItems = buildThreadItems(messages)
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
+  const threadItems = buildThreadItems(messages, tz)
 
   return (
     <div
@@ -251,7 +252,7 @@ export function MessageThread({
                   style={{ color: 'var(--color-text-muted)' }}
                   suppressHydrationWarning
                 >
-                  {formatTime24H(msg.dateAdded)}
+                  {formatTime24H(msg.dateAdded, tz)}
                 </span>
               </div>
             )}

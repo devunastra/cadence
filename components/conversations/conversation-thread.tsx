@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Phone, CalendarDays, Target, UserRound, Zap, AlertTriangle, Volume1, Volume2, VolumeX } from 'lucide-react'
 import { Spinner } from '@/components/spinner'
 import { EmailThreadCard } from '@/components/conversations/email-thread-card'
+import { useCurrentStudio } from '@/components/studio-context'
 
 // ── Exported types ────────────────────────────────────────────────────────────
 
@@ -29,7 +30,6 @@ export interface GHLMessage {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-export const STUDIO_TZ = 'America/Chicago'
 export const STUDIO_EMAIL = 'info@arthurmurray.info'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -45,25 +45,25 @@ export function resolveEmailDisplay(raw: string | null | undefined, contactEmail
   return 'Studio mail'
 }
 
-export function formatTime24H(dateStr: string | null): string {
+export function formatTime24H(dateStr: string | null, tz: string): string {
   if (!dateStr) return ''
-  return new Date(dateStr).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: STUDIO_TZ })
+  return new Date(dateStr).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: tz })
 }
 
-function getDateKey(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-CA', { timeZone: STUDIO_TZ })
+function getDateKey(dateStr: string, tz: string): string {
+  return new Date(dateStr).toLocaleDateString('en-CA', { timeZone: tz })
 }
 
-function getDateLabel(dateStr: string): string {
+function getDateLabel(dateStr: string, tz: string): string {
   const date = new Date(dateStr)
   const now = new Date()
-  const todayKey = now.toLocaleDateString('en-CA', { timeZone: STUDIO_TZ })
-  const yesterdayKey = new Date(now.getTime() - 86_400_000).toLocaleDateString('en-CA', { timeZone: STUDIO_TZ })
-  const key = date.toLocaleDateString('en-CA', { timeZone: STUDIO_TZ })
+  const todayKey = now.toLocaleDateString('en-CA', { timeZone: tz })
+  const yesterdayKey = new Date(now.getTime() - 86_400_000).toLocaleDateString('en-CA', { timeZone: tz })
+  const key = date.toLocaleDateString('en-CA', { timeZone: tz })
   if (key === todayKey) return 'Today'
   if (key === yesterdayKey) return 'Yesterday'
   const sameYear = date.getFullYear() === now.getFullYear()
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }), timeZone: STUDIO_TZ })
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }), timeZone: tz })
 }
 
 export function channelLabel(type: string): string {
@@ -366,15 +366,17 @@ export function ConversationThread({
   onSent,
   msgError,
 }: ConversationThreadProps) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const [openDetailsId, setOpenDetailsId] = useState<string | null>(null)
   const [detailsBelow, setDetailsBelow] = useState(false)
 
   const threadItems: ThreadItem[] = []
   let lastDateKey = ''
   for (const msg of messages) {
-    const dk = getDateKey(msg.dateAdded)
+    const dk = getDateKey(msg.dateAdded, tz)
     if (dk !== lastDateKey) {
-      threadItems.push({ type: 'separator', date: dk, label: getDateLabel(msg.dateAdded) })
+      threadItems.push({ type: 'separator', date: dk, label: getDateLabel(msg.dateAdded, tz) })
       lastDateKey = dk
     }
     threadItems.push({ type: 'message', msg })
@@ -455,7 +457,7 @@ export function ConversationThread({
                   const chipDate = new Date(msg.dateAdded).toLocaleString('en-US', {
                     month: 'short', day: 'numeric', year: 'numeric',
                     hour: 'numeric', minute: '2-digit', hour12: true,
-                    timeZone: STUDIO_TZ,
+                    timeZone: tz,
                   })
 
                   return (
@@ -549,7 +551,7 @@ export function ConversationThread({
                     onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)')}
                     onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = 'var(--color-text-muted)')}
                   >
-                    {formatTime24H(msg.dateAdded)}
+                    {formatTime24H(msg.dateAdded, tz)}
                     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" style={{ marginLeft: 2 }}>
                       <polyline points="2,3.5 5,6.5 8,3.5" />
                     </svg>
@@ -581,7 +583,7 @@ export function ConversationThread({
                             </div>
                             <div className="flex items-start gap-2 text-xs">
                               <span style={{ color: 'var(--color-text-muted)' }}>◷</span>
-                              <span style={{ color: 'var(--color-text-secondary)' }}>{new Date(msg.dateAdded).toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: STUDIO_TZ })}</span>
+                              <span style={{ color: 'var(--color-text-secondary)' }}>{new Date(msg.dateAdded).toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz })}</span>
                             </div>
                             {msg.status && (
                               <div className="flex items-center gap-2 text-xs">

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import DOMPurify from 'dompurify'
 import { Spinner } from '@/components/spinner'
+import { useCurrentStudio } from '@/components/studio-context'
 import { EmailEditor, useEmailEditor } from './email-editor'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -67,16 +68,16 @@ function parseSender(raw: string): { name: string; email: string } {
   return { name: '', email: raw.trim() }
 }
 
-function formatEmailTime(dateStr: string): string {
+function formatEmailTime(dateStr: string, tz: string): string {
   return new Date(dateStr).toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
-    timeZone: 'America/Chicago',
+    timeZone: tz,
   })
 }
 
-function formatEmailDateTime(dateStr: string): string {
+function formatEmailDateTime(dateStr: string, tz: string): string {
   return new Date(dateStr).toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -84,7 +85,7 @@ function formatEmailDateTime(dateStr: string): string {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
-    timeZone: 'America/Chicago',
+    timeZone: tz,
   })
 }
 
@@ -118,6 +119,7 @@ function EmailRow({
   fullExpand,
   contactName,
   onReply,
+  tz,
 }: {
   email: EmailMessage
   open: boolean
@@ -125,6 +127,7 @@ function EmailRow({
   fullExpand: boolean
   contactName?: string
   onReply?: () => void
+  tz: string
 }) {
 
   const { resolvedTheme } = useTheme()
@@ -246,10 +249,10 @@ function EmailRow({
           onMouseDown={e => e.stopPropagation()}
         >
           <span
-            title={formatEmailDateTime(email.dateAdded)}
+            title={formatEmailDateTime(email.dateAdded, tz)}
             style={{ fontSize: 13, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', cursor: 'default' }}
           >
-            {formatEmailTime(email.dateAdded)}
+            {formatEmailTime(email.dateAdded, tz)}
           </span>
 
           <div className="relative" ref={menuRef}>
@@ -385,6 +388,7 @@ function ThreadBody({
   onRevealReplies,
   openMap,
   onToggle,
+  tz,
 }: {
   emails: (EmailMessage | null)[]
   repliesRevealed: boolean
@@ -394,6 +398,7 @@ function ThreadBody({
   onRevealReplies: () => void
   openMap: Record<string, boolean>
   onToggle: (id: string) => void
+  tz: string
 }) {
   const hiddenCount = repliesRevealed ? 0 : emails.filter((e, i) => e !== null && i < emails.length - 1).length
 
@@ -435,6 +440,7 @@ function ThreadBody({
             fullExpand={fullExpand}
             contactName={contactName}
             onReply={isLatest ? onReply : undefined}
+            tz={tz}
           />
         )
       })}
@@ -455,6 +461,7 @@ function EmailThread({
   isModal,
   onOpenModal,
   onCloseModal,
+  tz,
 }: {
   subject: string
   emails: (EmailMessage | null)[]
@@ -464,6 +471,7 @@ function EmailThread({
   isModal: boolean
   onOpenModal?: () => void
   onCloseModal?: () => void
+  tz: string
 }) {
   const [repliesRevealed, setRepliesRevealed] = useState(isModal)
   const [openMap, setOpenMap] = useState<Record<string, boolean>>({})
@@ -563,6 +571,7 @@ function EmailThread({
           }}
             openMap={openMap}
             onToggle={toggleRow}
+            tz={tz}
           />
         )}
       </div>
@@ -997,6 +1006,8 @@ function InlineReplyModal({
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function EmailThreadCard({ subject, emailIds, contactName, contactEmail, conversationId, contactId, onSent }: EmailThreadCardProps) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const [emails, setEmails] = useState<(EmailMessage | null)[]>([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(false)
@@ -1044,6 +1055,7 @@ export function EmailThreadCard({ subject, emailIds, contactName, contactEmail, 
         onReply={openReply}
         isModal={false}
         onOpenModal={() => setModal(true)}
+        tz={tz}
       />
 
       {/* Inline reply compose box */}
@@ -1097,6 +1109,7 @@ export function EmailThreadCard({ subject, emailIds, contactName, contactEmail, 
               onReply={openReply}
               isModal={true}
               onCloseModal={() => setModal(false)}
+              tz={tz}
             />
           </div>
         </div>,

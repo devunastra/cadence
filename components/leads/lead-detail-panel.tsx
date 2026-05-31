@@ -12,6 +12,7 @@ import { PhoneInput } from './phone-input'
 import { DatePickerPopup } from './date-picker-popup'
 import { TranscriptViewer } from '@/components/call-analytics/transcript-viewer'
 import { Spinner } from '@/components/spinner'
+import { useCurrentStudio } from '@/components/studio-context'
 
 interface LeadDetailPanelProps {
   lead: Lead
@@ -26,12 +27,12 @@ interface LeadDetailPanelProps {
   onViewInTranscriptsClick?: () => void
 }
 
-function formatDateTime(iso: string | null) {
+function formatDateTime(iso: string | null, tz: string) {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('en-US', {
     month: 'long', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit', hour12: true,
-    timeZone: 'America/Chicago',
+    timeZone: tz,
   }).replace(' at ', ', ')
 }
 
@@ -44,6 +45,8 @@ export function LeadDetailPanel({
   fieldOptions, onOptionAdded, onOptionRenamed, onOptionDeleted, onOptionsChange,
   onViewInTranscriptsClick,
 }: LeadDetailPanelProps) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const [data, setData] = useState<Lead>(lead)
   const [editingField, setEditingField] = useState<keyof Lead | null>(null)
   const [editValue, setEditValue] = useState('')
@@ -229,7 +232,7 @@ export function LeadDetailPanel({
         onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'}
         onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
       >
-        {formatDateTime(data[field])}
+        {formatDateTime(data[field], tz)}
       </button>
     )
   }
@@ -296,7 +299,7 @@ export function LeadDetailPanel({
                   </h2>
                 )}
                 <p suppressHydrationWarning className="text-sm mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-                  Added {formatDateTime(data.created_at)}
+                  Added {formatDateTime(data.created_at, tz)}
                 </p>
               </div>
             </div>
@@ -453,7 +456,7 @@ export function LeadDetailPanel({
                           onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
                         >
                           <p className="text-sm font-medium truncate" style={{ color: 'var(--color-text-primary)' }}>
-                            {formatDateTime(call.created_at)}
+                            {formatDateTime(call.created_at, tz)}
                           </p>
                           {call.outcome && (() => {
                             const oc = STATUS_COLORS[call.outcome] ?? { bg: 'status-bg-default', text: 'status-text-default' }

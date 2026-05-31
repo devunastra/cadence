@@ -11,6 +11,7 @@ import { LeadsFilterBar } from './leads-filter-bar'
 import { ViewsSelector } from './views-selector'
 import { Checkbox } from './checkbox'
 import { ConfirmDeleteModal } from '@/components/confirm-delete-modal'
+import { useCurrentStudio } from '@/components/studio-context'
 import { ALL_LEAD_ENUM_FIELDS, STATUS_COLORS } from '@/lib/constants'
 import { buildDefaultOptions } from '@/lib/field-options'
 import { ALL_COLUMNS_VIEW } from '@/lib/views'
@@ -37,12 +38,12 @@ function formatNameList(names: string[]): string {
   return `${names[0]}, ${names[1]}, and ${names.length - 2} more`
 }
 
-function formatDateTime(iso: string | null): string {
+function formatDateTime(iso: string | null, tz: string): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('en-US', {
     month: 'long', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit', hour12: true,
-    timeZone: 'America/Chicago',
+    timeZone: tz,
   }).replace(' at ', ', ')
 }
 
@@ -180,6 +181,8 @@ const ALL_COLUMNS: { key: keyof Lead; label: string; icon?: LucideIcon }[] = [
 
 export function LeadsTable({ studioId }: LeadsTableProps) {
   const router = useRouter()
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const { theme, setTheme } = useTheme()
   const [leads, setLeads] = useState<Lead[]>([])
   const [total, setTotal] = useState(0)
@@ -760,7 +763,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
     }
 
     if (field === 'created_at') {
-      return <span className="text-sm text-[var(--color-text-body)] block overflow-hidden whitespace-nowrap min-h-[20px]">{value ? formatDateTime(value as string | null) : ''}</span>
+      return <span className="text-sm text-[var(--color-text-body)] block overflow-hidden whitespace-nowrap min-h-[20px]">{value ? formatDateTime(value as string | null, tz) : ''}</span>
     }
 
     if (DATE_FIELDS.includes(field)) {
@@ -772,7 +775,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
           }}
           className="cursor-pointer text-sm text-[var(--color-text-body)] hover:bg-[rgba(55,53,47,0.06)] dark:hover:bg-[rgba(255,255,255,0.06)] rounded px-1 py-0.5 block overflow-hidden whitespace-nowrap min-h-[20px] min-w-[40px]"
         >
-          {value ? formatDateTime(value as string | null) : ''}
+          {value ? formatDateTime(value as string | null, tz) : ''}
         </span>
       )
     }

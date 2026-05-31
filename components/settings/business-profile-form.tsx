@@ -5,6 +5,7 @@ import { Eye, EyeOff } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { SimpleSelect } from '@/components/simple-select'
 import { useCurrentStudio } from '@/components/studio-context'
+import { TIMEZONE_OPTIONS } from '@/components/onboarding/onboarding-types'
 import type { Studio } from '@/lib/types'
 
 const US_STATE_OPTIONS = [
@@ -41,6 +42,7 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
   const [retellId, setRetellId] = useState(studio.retell_agent_id)
   const [retellApiKey, setRetellApiKey] = useState(studio.retell_api_key ?? '')
   const [showApiKey, setShowApiKey] = useState(false)
+  const [timezone, setTimezone] = useState<string>(studio.timezone)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -68,6 +70,7 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
         ghl_calendar_id: calendarId,
         retell_agent_id: retellId,
         retell_api_key: retellApiKey || null,
+        timezone,
       })
       .eq('id', studio.id)
 
@@ -77,7 +80,7 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
     } else {
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-      updateCurrentStudio({ name, city, state })
+      updateCurrentStudio({ name, city, state, timezone })
     }
   }
 
@@ -127,6 +130,19 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
                 <label htmlFor="country" className={LABEL}>Country</label>
                 <input id="country" type="text" value={country} onChange={e => setCountry(e.target.value)} placeholder="e.g. United States" className={INPUT} />
               </div>
+            </div>
+            <div>
+              <label htmlFor="timezone" className={LABEL}>Timezone</label>
+              <SimpleSelect
+                value={timezone}
+                onChange={(v) => { if (v) setTimezone(v) }}
+                options={TIMEZONE_OPTIONS}
+                placeholder="Select Timezone"
+                fullWidth
+                triggerBg="var(--color-bg)"
+                triggerClassName="py-2"
+              />
+              <p className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>Drives calendar, appointment slots, and analytics date ranges for this studio.</p>
             </div>
           </div>
 

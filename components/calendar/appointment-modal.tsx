@@ -5,6 +5,7 @@ import { X, CalendarDays, User, Phone, Mail, MapPin, FileText, Trash2, Pencil, C
 import { rescheduleAppointment, updateAppointmentDetails, updateAppointmentStatus } from '@/app/actions'
 import { useToast } from '@/components/ui/toast-provider'
 import { getSlotsForDate, validateSlot } from '@/lib/appointment-slots'
+import { useCurrentStudio } from '@/components/studio-context'
 import { AppointmentDatePicker } from './appointment-date-picker'
 import { SimpleSelect } from '@/components/simple-select'
 import { ExpandableTextarea } from '@/components/expandable-textarea'
@@ -93,6 +94,8 @@ export function AppointmentModal({
   appointment, lead, onClose, onDelete, onViewLead,
   onReschedule, onUpdate, slotConfig, initialEditing = false,
 }: AppointmentModalProps) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const { showError } = useToast()
   const [isDeleting, setIsDeleting]             = useState(false)
   const [showConfirmDelete, setShowConfirmDelete] = useState(false)
@@ -133,7 +136,7 @@ export function AppointmentModal({
     let effectiveId = appointment.id
 
     if (timeChanged) {
-      const slotError = validateSlot(editDate, editTime, slotConfig)
+      const slotError = validateSlot(editDate, editTime, slotConfig, tz)
       if (slotError) { showError(slotError); setIsSaving(false); return }
 
       const newStart = `${editDate}T${editTime}:00`

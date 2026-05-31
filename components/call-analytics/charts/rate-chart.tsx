@@ -6,6 +6,7 @@ import {
 } from 'recharts'
 import type { ChartType } from '../kpi-card'
 import { formatShortDate } from '@/lib/date-utils'
+import { useCurrentStudio } from '@/components/studio-context'
 
 interface RateChartProps {
   /** Each point: { date: string; rate: number } where rate is 0–1 */
@@ -18,6 +19,8 @@ interface RateChartProps {
 function pct(v: number) { return `${Math.round(v * 100)}%` }
 
 export function RateChart({ data, type, label, color = '#2383E2' }: RateChartProps) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const chartData = data.length > 0 ? data : [{ date: new Date().toISOString().slice(0, 10), rate: 0 }]
   const common = {
     data: chartData,
@@ -26,11 +29,11 @@ export function RateChart({ data, type, label, color = '#2383E2' }: RateChartPro
   const axis = (
     <>
       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-      <XAxis dataKey="date" tickFormatter={d => formatShortDate(d)} tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
+      <XAxis dataKey="date" tickFormatter={d => formatShortDate(d, tz)} tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
       <YAxis tickFormatter={pct} domain={[0, 1]} tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
       <Tooltip
         formatter={(v) => [pct(Number(v)), label]}
-        labelFormatter={(d) => formatShortDate(String(d))}
+        labelFormatter={(d) => formatShortDate(String(d), tz)}
         contentStyle={{ fontSize: 12, borderRadius: 8 }}
       />
     </>

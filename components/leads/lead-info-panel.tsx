@@ -9,6 +9,7 @@ import type { FieldOption } from '@/lib/field-options'
 import { EnumDropdown } from './enum-dropdown'
 import { PhoneInput } from './phone-input'
 import { DatePickerPopup } from './date-picker-popup'
+import { useCurrentStudio } from '@/components/studio-context'
 
 export interface LeadInfoPanelProps {
   lead: Lead
@@ -28,12 +29,12 @@ export interface LeadInfoPanelProps {
   ghlLocationId?: string | null
 }
 
-function formatDateTime(iso: string | null) {
+function formatDateTime(iso: string | null, tz: string) {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit', hour12: true,
-    timeZone: 'America/Chicago',
+    timeZone: tz,
   })
 }
 
@@ -55,6 +56,8 @@ export function LeadInfoPanel({
   profileUrl,
   ghlLocationId,
 }: LeadInfoPanelProps) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const [data, setData] = useState<Lead>(lead)
   const [editingField, setEditingField] = useState<keyof Lead | null>(null)
   const [editValue, setEditValue] = useState('')
@@ -205,7 +208,7 @@ export function LeadInfoPanel({
           style={{ paddingBottom: '4px' }}
         >
           <div className="text-sm" style={{ color: 'var(--color-text-body)' }}>
-            {formatDateTime(data[field])}
+            {formatDateTime(data[field], tz)}
           </div>
           <ChevronDown size={14} className="opacity-0 group-hover/btn:opacity-100 transition-opacity" style={{ color: 'var(--color-text-muted)' }} />
         </button>
@@ -268,7 +271,7 @@ export function LeadInfoPanel({
                     {editingField === 'name' ? editValue : data.name}
                   </h2>
                 <p suppressHydrationWarning className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-                  Added {formatDateTime(data.created_at)}
+                  Added {formatDateTime(data.created_at, tz)}
                 </p>
               </div>
             </div>

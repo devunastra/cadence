@@ -8,25 +8,21 @@ import { getRetellPhoneNumber, updateRetellPhoneNumberInboundAgent } from '@/lib
 import type { Lead, ScheduledCallback, StudioSlotConfig, OnboardingStudioInput } from '@/lib/types'
 import type { FieldOption } from '@/lib/field-options'
 
-// Converts a naive Chicago-local ISO string ("2026-05-08T17:00:00") to a UTC ISO string
-// by formatting that naive moment in the Chicago timezone and computing the offset.
-function naiveChicagoToUtcIso(naiveLocal: string): string {
-  // Interpret the naive string as Chicago local time via Intl
+// Converts a naive studio-local ISO string ("2026-05-08T17:00:00") to a UTC ISO string
+// by formatting that naive moment in the studio's timezone and computing the offset.
+function naiveStudioLocalToUtcIso(naiveLocal: string, tz: string): string {
   const dt = new Date(naiveLocal + 'Z') // treat as UTC first to get a Date object
-  // Find the UTC offset that Chicago has at that moment by formatting the UTC date in Chicago tz
-  const chicagoFmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Chicago',
+  // Find the UTC offset that `tz` has at that moment by formatting the UTC date in tz
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   }).formatToParts(dt)
-  const p = Object.fromEntries(chicagoFmt.map(({ type, value }) => [type, value]))
-  // Build the Chicago-local ISO from parts
-  const chicagoLocalIso = `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`
-  // Diff between what Chicago shows for our "UTC" date vs the naive string gives the offset
+  const p = Object.fromEntries(fmt.map(({ type, value }) => [type, value]))
+  const localIso = `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`
   const utcMs = dt.getTime()
-  const chicagoAsUtcMs = new Date(chicagoLocalIso + 'Z').getTime()
-  const offsetMs = chicagoAsUtcMs - utcMs // e.g. +18000000 for CDT (UTC-5)
-  // The real UTC time for the naive local input is: subtract offset
+  const localAsUtcMs = new Date(localIso + 'Z').getTime()
+  const offsetMs = localAsUtcMs - utcMs
   return new Date(new Date(naiveLocal + 'Z').getTime() - offsetMs).toISOString()
 }
 
@@ -270,6 +266,7 @@ export async function createStudio({
   ghl_calendar_id,
   retell_agent_id,
   retell_api_key,
+  timezone,
 }: {
   name: string
   city?: string
@@ -282,6 +279,7 @@ export async function createStudio({
   ghl_calendar_id?: string
   retell_agent_id?: string
   retell_api_key?: string
+  timezone?: string
 }): Promise<void> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -297,22 +295,24 @@ export async function createStudio({
 
   const location = [city, state].filter(Boolean).join(', ')
   const serviceClient = createServiceClient()
+  const insertRow: Record<string, unknown> = {
+    name,
+    city: city ?? '',
+    state: state ?? '',
+    street_address: street_address ?? '',
+    postal_code: postal_code ?? '',
+    country: country ?? '',
+    location,
+    ghl_account_id: ghl_account_id || '',
+    ghl_api_key: ghl_api_key || null,
+    ghl_calendar_id: ghl_calendar_id || null,
+    retell_agent_id: retell_agent_id || '',
+    retell_api_key: retell_api_key || null,
+  }
+  if (timezone) insertRow.timezone = timezone
   const { data: studio, error } = await serviceClient
     .from('studios')
-    .insert({
-      name,
-      city: city ?? '',
-      state: state ?? '',
-      street_address: street_address ?? '',
-      postal_code: postal_code ?? '',
-      country: country ?? '',
-      location,
-      ghl_account_id: ghl_account_id || '',
-      ghl_api_key: ghl_api_key || null,
-      ghl_calendar_id: ghl_calendar_id || null,
-      retell_agent_id: retell_agent_id || '',
-      retell_api_key: retell_api_key || null,
-    })
+    .insert(insertRow)
     .select('id')
     .single()
 
@@ -339,19 +339,22 @@ export async function updateStudio(id: string, updates: {
   ghl_calendar_id?: string
   retell_agent_id?: string
   retell_api_key?: string
+  timezone?: string
 }): Promise<void> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Unauthorized')
 
+  // super_admin role is per-studio in studio_users, but the app treats it as global.
+  // So allow the update if the user is a super_admin on ANY studio, or a studio_owner on THIS studio.
   const { data: memberships } = await supabase
     .from('studio_users')
-    .select('role')
+    .select('role, studio_id')
     .eq('user_id', user.id)
-    .eq('studio_id', id)
 
-  const isOwnerOrAbove = memberships?.some(m => m.role === 'super_admin' || m.role === 'studio_owner') ?? false
-  if (!isOwnerOrAbove) throw new Error('Forbidden')
+  const isSuper = memberships?.some(m => m.role === 'super_admin') ?? false
+  const isOwnerHere = memberships?.some(m => m.studio_id === id && m.role === 'studio_owner') ?? false
+  if (!isSuper && !isOwnerHere) throw new Error('Forbidden')
 
   const serviceClient = createServiceClient()
   const { error } = await serviceClient
@@ -1237,6 +1240,8 @@ export async function fetchCallsAnalytics(
   to: string,
 ): Promise<CallAnalyticsData> {
   const { client } = await getAuthorizedClient()
+  const { data: studioRow } = await client.from('studios').select('timezone').eq('id', studioId).maybeSingle()
+  const tz = studioRow?.timezone ?? 'America/Chicago'
   const { data, error } = await client
     .from('calls')
     .select('id,retell_call_id,created_at,duration_seconds,sentiment,outcome,disconnected_reason,picked_up,transferred,voicemail,direction,transcript_summary,lead_id,quality_score,appointment_booked')
@@ -1257,7 +1262,7 @@ export async function fetchCallsAnalytics(
     : null
   const successRate         = totalCalls ? calls.filter(c => c.outcome === 'successful').length / totalCalls : 0
   const pickupRate          = totalCalls ? calls.filter(c => c.picked_up).length / totalCalls : 0
-  const volumeByDay         = groupCallsByDay(calls)
+  const volumeByDay         = groupCallsByDay(calls, tz)
 
   const sentimentCounts: Record<string, number> = {}
   const disconnectCounts: Record<string, number> = {}
@@ -1840,7 +1845,7 @@ export async function rescheduleAppointment(
 
   const { data: studio } = await supabase
     .from('studios')
-    .select('ghl_account_id, ghl_api_key')
+    .select('ghl_account_id, ghl_api_key, timezone')
     .eq('id', appt.studio_id)
     .single()
 
@@ -1857,6 +1862,7 @@ export async function rescheduleAppointment(
       assignedUserId:    appt.assigned_user_id,
       notes:             appt.notes,
       address:           appt.address,
+      timezone:          studio?.timezone ?? undefined,
     }, studio?.ghl_api_key ?? undefined)
     ghlNewId = result.newId
   } catch (e) {
@@ -1881,14 +1887,14 @@ export async function rescheduleAppointment(
   if (error) return { error: error.message }
 
   // Emit appointment event so conversations chip updates in real-time.
-  // newStartTime is a naive Chicago-local string — convert to UTC ISO before storing in timestamptz.
-  const chicagoStartUtc = naiveChicagoToUtcIso(newStartTime)
+  // newStartTime is a naive studio-local string — convert to UTC ISO before storing in timestamptz.
+  const newStartUtc = naiveStudioLocalToUtcIso(newStartTime, studio?.timezone ?? 'America/Chicago')
   await supabase.from('appointment_events').insert({
     studio_id: appt.studio_id,
     appointment_id: ghlNewId ?? appointmentId,
     contact_id: appt.contact_id ?? null,
     verb: 'Updated',
-    new_start_time: chicagoStartUtc,
+    new_start_time: newStartUtc,
   })
 
   return { newId: ghlNewId }
@@ -2117,7 +2123,7 @@ export async function createAppointment(opts: {
 
   const { data: studio } = await supabase
     .from('studios')
-    .select('ghl_account_id, ghl_calendar_id, ghl_api_key')
+    .select('ghl_account_id, ghl_calendar_id, ghl_api_key, timezone')
     .eq('id', opts.studioId)
     .single()
 
@@ -2134,6 +2140,7 @@ export async function createAppointment(opts: {
       endTime:    opts.endTime,
       title:      opts.title ?? 'Dance Appointment',
       notes:      opts.notes,
+      timezone:   studio.timezone,
       apiKey:     studio.ghl_api_key ?? undefined,
     })
   } catch (e) {

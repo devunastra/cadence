@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useCurrentStudio } from "@/components/studio-context";
 import type { Appointment } from "@/lib/types";
 
 interface CalendarGridProps {
@@ -50,11 +51,9 @@ const DEFAULT_COLOR = {
 const DAY_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MIN_slotH = 80; // ← minimum slot height (small screens / many hours)
 const MAX_SLOT_H = 100; // ← maximum slot height (large screens)
-const STUDIO_TZ = "America/Chicago";
-
-function isSameDay(a: Date, b: Date) {
+function isSameDay(a: Date, b: Date, tz: string) {
     const fmt = (d: Date) =>
-        d.toLocaleDateString("en-CA", { timeZone: STUDIO_TZ });
+        d.toLocaleDateString("en-CA", { timeZone: tz });
     return fmt(a) === fmt(b);
 }
 
@@ -114,6 +113,8 @@ export function CalendarGrid({
     hourStart,
     hourEnd,
 }: CalendarGridProps) {
+    const { currentStudio } = useCurrentStudio();
+    const tz = currentStudio.timezone;
     const today = new Date();
     const scrollRef = useRef<HTMLDivElement>(null);
     const [slotH, setSlotH] = useState(MIN_slotH);
@@ -137,7 +138,7 @@ export function CalendarGrid({
         return () => ro.disconnect();
     }, [hourStart, hourEnd]);
 
-    // Use time arithmetic — weekStart is Chicago midnight as UTC, so +i days stays aligned
+    // Use time arithmetic — weekStart is studio-tz midnight as UTC, so +i days stays aligned
     const days = Array.from(
         { length: 7 },
         (_, i) => new Date(weekStart.getTime() + i * 86_400_000),
@@ -169,9 +170,9 @@ export function CalendarGrid({
                         style={{ borderRight: "1px solid var(--color-border)" }}
                     />
                     {days.map((day, i) => {
-                        const isToday = isSameDay(day, today);
+                        const isToday = isSameDay(day, today, tz);
                         const isPast =
-                            !isToday && day < today && !isSameDay(day, today);
+                            !isToday && day < today && !isSameDay(day, today, tz);
                         const color = isToday
                             ? "var(--color-accent)"
                             : isPast
@@ -250,9 +251,9 @@ export function CalendarGrid({
 
                     {/* Day columns */}
                     {days.map((day, i) => {
-                        const isToday = isSameDay(day, today);
+                        const isToday = isSameDay(day, today, tz);
                         const dayAppts = appointments.filter((a) =>
-                            isSameDay(asUTCDate(a.start_time), day),
+                            isSameDay(asUTCDate(a.start_time), day, tz),
                         );
 
                         return (

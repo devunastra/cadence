@@ -383,7 +383,8 @@ interface CallHistoryShellProps {
 }
 
 export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
-  const { userRole, isSuper } = useCurrentStudio()
+  const { userRole, isSuper, currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
 
   const [tab, setTab] = useState<Tab>('all')
   const [calls, setCalls] = useState<CallHistoryRow[]>([])
@@ -775,7 +776,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                   onClick={() => setSelectedCall(call)}
                 >
                   <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)' }}>
-                    {formatDateTime(call.created_at)}
+                    {formatDateTime(call.created_at, tz)}
                   </td>
                   <td className="px-3 py-3 align-middle font-medium" style={{ color: 'var(--color-text-primary)' }}>
                     {call.lead_name ?? <span style={{ color: 'var(--color-text-muted)' }}>Unknown</span>}
@@ -815,7 +816,7 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                   onClick={() => setSelectedCall(call)}
                 >
                   <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)' }}>
-                    {formatDateTime(call.created_at)}
+                    {formatDateTime(call.created_at, tz)}
                   </td>
                   <td className="px-3 py-3 align-middle font-medium" style={{ color: 'var(--color-text-primary)' }}>
                     {call.lead_name ?? <span style={{ color: 'var(--color-text-muted)' }}>Unknown contact</span>}

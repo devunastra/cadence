@@ -7,13 +7,13 @@ import { getSelectedStudioId } from '@/lib/data-cache'
 async function validateUserAndGetApiKey() {
   const supabase = await createClient()
   const { data: { session } } = await supabase.auth.getSession()
-  if (!session?.user) return { user: null, apiKey: undefined }
+  if (!session?.user) return { user: null, apiKey: undefined, tz: 'America/Chicago' }
   const user = session.user
 
   const serviceClient = createServiceClient()
   const selectedStudioId = await getSelectedStudioId()
 
-  let studioQuery = serviceClient.from('studios').select('id, ghl_api_key')
+  let studioQuery = serviceClient.from('studios').select('id, ghl_api_key, timezone')
 
   if (selectedStudioId) {
     studioQuery = studioQuery.eq('id', selectedStudioId)
@@ -24,19 +24,23 @@ async function validateUserAndGetApiKey() {
       .eq('user_id', user.id)
       .limit(1)
     const firstStudioId = memberships?.[0]?.studio_id
-    if (!firstStudioId) return { user, apiKey: undefined }
+    if (!firstStudioId) return { user, apiKey: undefined, tz: 'America/Chicago' }
     studioQuery = studioQuery.eq('id', firstStudioId)
   }
 
   const { data: studio } = await studioQuery.single()
-  return { user, apiKey: studio?.ghl_api_key ?? undefined }
+  return {
+    user,
+    apiKey: studio?.ghl_api_key ?? undefined,
+    tz: studio?.timezone ?? 'America/Chicago',
+  }
 }
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { user, apiKey } = await validateUserAndGetApiKey()
+  const { user, apiKey, tz } = await validateUserAndGetApiKey()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -167,12 +171,11 @@ export async function GET(
       return best
     }
 
-    const STUDIO_TZ = 'America/Chicago'
     function formatTime(iso: string): string {
       return new Date(iso).toLocaleString('en-US', {
         month: 'short', day: 'numeric', year: 'numeric',
         hour: 'numeric', minute: '2-digit', hour12: true,
-        timeZone: STUDIO_TZ,
+        timeZone: tz,
       })
     }
 

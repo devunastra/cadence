@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { getMinDate } from '@/lib/appointment-slots'
+import { useCurrentStudio } from '@/components/studio-context'
 import type { StudioSlotConfig } from '@/lib/types'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -27,12 +28,14 @@ interface AppointmentDatePickerProps {
 }
 
 export function AppointmentDatePicker({ value, onChange, config, className = '' }: AppointmentDatePickerProps) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const [open, setOpen] = useState(false)
   const [rect, setRect] = useState<DOMRect | null>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const panelRef  = useRef<HTMLDivElement>(null)
 
-  const minDate = getMinDate(config)
+  const minDate = getMinDate(config, tz)
   const initial = value ? new Date(value + 'T00:00:00Z') : new Date(minDate + 'T00:00:00Z')
   const [viewYear, setViewYear]   = useState(initial.getUTCFullYear())
   const [viewMonth, setViewMonth] = useState(initial.getUTCMonth())

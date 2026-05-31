@@ -72,53 +72,40 @@ function timingSafeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Get yesterday's date boundaries in UTC, based on America/Chicago timezone.
+ * Returns the UTC-millisecond offset for `tz` at the given UTC instant.
+ * Positive for zones east of UTC (e.g. Berlin +2h => +7200000), negative for west.
  */
-function getYesterdayBoundaries(): { dateFrom: string; dateTo: string; dateLabel: string } {
-  // Get current time in Chicago
+function tzOffsetMsAt(tz: string, instant: Date): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(instant)
+  const p = Object.fromEntries(parts.map(({ type, value }) => [type, value]))
+  const localAsUtc = new Date(`${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}Z`).getTime()
+  return localAsUtc - instant.getTime()
+}
+
+/**
+ * Get yesterday's UTC boundaries (and date label) for a single studio timezone.
+ * Uses noon-in-tz to read the offset, so it handles DST cleanly.
+ */
+function getYesterdayBoundariesForTz(tz: string): { dateFrom: string; dateTo: string; dateLabel: string } {
   const now = new Date()
-  const chicagoNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }))
+  const todayInTz = now.toLocaleDateString("en-CA", { timeZone: tz })  // YYYY-MM-DD
+  const [y, m, d] = todayInTz.split("-").map(Number)
+  const yesterdayDate = new Date(Date.UTC(y, m - 1, d - 1))
+  const ys = yesterdayDate.getUTCFullYear()
+  const ym = String(yesterdayDate.getUTCMonth() + 1).padStart(2, "0")
+  const yd = String(yesterdayDate.getUTCDate()).padStart(2, "0")
+  const dateLabel = `${ys}-${ym}-${yd}`
 
-  // Yesterday in Chicago
-  const yesterday = new Date(chicagoNow)
-  yesterday.setDate(yesterday.getDate() - 1)
-
-  const year = yesterday.getFullYear()
-  const month = String(yesterday.getMonth() + 1).padStart(2, "0")
-  const day = String(yesterday.getDate()).padStart(2, "0")
-  const dateLabel = `${year}-${month}-${day}`
-
-  // Convert midnight and 23:59:59 Chicago time to UTC
-  const startChicago = new Date(`${dateLabel}T00:00:00`)
-  const endChicago = new Date(`${dateLabel}T23:59:59.999`)
-
-  // Get the UTC offset for these times by comparing
-  const startInChicago = new Date(
-    new Date(`${dateLabel}T00:00:00`).toLocaleString("en-US", { timeZone: "America/Chicago" })
-  )
-  const utcOffset = startChicago.getTime() - startInChicago.getTime()
-
-  // Create proper UTC boundaries
-  // Use Intl to get the actual offset
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Chicago",
-    timeZoneName: "shortOffset",
-  })
-  const parts = formatter.formatToParts(new Date(`${dateLabel}T12:00:00Z`))
-  const offsetPart = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT-6"
-  const offsetMatch = offsetPart.match(/GMT([+-]\d+)/)
-  const offsetHours = offsetMatch ? parseInt(offsetMatch[1]) : -6
-
-  // Midnight Chicago in UTC = midnight - offset (e.g., midnight CST = 6 AM UTC)
-  const dateFrom = new Date(`${dateLabel}T00:00:00.000Z`)
-  dateFrom.setHours(dateFrom.getHours() - offsetHours)
-
-  const dateTo = new Date(`${dateLabel}T23:59:59.999Z`)
-  dateTo.setHours(dateTo.getHours() - offsetHours)
-
+  const noonUtc = new Date(`${dateLabel}T12:00:00Z`)
+  const offsetMs = tzOffsetMsAt(tz, noonUtc)
+  const startMs = new Date(`${dateLabel}T00:00:00Z`).getTime() - offsetMs
   return {
-    dateFrom: dateFrom.toISOString(),
-    dateTo: dateTo.toISOString(),
+    dateFrom: new Date(startMs).toISOString(),
+    dateTo: new Date(startMs + 86_399_999).toISOString(),
     dateLabel,
   }
 }
@@ -149,21 +136,55 @@ Deno.serve(async (req) => {
       })
     }
 
-    console.log("[daily-call-review] auth ok, computing date boundaries")
+    console.log("[daily-call-review] auth ok, computing per-studio yesterday windows")
 
     const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    const { dateFrom, dateTo, dateLabel } = getYesterdayBoundaries()
-    console.log("[daily-call-review] dateFrom=", dateFrom, "dateTo=", dateTo, "dateLabel=", dateLabel)
 
-    // Fetch yesterday's calls across all studios
+    // Load every studio's timezone so we can ask "what was yesterday in *that* studio's tz."
+    const { data: studioRows, error: studioErr } = await serviceClient
+      .from("studios")
+      .select("id, timezone")
+      .is("deleted_at", null)
+    if (studioErr) {
+      return new Response(JSON.stringify({ error: studioErr.message }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+    const studioTz = new Map<string, string>()
+    const studioWindow = new Map<string, { fromMs: number; toMs: number; label: string }>()
+    let wideFromMs = Number.POSITIVE_INFINITY
+    let wideToMs = Number.NEGATIVE_INFINITY
+    for (const s of (studioRows ?? []) as Array<{ id: string; timezone: string | null }>) {
+      const tz = s.timezone || "America/Chicago"
+      studioTz.set(s.id, tz)
+      const { dateFrom, dateTo, dateLabel } = getYesterdayBoundariesForTz(tz)
+      const fromMs = new Date(dateFrom).getTime()
+      const toMs = new Date(dateTo).getTime()
+      studioWindow.set(s.id, { fromMs, toMs, label: dateLabel })
+      if (fromMs < wideFromMs) wideFromMs = fromMs
+      if (toMs > wideToMs) wideToMs = toMs
+    }
+    if (!Number.isFinite(wideFromMs) || !Number.isFinite(wideToMs)) {
+      console.log("[daily-call-review] no studios found, exiting")
+      return new Response(
+        JSON.stringify({ analyzed: 0, skipped: 0, total_eligible: 0, errors: [] }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    }
+    const wideFrom = new Date(wideFromMs).toISOString()
+    const wideTo = new Date(wideToMs).toISOString()
+    console.log("[daily-call-review] wide UTC window:", wideFrom, "→", wideTo, "across", studioTz.size, "studios")
+
+    // Fetch every call within the wide window. We'll filter per-studio next.
     const { data: calls, error: fetchError } = await serviceClient
       .from("calls")
-      .select("id, transcript, transcript_summary, voicemail, direction, duration_seconds, studio_id")
+      .select("id, transcript, transcript_summary, voicemail, direction, duration_seconds, studio_id, created_at")
       .neq("voicemail", true)
       .not("transcript", "is", null)
       .gt("duration_seconds", MIN_DURATION_SECONDS)
-      .gte("created_at", dateFrom)
-      .lte("created_at", dateTo)
+      .gte("created_at", wideFrom)
+      .lte("created_at", wideTo)
       .order("created_at", { ascending: true })
       .limit(DAILY_BATCH_LIMIT)
 
@@ -175,18 +196,24 @@ Deno.serve(async (req) => {
       })
     }
 
-    console.log("[daily-call-review] fetched calls count=", calls?.length ?? 0, "ids=", (calls ?? []).map((c) => c.id))
+    type CallRowWithTime = CallRow & { created_at: string }
+    const rawCalls = (calls ?? []) as CallRowWithTime[]
+    console.log("[daily-call-review] fetched calls count=", rawCalls.length)
 
-    // Filter eligible (non-empty transcript after fetch)
-    const eligible = (calls as CallRow[]).filter(
-      (c) => c.transcript && c.transcript.trim().length > 0
-    )
+    // Keep only calls whose created_at falls inside their own studio's yesterday window.
+    const eligible: CallRow[] = rawCalls.filter((c) => {
+      if (!c.transcript || c.transcript.trim().length === 0) return false
+      const win = studioWindow.get(c.studio_id)
+      if (!win) return false
+      const t = new Date(c.created_at).getTime()
+      return t >= win.fromMs && t <= win.toMs
+    })
     console.log("[daily-call-review] eligible count=", eligible.length)
 
     if (eligible.length === 0) {
       console.log("[daily-call-review] no eligible calls, exiting")
       return new Response(
-        JSON.stringify({ analyzed: 0, skipped: 0, total_eligible: 0, date: dateLabel, errors: [] }),
+        JSON.stringify({ analyzed: 0, skipped: 0, total_eligible: 0, errors: [] }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       )
     }
@@ -197,7 +224,9 @@ Deno.serve(async (req) => {
       .select("call_id")
       .in("call_id", eligible.map((c) => c.id))
 
-    const reviewedIds = new Set((existingReviews ?? []).map((r) => r.call_id))
+    const reviewedIds = new Set(
+      ((existingReviews ?? []) as Array<{ call_id: string }>).map((r) => r.call_id),
+    )
     const callsToAnalyze = eligible.filter((c) => !reviewedIds.has(c.id))
     const skipped = eligible.length - callsToAnalyze.length
     console.log("[daily-call-review] callsToAnalyze=", callsToAnalyze.length, "skipped(already-reviewed)=", skipped)
@@ -209,12 +238,15 @@ Deno.serve(async (req) => {
     const errors = results.filter((r) => !r.success).map((r) => ({ callId: r.callId, error: r.error }))
     console.log("[daily-call-review] DONE analyzed=", analyzed, "errors=", JSON.stringify(errors))
 
+    const studioLabels: Record<string, string> = {}
+    for (const [sid, w] of studioWindow.entries()) studioLabels[sid] = w.label
+
     return new Response(
       JSON.stringify({
         analyzed,
         skipped,
         total_eligible: eligible.length,
-        date: dateLabel,
+        studio_dates: studioLabels,
         errors,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } }

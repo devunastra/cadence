@@ -5,6 +5,7 @@ import { Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from '
 import { createClient } from '@/lib/supabase/client'
 import { deleteActivityLog } from '@/app/actions'
 import { STATUS_COLORS } from '@/lib/constants'
+import { useCurrentStudio } from '@/components/studio-context'
 import type { Role } from '@/lib/types'
 
 interface LogEntry {
@@ -23,11 +24,11 @@ interface ActivityLogTableProps {
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50]
 
-function formatDateTime(iso: string) {
+function formatDateTime(iso: string, tz: string) {
   return new Date(iso).toLocaleString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit', hour12: true,
-    timeZone: 'America/Chicago',
+    timeZone: tz,
   })
 }
 
@@ -74,6 +75,8 @@ function PageInput({ page, totalPages, onJump }: { page: number; totalPages: num
 }
 
 export function ActivityLogTable({ initialLogs, studioId, role }: ActivityLogTableProps) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const [logs, setLogs] = useState<LogEntry[]>(initialLogs)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [page, setPage] = useState(1)
@@ -263,7 +266,7 @@ export function ActivityLogTable({ initialLogs, studioId, role }: ActivityLogTab
                     </span>
                   </td>
                   <td className="px-3 py-3 align-middle whitespace-nowrap">
-                    <span className="text-sm" style={{ color: 'var(--color-text-body)' }}>{formatDateTime(log.created_at)}</span>
+                    <span className="text-sm" style={{ color: 'var(--color-text-body)' }}>{formatDateTime(log.created_at, tz)}</span>
                   </td>
                   {isOwner && (
                     <td className="py-3 align-middle text-center">

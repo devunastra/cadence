@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { Eye, EyeOff, Trash2 } from "lucide-react";
-import { createStudio, deleteStudio } from "@/app/actions";
+import { createStudio, deleteStudio, updateStudio } from "@/app/actions";
 import { useToast } from "@/components/ui/toast-provider";
 import { NOTION_COLORS } from "@/lib/constants";
 import { SimpleSelect } from "@/components/simple-select";
 import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
+import { TIMEZONE_OPTIONS, defaultTimezoneForState } from "@/components/onboarding/onboarding-types";
 import type { Studio } from "@/lib/types";
 
 interface StudiosFormProps {
@@ -87,6 +88,9 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
     const [retellAgentId, setRetellAgentId] = useState("");
     const [retellApiKey, setRetellApiKey] = useState("");
     const [showApiKey, setShowApiKey] = useState(false);
+    const [timezone, setTimezone] = useState<string>(defaultTimezoneForState(""));
+    // Tracks whether the owner has manually picked a tz; lets state changes drive it otherwise.
+    const [timezoneAuto, setTimezoneAuto] = useState(true);
     const { showError } = useToast();
     const [saving, setSaving] = useState(false);
     const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
@@ -116,6 +120,7 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                 ghl_calendar_id: ghlCalendarId,
                 retell_agent_id: retellAgentId,
                 retell_api_key: retellApiKey,
+                timezone,
             });
             setName("");
             setStreetAddress("");
@@ -128,11 +133,27 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
             setGhlCalendarId("");
             setRetellAgentId("");
             setRetellApiKey("");
+            setTimezone(defaultTimezoneForState(""));
+            setTimezoneAuto(true);
             window.location.reload();
         } catch (err) {
             showError(err instanceof Error ? err.message : "Failed to create studio.");
         } finally {
             setSaving(false);
+        }
+    }
+
+    async function handleTimezoneChange(studioId: string, nextTz: string) {
+        const prev = studios;
+        // Optimistic update so the dropdown reflects the choice immediately.
+        setStudios((rows) =>
+            rows.map((s) => (s.id === studioId ? { ...s, timezone: nextTz } : s)),
+        );
+        try {
+            await updateStudio(studioId, { timezone: nextTz });
+        } catch (err) {
+            setStudios(prev);
+            showError(err instanceof Error ? err.message : "Failed to update timezone.");
         }
     }
 
@@ -213,6 +234,12 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                                 >
                                     City
                                 </th>
+                                <th
+                                    className="text-left px-6 py-3 text-sm font-semibold"
+                                    style={{ color: "var(--color-text-secondary)" }}
+                                >
+                                    Timezone
+                                </th>
                                 <th className="px-6 py-3" />
                             </tr>
                         </thead>
@@ -220,7 +247,7 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                             {studios.length === 0 ? (
                                 <tr>
                                     <td
-                                        colSpan={4}
+                                        colSpan={5}
                                         className="px-6 py-8 text-center text-sm"
                                         style={{ color: "var(--color-text-muted)" }}
                                     >
@@ -259,6 +286,27 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                                             }}
                                         >
                                             {studio.city || "—"}
+                                        </td>
+                                        <td
+                                            className="px-6 py-3"
+                                            style={{
+                                                color: "var(--color-text-body)",
+                                                minWidth: 220,
+                                            }}
+                                        >
+                                            <SimpleSelect
+                                                value={studio.timezone}
+                                                onChange={(v) => {
+                                                    if (v && v !== studio.timezone) {
+                                                        handleTimezoneChange(studio.id, v);
+                                                    }
+                                                }}
+                                                options={TIMEZONE_OPTIONS}
+                                                placeholder="Select Timezone"
+                                                fullWidth
+                                                triggerBg="var(--color-bg)"
+                                                triggerClassName="py-1.5"
+                                            />
                                         </td>
                                         <td className="py-3 text-center">
                                             <button
@@ -392,7 +440,10 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                                     </label>
                                     <SimpleSelect
                                         value={state}
-                                        onChange={setState}
+                                        onChange={(s) => {
+                                            setState(s);
+                                            if (timezoneAuto) setTimezone(defaultTimezoneForState(s));
+                                        }}
                                         options={US_STATE_OPTIONS}
                                         placeholder="Select State"
                                         fullWidth
@@ -414,6 +465,30 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                                         className={INPUT}
                                     />
                                 </div>
+                            </div>
+                            <div>
+                                <label className={LABEL}>
+                                    Timezone <span className="text-red-500">*</span>
+                                </label>
+                                <SimpleSelect
+                                    value={timezone}
+                                    onChange={(v) => {
+                                        if (!v) return;
+                                        setTimezone(v);
+                                        setTimezoneAuto(false);
+                                    }}
+                                    options={TIMEZONE_OPTIONS}
+                                    placeholder="Select Timezone"
+                                    fullWidth
+                                    triggerBg="var(--color-bg)"
+                                    triggerClassName="py-2"
+                                />
+                                <p
+                                    className="mt-1 text-xs"
+                                    style={{ color: "var(--color-text-muted)" }}
+                                >
+                                    Auto-set from the selected state. Override here if needed.
+                                </p>
                             </div>
                         </div>
 

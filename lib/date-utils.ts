@@ -1,63 +1,76 @@
 import type { CallVolumePoint, DatePreset } from './types'
 
-// ── Chicago timezone helpers ───────────────────────────────────────────────────
-// All preset ranges are relative to America/Chicago (the studio's timezone).
-// This ensures "Today" means Chicago today regardless of where the browser runs.
+// ── Timezone-aware date helpers ────────────────────────────────────────────────
+// All exported functions require a studio IANA timezone (e.g. "America/Chicago",
+// "Europe/Berlin"). The studio's tz comes from `currentStudio.timezone` on the
+// client and a lookup on `studios.timezone` on the server / API route side.
 
-const STUDIO_TZ = 'America/Chicago'
-
-/** Returns the UTC Date for midnight America/Chicago on the YYYY-MM-DD date string. */
-function chicagoMidnightFromStr(dateStr: string): Date {
-  const utcMidnight = new Date(dateStr + 'T00:00:00Z')
-  // At UTC midnight, what hour is it in Chicago? e.g. 18 (CST/UTC-6) or 19 (CDT/UTC-5)
-  const h = parseInt(
-    new Intl.DateTimeFormat('en-US', { timeZone: STUDIO_TZ, hour: 'numeric', hourCycle: 'h23' }).format(utcMidnight),
-    10,
-  )
-  return new Date(utcMidnight.getTime() + (h === 0 ? 0 : 24 - h) * 3_600_000)
+/** UTC-millisecond offset for `tz` at the given instant. +ve east of UTC, -ve west. */
+function tzOffsetMsAt(tz: string, instant: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(instant)
+  const p = Object.fromEntries(parts.map(({ type, value }) => [type, value]))
+  const localAsUtc = new Date(`${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}Z`).getTime()
+  return localAsUtc - instant.getTime()
 }
 
-/** Returns the UTC Date for start-of-day (midnight) in Chicago on the same calendar date as d. */
-export function chicagoStartOfDay(d: Date = new Date()): Date {
-  return chicagoMidnightFromStr(d.toLocaleDateString('en-CA', { timeZone: STUDIO_TZ }))
+/** Returns the UTC Date for midnight on the YYYY-MM-DD date string in `tz`. */
+export function studioMidnightFromStr(dateStr: string, tz: string): Date {
+  // First pass: read offset at noon (side-steps the DST-cutover hour itself).
+  const midnightUtc = new Date(dateStr + 'T00:00:00Z').getTime()
+  const offset1 = tzOffsetMsAt(tz, new Date(dateStr + 'T12:00:00Z'))
+  const guess = new Date(midnightUtc - offset1)
+  // DST correction: read offset at the candidate moment. If it differs from noon's
+  // offset (e.g. midnight is pre-cutover, noon is post-cutover), use the candidate's.
+  const offset2 = tzOffsetMsAt(tz, guess)
+  if (offset1 === offset2) return guess
+  return new Date(midnightUtc - offset2)
 }
 
-/** Returns the UTC Date for end-of-day (23:59:59.999) in Chicago on the same calendar date as d. */
-export function chicagoEndOfDay(d: Date = new Date()): Date {
-  return new Date(chicagoStartOfDay(d).getTime() + 86_400_000 - 1)
+/** Returns the UTC Date for start-of-day (midnight) in `tz` on the same calendar date as d. */
+export function studioStartOfDay(d: Date, tz: string): Date {
+  return studioMidnightFromStr(d.toLocaleDateString('en-CA', { timeZone: tz }), tz)
+}
+
+/** Returns the UTC Date for end-of-day (23:59:59.999) in `tz` on the same calendar date as d. */
+export function studioEndOfDay(d: Date, tz: string): Date {
+  return new Date(studioStartOfDay(d, tz).getTime() + 86_400_000 - 1)
 }
 
 // ── Preset range computation ───────────────────────────────────────────────────
 
-export function getPresetRange(preset: DatePreset): { from: Date; to: Date } {
+export function getPresetRange(preset: DatePreset, tz: string): { from: Date; to: Date } {
   const now = new Date()
-  const todayStart = chicagoStartOfDay(now)
-  const todayEnd   = chicagoEndOfDay(now)
+  const todayStart = studioStartOfDay(now, tz)
+  const todayEnd   = studioEndOfDay(now, tz)
 
   switch (preset) {
     case 'today':
       return { from: todayStart, to: todayEnd }
     case '7d':
-      return { from: chicagoStartOfDay(new Date(now.getTime() - 7 * 86_400_000)), to: todayEnd }
+      return { from: studioStartOfDay(new Date(now.getTime() - 7 * 86_400_000), tz), to: todayEnd }
     case '4w':
-      return { from: chicagoStartOfDay(new Date(now.getTime() - 28 * 86_400_000)), to: todayEnd }
+      return { from: studioStartOfDay(new Date(now.getTime() - 28 * 86_400_000), tz), to: todayEnd }
     case '3m': {
       const f = new Date(now)
       f.setMonth(f.getMonth() - 3)
-      return { from: chicagoStartOfDay(f), to: todayEnd }
+      return { from: studioStartOfDay(f, tz), to: todayEnd }
     }
     case 'week-to-date': {
-      const dayName   = new Intl.DateTimeFormat('en-US', { timeZone: STUDIO_TZ, weekday: 'short' }).format(now)
+      const dayName   = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(now)
       const dayOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(dayName)
-      return { from: chicagoStartOfDay(new Date(now.getTime() - dayOfWeek * 86_400_000)), to: todayEnd }
+      return { from: studioStartOfDay(new Date(now.getTime() - dayOfWeek * 86_400_000), tz), to: todayEnd }
     }
     case 'month-to-date': {
-      const [year, month] = now.toLocaleDateString('en-CA', { timeZone: STUDIO_TZ }).split('-')
-      return { from: chicagoMidnightFromStr(`${year}-${month}-01`), to: todayEnd }
+      const [year, month] = now.toLocaleDateString('en-CA', { timeZone: tz }).split('-')
+      return { from: studioMidnightFromStr(`${year}-${month}-01`, tz), to: todayEnd }
     }
     case 'year-to-date': {
-      const year = now.toLocaleDateString('en-CA', { timeZone: STUDIO_TZ }).split('-')[0]
-      return { from: chicagoMidnightFromStr(`${year}-01-01`), to: todayEnd }
+      const year = now.toLocaleDateString('en-CA', { timeZone: tz }).split('-')[0]
+      return { from: studioMidnightFromStr(`${year}-01-01`, tz), to: todayEnd }
     }
     case 'all':
       return { from: new Date('2020-01-01T00:00:00Z'), to: todayEnd }
@@ -89,17 +102,17 @@ export function formatTotalDuration(seconds: number): string {
 
 // ── Date formatting ────────────────────────────────────────────────────────────
 
-/** "Apr 13" — always America/Chicago */
-export function formatShortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: STUDIO_TZ })
+/** "Apr 13" — formatted in `tz` */
+export function formatShortDate(iso: string, tz: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz })
 }
 
-/** "Apr 13, 2026 2:32 PM" — always America/Chicago (CST/CDT) */
-export function formatDateTime(iso: string): string {
+/** "Apr 13, 2026 2:32 PM" — formatted in `tz` */
+export function formatDateTime(iso: string, tz: string): string {
   return new Date(iso).toLocaleString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit', hour12: true,
-    timeZone: STUDIO_TZ,
+    timeZone: tz,
   })
 }
 
@@ -110,16 +123,16 @@ export function toDateInputValue(d: Date): string {
 
 // ── Volume grouping ────────────────────────────────────────────────────────────
 
-/** Returns the America/Chicago calendar date for a UTC ISO timestamp */
-function toCDTDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-CA', { timeZone: STUDIO_TZ })
+/** Returns the calendar date in `tz` for a UTC ISO timestamp */
+function toStudioDate(iso: string, tz: string): string {
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: tz })
 }
 
-/** Groups calls into daily buckets (America/Chicago dates) sorted ascending */
-export function groupCallsByDay(calls: { created_at: string }[]): CallVolumePoint[] {
+/** Groups calls into daily buckets (studio-tz calendar dates) sorted ascending */
+export function groupCallsByDay(calls: { created_at: string }[], tz: string): CallVolumePoint[] {
   const map = new Map<string, number>()
   for (const c of calls) {
-    const day = toCDTDate(c.created_at)
+    const day = toStudioDate(c.created_at, tz)
     map.set(day, (map.get(day) ?? 0) + 1)
   }
   return Array.from(map.entries())
@@ -127,11 +140,11 @@ export function groupCallsByDay(calls: { created_at: string }[]): CallVolumePoin
     .map(([date, count]) => ({ date, count }))
 }
 
-/** Groups calls into daily duration buckets (America/Chicago dates, sum seconds per day) */
-export function groupDurationByDay(calls: { created_at: string; duration_seconds: number | null }[]): { date: string; seconds: number }[] {
+/** Groups calls into daily duration buckets (studio-tz dates, sum seconds per day) */
+export function groupDurationByDay(calls: { created_at: string; duration_seconds: number | null }[], tz: string): { date: string; seconds: number }[] {
   const map = new Map<string, number>()
   for (const c of calls) {
-    const day = toCDTDate(c.created_at)
+    const day = toStudioDate(c.created_at, tz)
     map.set(day, (map.get(day) ?? 0) + (c.duration_seconds ?? 0))
   }
   return Array.from(map.entries())

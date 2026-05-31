@@ -107,17 +107,19 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Role check: super_admin or studio_owner for this studio
+    // Role check: super_admin (global, any studio) OR studio_owner on THIS studio.
+    // super_admin role is stored per-studio in studio_users but the app treats it as global,
+    // so we scan all the user's memberships rather than scoping the query to this studio.
     const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    const { data: membership } = await serviceClient
+    const { data: memberships } = await serviceClient
       .from("studio_users")
-      .select("role")
+      .select("role, studio_id")
       .eq("user_id", user.id)
-      .eq("studio_id", studio_id)
-      .in("role", ["super_admin", "studio_owner"])
-      .maybeSingle()
 
-    if (!membership) {
+    const isSuper = memberships?.some((m) => m.role === "super_admin") ?? false
+    const isOwnerHere =
+      memberships?.some((m) => m.studio_id === studio_id && m.role === "studio_owner") ?? false
+    if (!isSuper && !isOwnerHere) {
       return new Response(JSON.stringify({ error: "Access denied" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

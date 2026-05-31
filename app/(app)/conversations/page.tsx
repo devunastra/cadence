@@ -20,6 +20,8 @@ import {
     Search,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { studioStartOfDay } from "@/lib/date-utils";
+import { useCurrentStudio } from "@/components/studio-context";
 import { Spinner } from "@/components/spinner";
 import { ComposeBox } from "@/components/conversations/compose-box";
 import type { SentMessage } from "@/components/conversations/compose-box";
@@ -67,9 +69,6 @@ function getInitials(name: string): string {
         .join("");
 }
 
-const STUDIO_TZ = "America/Chicago";
-
-
 const STUDIO_EMAIL = "info@arthurmurray.info";
 
 // Returns a display string for an email address shown in message details.
@@ -85,38 +84,24 @@ function resolveEmailDisplay(
     return "Studio mail";
 }
 
-function chicagoStartOfDay(d: Date): Date {
-    const dateStr = d.toLocaleDateString("en-CA", { timeZone: STUDIO_TZ });
-    const utcMidnight = new Date(dateStr + "T00:00:00Z");
-    const h = parseInt(
-        new Intl.DateTimeFormat("en-US", {
-            timeZone: STUDIO_TZ,
-            hour: "numeric",
-            hourCycle: "h23",
-        }).format(utcMidnight),
-        10,
-    );
-    return new Date(utcMidnight.getTime() + (h === 0 ? 0 : 24 - h) * 3_600_000);
-}
-
-function formatConvTime(dateStr: string | null): string {
+function formatConvTime(dateStr: string | null, tz: string): string {
     if (!dateStr) return "";
     const date = new Date(dateStr);
     const now = new Date();
-    const startOfToday = chicagoStartOfDay(now);
+    const startOfToday = studioStartOfDay(now, tz);
     if (date >= startOfToday)
         return date.toLocaleTimeString("en-US", {
             hour: "numeric",
             minute: "2-digit",
             hour12: true,
-            timeZone: STUDIO_TZ,
+            timeZone: tz,
         });
     const sameYear = date.getFullYear() === now.getFullYear();
     return date.toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
         ...(sameYear ? {} : { year: "numeric" }),
-        timeZone: STUDIO_TZ,
+        timeZone: tz,
     });
 }
 
@@ -306,6 +291,8 @@ export default function ConversationsPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const isMobile = useIsMobile();
+    const { currentStudio } = useCurrentStudio();
+    const tz = currentStudio.timezone;
     const [mobileView, setMobileView] = useState<'list' | 'thread' | 'contact'>('list');
     const isMobileRef = useRef(false);
     isMobileRef.current = isMobile;
@@ -1250,7 +1237,7 @@ export default function ConversationsPage() {
                                     className="text-xs"
                                     style={{ color: "var(--color-text-muted)" }}
                                 >
-                                    {formatConvTime(conv.lastMessageDate)}
+                                    {formatConvTime(conv.lastMessageDate, tz)}
                                 </span>
                                 {conv.unreadCount > 0 && (
                                     <span

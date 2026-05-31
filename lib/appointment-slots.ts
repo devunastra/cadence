@@ -19,16 +19,14 @@ function formatMinutes(totalMin: number): string {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-const STUDIO_TZ = 'America/Chicago'
-
 /**
- * Returns the first bookable date as "YYYY-MM-DD" (Chicago calendar date).
+ * Returns the first bookable date as "YYYY-MM-DD" in the studio's timezone.
  * appointment_min_advance_weeks is treated as days (e.g. 1 = tomorrow).
  */
-export function getMinDate(config: StudioSlotConfig): string {
+export function getMinDate(config: StudioSlotConfig, tz: string): string {
   const now = new Date()
   const minDate = new Date(now.getTime() + config.appointment_min_advance_weeks * 86_400_000)
-  return minDate.toLocaleDateString('en-CA', { timeZone: STUDIO_TZ })
+  return minDate.toLocaleDateString('en-CA', { timeZone: tz })
 }
 
 /**
@@ -63,8 +61,9 @@ export function validateSlot(
   dateVal: string,
   timeVal: string,
   config: StudioSlotConfig,
+  tz: string,
 ): string | null {
-  if (dateVal < getMinDate(config)) {
+  if (dateVal < getMinDate(config, tz)) {
     return `Appointments must be booked at least ${config.appointment_min_advance_weeks} day${config.appointment_min_advance_weeks === 1 ? '' : 's'} in advance.`
   }
   const slots = getSlotsForDate(dateVal, config)

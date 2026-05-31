@@ -15,9 +15,8 @@ import { AppointmentListFilterBar } from './appointment-list-filter-bar'
 import { AppointmentListPanel } from './appointment-list-panel'
 import { DatePickerPopup } from '@/components/leads/date-picker-popup'
 import type { Appointment, Lead, StudioSlotConfig, Role } from '@/lib/types'
-import { chicagoStartOfDay, chicagoEndOfDay } from '@/lib/date-utils'
-
-const STUDIO_TZ = 'America/Chicago'
+import { studioStartOfDay, studioEndOfDay } from '@/lib/date-utils'
+import { useCurrentStudio } from '@/components/studio-context'
 
 interface CalendarShellProps {
   studioId: string
@@ -27,21 +26,21 @@ interface CalendarShellProps {
   userRole: Role
 }
 
-function getWeekStart(d: Date): Date {
-  const dayName = new Intl.DateTimeFormat('en-US', { timeZone: STUDIO_TZ, weekday: 'short' }).format(d)
+function getWeekStart(d: Date, tz: string): Date {
+  const dayName = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(d)
   const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(dayName)
-  return chicagoStartOfDay(new Date(d.getTime() - dow * 86_400_000))
+  return studioStartOfDay(new Date(d.getTime() - dow * 86_400_000), tz)
 }
 
-function weekEnd(weekStart: Date): Date {
-  return chicagoEndOfDay(new Date(weekStart.getTime() + 6 * 86_400_000))
+function weekEnd(weekStart: Date, tz: string): Date {
+  return studioEndOfDay(new Date(weekStart.getTime() + 6 * 86_400_000), tz)
 }
 
-function formatWeekRange(weekStart: Date): string {
+function formatWeekRange(weekStart: Date, tz: string): string {
   const end        = new Date(weekStart.getTime() + 6 * 86_400_000)
-  const fmtMonth   = (d: Date) => d.toLocaleDateString('en-US', { timeZone: STUDIO_TZ, month: 'short' })
-  const fmtDay     = (d: Date) => d.toLocaleDateString('en-US', { timeZone: STUDIO_TZ, day: 'numeric' })
-  const year       = end.toLocaleDateString('en-US', { timeZone: STUDIO_TZ, year: 'numeric' })
+  const fmtMonth   = (d: Date) => d.toLocaleDateString('en-US', { timeZone: tz, month: 'short' })
+  const fmtDay     = (d: Date) => d.toLocaleDateString('en-US', { timeZone: tz, day: 'numeric' })
+  const year       = end.toLocaleDateString('en-US', { timeZone: tz, year: 'numeric' })
   const startMonth = fmtMonth(weekStart)
   const endMonth   = fmtMonth(end)
   if (startMonth === endMonth) {
@@ -58,8 +57,10 @@ function buildContactMap(appts: Appointment[]): string[] {
 export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, userRole }: CalendarShellProps) {
   const router = useRouter()
   const isMobile = useIsMobile()
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const [tab, setTab]                        = useState<'calendar' | 'list' | 'settings'>('calendar')
-  const [weekStart, setWeekStart]            = useState<Date>(getWeekStart(new Date()))
+  const [weekStart, setWeekStart]            = useState<Date>(getWeekStart(new Date(), tz))
   const [appointments, setAppointments]      = useState<Appointment[]>([])
   const [contactLeadMap, setContactLeadMap]  = useState<Record<string, Lead>>({})
   const [selected, setSelected]              = useState<Appointment | null>(null)
@@ -97,7 +98,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
     let cancelled = false
     const supabase = createClient()
     const ws = weekStart
-    const we = weekEnd(ws)
+    const we = weekEnd(ws, tz)
     supabase
       .from('appointments')
       .select('*')
@@ -150,10 +151,10 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
       .eq('studio_id', studioId)
       .is('deleted_at', null)
       .gte('start_time', ws.toISOString())
-      .lte('start_time', weekEnd(ws).toISOString())
+      .lte('start_time', weekEnd(ws, tz).toISOString())
       .order('start_time', { ascending: true })
     if (data) setAppointments(data as Appointment[])
-  }, [studioId])
+  }, [studioId, tz])
 
   // Supabase Realtime — live appointment updates
   useEffect(() => {
@@ -172,7 +173,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
           if (payload.eventType === 'INSERT') {
             const appt = payload.new as Appointment
             const ws = weekStartRef.current
-            const we = weekEnd(ws)
+            const we = weekEnd(ws, tz)
             const apptTime = new Date(appt.start_time).getTime()
             if (apptTime >= ws.getTime() && apptTime <= we.getTime()) {
               setAppointments(prev => {
@@ -213,7 +214,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
   }, [fetchAppointments])
 
   function navigateTo(newWeekStart: Date) {
-    const ws = getWeekStart(newWeekStart)
+    const ws = getWeekStart(newWeekStart, tz)
     if (ws.getTime() === weekStart.getTime()) return
     setWeekStart(ws)
     startTransition(() => fetchAppointments(ws))
@@ -352,7 +353,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
                   onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-accent)'}
                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)'}
                 >
-                  {formatWeekRange(weekStart)}
+                  {formatWeekRange(weekStart, tz)}
                 </button>
                 <button
                   onClick={nextWeek}
@@ -513,7 +514,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
           onClose={() => setShowCreate(false)}
           onCreated={(appt) => {
             const ws = weekStartRef.current
-            const we = weekEnd(ws)
+            const we = weekEnd(ws, tz)
             const apptTime = new Date(appt.start_time).getTime()
             if (apptTime >= ws.getTime() && apptTime <= we.getTime()) {
               setAppointments(prev => [...prev, appt])

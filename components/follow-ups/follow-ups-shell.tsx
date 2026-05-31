@@ -7,6 +7,7 @@ import { fetchQualityReviews, fetchFollowUpKpis, savePageFilters } from '@/app/a
 import type { QualityReviewRow, QualityReviewParams, FollowUpKpis, CallHistoryRow } from '@/app/actions'
 import { STATUS_COLORS, NOTION_COLORS } from '@/lib/constants'
 import { formatDateTime } from '@/lib/date-utils'
+import { useCurrentStudio } from '@/components/studio-context'
 import { createClient } from '@/lib/supabase/client'
 import { CallDetailDrawer } from '@/components/call-history/call-detail-drawer'
 import { StatCard } from '@/components/call-analytics/stat-card'
@@ -309,6 +310,8 @@ interface FollowUpsShellProps {
 }
 
 export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const [tab, setTab] = useState<Tab>('follow_ups')
   const [rows, setRows] = useState<QualityReviewRow[]>([])
   const [total, setTotal] = useState(0)
@@ -661,7 +664,7 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
                     onClick={() => setSelectedCall(toCallHistoryRow(row))}
                   >
                     <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)' }}>
-                      {formatDateTime(row.call_created_at)}
+                      {formatDateTime(row.call_created_at, tz)}
                     </td>
                     <td className="px-3 py-3 align-middle font-medium" style={{ color: 'var(--color-text-primary)' }}>
                       {row.lead_name ?? <span style={{ color: 'var(--color-text-muted)' }}>Unknown</span>}

@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import type { TranscriptCallRow, RetellTranscriptItem } from "@/app/actions";
 import { formatDateTime, formatDuration } from "@/lib/date-utils";
+import { useCurrentStudio } from "@/components/studio-context";
 import { NOTION_COLORS } from "@/lib/constants";
 import { Spinner } from "@/components/spinner";
 
@@ -99,6 +100,8 @@ export function TranscriptViewer({
     onNameClick,
     showViewInTranscripts,
 }: TranscriptViewerProps) {
+    const { currentStudio } = useCurrentStudio();
+    const tz = currentStudio.timezone;
     const [summaryOpen, setSummaryOpen] = useState(true);
     const [headerCollapsed, setHeaderCollapsed] = useState(false);
     const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
@@ -318,7 +321,7 @@ export function TranscriptViewer({
                         {call.lead_phone && (
                             <p style={{ color: "var(--color-text-secondary)" }}>Phone Number:{" "}<span style={{ color: "var(--color-text-body)" }}>{call.lead_phone}</span></p>
                         )}
-                        <p style={{ color: "var(--color-text-secondary)" }}>Date:{" "}<span style={{ color: "var(--color-text-body)" }}>{formatDateTime(call.created_at)}</span></p>
+                        <p style={{ color: "var(--color-text-secondary)" }}>Date:{" "}<span style={{ color: "var(--color-text-body)" }}>{formatDateTime(call.created_at, tz)}</span></p>
                         {call.duration_seconds != null && (
                             <p style={{ color: "var(--color-text-secondary)" }}>Duration:{" "}<span style={{ color: "var(--color-text-body)" }}>{formatDuration(call.duration_seconds)}</span></p>
                         )}

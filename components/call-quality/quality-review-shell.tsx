@@ -7,6 +7,7 @@ import { fetchQualityReviews, fetchQualityKpis, savePageFilters, fetchUnreviewed
 import type { QualityReviewRow, QualityReviewParams, QualityKpis, CallHistoryRow } from '@/app/actions'
 import { STATUS_COLORS, NOTION_COLORS } from '@/lib/constants'
 import { formatDateTime } from '@/lib/date-utils'
+import { useCurrentStudio } from '@/components/studio-context'
 import { createClient } from '@/lib/supabase/client'
 import { CallDetailDrawer } from '@/components/call-history/call-detail-drawer'
 import { StatCard } from '@/components/call-analytics/stat-card'
@@ -369,6 +370,8 @@ interface QualityReviewShellProps {
 }
 
 export function QualityReviewShell({ studioId, userRole, isSuper }: QualityReviewShellProps) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const canAnalyze = isSuper || userRole === 'studio_owner'
   const [rows, setRows] = useState<QualityReviewRow[]>([])
   const [total, setTotal] = useState(0)
@@ -824,7 +827,7 @@ export function QualityReviewShell({ studioId, userRole, isSuper }: QualityRevie
                   onClick={() => setSelectedCall(toCallHistoryRow(row))}
                 >
                   <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)' }}>
-                    {formatDateTime(row.call_created_at)}
+                    {formatDateTime(row.call_created_at, tz)}
                   </td>
                   <td className="px-3 py-3 align-middle font-medium" style={{ color: 'var(--color-text-primary)' }}>
                     {row.lead_name ?? <span style={{ color: 'var(--color-text-muted)' }}>Unknown</span>}

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import type { DatePreset, DateRange } from '@/lib/types'
 import { getPresetRange, toDateInputValue } from '@/lib/date-utils'
+import { useCurrentStudio } from '@/components/studio-context'
 
 interface DateRangeFilterProps {
   value: DateRange
@@ -20,6 +21,8 @@ const PRESETS: { label: string; preset: DatePreset }[] = [
 ]
 
 export function DateRangeFilter({ value, onChange, onCustomApply }: DateRangeFilterProps) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const [customFrom, setCustomFrom] = useState(toDateInputValue(value.from))
   const [customTo,   setCustomTo]   = useState(toDateInputValue(value.to))
 
@@ -28,7 +31,7 @@ export function DateRangeFilter({ value, onChange, onCustomApply }: DateRangeFil
       onChange({ ...value, preset: 'custom' })
       return
     }
-    const { from, to } = getPresetRange(preset)
+    const { from, to } = getPresetRange(preset, tz)
     onChange({ from, to, preset })
   }
 

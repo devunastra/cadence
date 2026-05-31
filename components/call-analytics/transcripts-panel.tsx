@@ -12,6 +12,7 @@ import {
 import type { TranscriptCallRow, RetellTranscriptItem } from '@/app/actions'
 import { TranscriptViewer } from './transcript-viewer'
 import { formatDateTime } from '@/lib/date-utils'
+import { useCurrentStudio } from '@/components/studio-context'
 import { Spinner } from '@/components/spinner'
 import { applyTranscriptFilters } from '@/lib/call-filters'
 import { type TranscriptFilters, DEFAULT_FILTERS } from './transcripts-filter-bar'
@@ -80,6 +81,8 @@ const PAGE_SIZE = 20
 export function TranscriptsPanel({ studioId, from = '', to = '', leadId, listWidth, hidePagination, filters = DEFAULT_FILTERS, initialFieldOptions = {}, transcriptRefreshTrigger, onMobileDetailChange }: TranscriptsPanelProps) {
   const router = useRouter()
   const isMobile = useIsMobile()
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const [mobileView, setMobileView] = useState<'list' | 'detail'>('list')
   const [calls, setCalls]         = useState<TranscriptCall[] | null>(null)
   const [page, setPage]           = useState(1)
@@ -300,7 +303,7 @@ export function TranscriptsPanel({ studioId, from = '', to = '', leadId, listWid
                   </p>
                 )}
                 <p className="text-sm truncate mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-                  {formatDateTime(call.created_at)}
+                  {formatDateTime(call.created_at, tz)}
                 </p>
                 <div className="flex items-center gap-1.5 mt-1">
                   <p className="text-sm font-medium">

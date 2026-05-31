@@ -9,6 +9,7 @@ import {
 } from '@/app/actions'
 import type { CallHistoryRow } from '@/app/actions'
 import { formatDateTime } from '@/lib/date-utils'
+import { useCurrentStudio } from '@/components/studio-context'
 import { useToast } from '@/components/ui/toast-provider'
 import { CallDetailDrawer } from '@/components/call-history/call-detail-drawer'
 import type { ScheduledCallback } from '@/lib/types'
@@ -48,11 +49,13 @@ function CancelConfirmModal({
   isPending,
   onConfirm,
   onClose,
+  tz,
 }: {
   callback: ScheduledCallback
   isPending: boolean
   onConfirm: () => void
   onClose: () => void
+  tz: string
 }) {
   const name = formatName(callback.first_name, callback.last_name)
   return (
@@ -85,7 +88,7 @@ function CancelConfirmModal({
           </p>
           <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
             The AI agent will not call <span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{name}</span> at{' '}
-            {callback.callback_time ? formatDateTime(callback.callback_time) : 'the scheduled time'}.
+            {callback.callback_time ? formatDateTime(callback.callback_time, tz) : 'the scheduled time'}.
             This cannot be undone.
           </p>
         </div>
@@ -128,6 +131,8 @@ interface Props {
 }
 
 export function ScheduledCallbacksTable({ refreshTrigger }: Props) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const [rows, setRows] = useState<ScheduledCallback[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -283,7 +288,7 @@ export function ScheduledCallbacksTable({ refreshTrigger }: Props) {
                         {row.email ?? <span style={{ color: 'var(--color-text-muted)' }}>{'—'}</span>}
                       </td>
                       <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)' }}>
-                        {row.callback_time ? formatDateTime(row.callback_time) : <span style={{ color: 'var(--color-text-muted)' }}>{'—'}</span>}
+                        {row.callback_time ? formatDateTime(row.callback_time, tz) : <span style={{ color: 'var(--color-text-muted)' }}>{'—'}</span>}
                       </td>
                       <td className="px-3 py-3 align-middle" style={{ color: 'var(--color-text-secondary)', maxWidth: 220 }}>
                         <span className="line-clamp-2">
@@ -344,6 +349,7 @@ export function ScheduledCallbacksTable({ refreshTrigger }: Props) {
         <CancelConfirmModal
           callback={confirmTarget}
           isPending={cancellingId !== null}
+          tz={tz}
           onConfirm={handleConfirmCancel}
           onClose={() => {
             if (cancellingId !== null) return

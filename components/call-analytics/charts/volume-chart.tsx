@@ -6,6 +6,7 @@ import {
 } from 'recharts'
 import type { ChartType } from '../kpi-card'
 import { formatShortDate } from '@/lib/date-utils'
+import { useCurrentStudio } from '@/components/studio-context'
 
 interface VolumeChartProps {
   data: { date: string; count: number }[]
@@ -15,10 +16,11 @@ interface VolumeChartProps {
 const BRAND       = '#2383E2'
 const BRAND_LIGHT = '#2383E2'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function xFormat(date: any) { return formatShortDate(String(date)) }
-
 export function VolumeChart({ data, type }: VolumeChartProps) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const xFormat = (date: any) => formatShortDate(String(date), tz)
   const chartData = data.length > 0 ? data : [{ date: new Date().toISOString().slice(0, 10), count: 0 }]
   const common = {
     data: chartData,

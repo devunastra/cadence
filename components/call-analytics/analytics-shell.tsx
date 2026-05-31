@@ -6,6 +6,7 @@ import { Spinner } from '@/components/spinner'
 import { fetchCallsAnalytics, saveAnalyticsPreferences, savePageFilters } from '@/app/actions'
 import { createClient } from '@/lib/supabase/client'
 import { groupCallsByDay } from '@/lib/date-utils'
+import { useCurrentStudio } from '@/components/studio-context'
 import { NOTION_COLORS } from '@/lib/constants'
 import type { CallAnalyticsData, DateRange, DatePreset, Call } from '@/lib/types'
 import { formatTotalDuration, getPresetRange } from '@/lib/date-utils'
@@ -64,8 +65,10 @@ const DISCONNECT_SUMMARY: { label: string; keys: string[] }[] = [
 ]
 
 export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const defaultRange: DateRange = (() => {
-    const { from, to } = getPresetRange('7d' as DatePreset)
+    const { from, to } = getPresetRange('7d' as DatePreset, tz)
     return { from, to, preset: '7d' as DatePreset }
   })()
   const [data,       setData]      = useState<CallAnalyticsData>(EMPTY_ANALYTICS)
@@ -109,7 +112,7 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
           : null
         const successRate = totalCalls ? rows.filter(c => c.outcome === 'successful').length / totalCalls : 0
         const pickupRate = totalCalls ? rows.filter(c => c.picked_up).length / totalCalls : 0
-        const volumeByDay = groupCallsByDay(rows)
+        const volumeByDay = groupCallsByDay(rows, tz)
         const sc: Record<string, number> = {}
         const dc: Record<string, number> = {}
         const oc: Record<string, number> = {}
@@ -174,11 +177,11 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
     })
   }
 
-  function fmtChicago(d: Date) {
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' })
+  function fmtStudio(d: Date) {
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz })
   }
   const dateRangeLabel = range.preset === 'custom'
-    ? `${fmtChicago(range.from)} – ${fmtChicago(range.to)}`
+    ? `${fmtStudio(range.from)} – ${fmtStudio(range.to)}`
     : PRESET_OPTIONS.find(p => p.value === range.preset)?.label ?? range.preset
 
   // Apply all filters client-side

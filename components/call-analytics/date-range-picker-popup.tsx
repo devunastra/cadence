@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { useCurrentStudio } from '@/components/studio-context'
+import { studioMidnightFromStr } from '@/lib/date-utils'
 
 const DAY_HEADERS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const MONTHS = [
@@ -35,84 +37,75 @@ const PRESETS: { id: PresetId; label: string }[] = [
   { id: 'all',            label: 'All Time' },
 ]
 
-const STUDIO_TZ = 'America/Chicago'
+// ── Studio timezone helpers ───────────────────────────────────────────────────
 
-// ── Chicago timezone helpers ───────────────────────────────────────────────────
-
-/** What YYYY-MM-DD is it right now in Chicago? */
-function getChicagoDateStr(d: Date = new Date()): string {
-  return d.toLocaleDateString('en-CA', { timeZone: STUDIO_TZ })
+/** What YYYY-MM-DD is it right now in `tz`? */
+function getStudioDateStr(d: Date, tz: string): string {
+  return d.toLocaleDateString('en-CA', { timeZone: tz })
 }
 
 /**
  * Given a local-midnight Date (from calendar cell), returns the UTC Date for
- * midnight America/Chicago on that same calendar date.
- * Treats the local date's year/month/day as the Chicago calendar date.
+ * midnight in `tz` on that same calendar date.
  */
-function toChicagoStart(localDate: Date): Date {
+function toStudioStart(localDate: Date, tz: string): Date {
   const y = localDate.getFullYear()
   const m = String(localDate.getMonth() + 1).padStart(2, '0')
   const d = String(localDate.getDate()).padStart(2, '0')
-  const dateStr = `${y}-${m}-${d}`
-  const utcMidnight = new Date(dateStr + 'T00:00:00Z')
-  const h = parseInt(
-    new Intl.DateTimeFormat('en-US', { timeZone: STUDIO_TZ, hour: 'numeric', hourCycle: 'h23' }).format(utcMidnight),
-    10,
-  )
-  return new Date(utcMidnight.getTime() + (h === 0 ? 0 : 24 - h) * 3_600_000)
+  return studioMidnightFromStr(`${y}-${m}-${d}`, tz)
 }
 
-/** Returns UTC end-of-day in Chicago for the same calendar date as localDate. */
-function toChicagoEnd(localDate: Date): Date {
-  return new Date(toChicagoStart(localDate).getTime() + 86_400_000 - 1)
+/** Returns UTC end-of-day in `tz` for the same calendar date as localDate. */
+function toStudioEnd(localDate: Date, tz: string): Date {
+  return new Date(toStudioStart(localDate, tz).getTime() + 86_400_000 - 1)
 }
 
 /**
- * Converts a Chicago UTC boundary Date (e.g. from getPresetRange) to a local-midnight
- * Date for the same Chicago calendar date, for use in calendar display.
+ * Converts a UTC boundary Date (e.g. from getPresetRange) to a local-midnight Date
+ * for the same studio calendar date, for use in calendar display.
  */
-function chicagoDateToLocalMidnight(d: Date): Date {
-  const chicagoStr = d.toLocaleDateString('en-CA', { timeZone: STUDIO_TZ })
-  return new Date(chicagoStr + 'T00:00:00') // midnight in browser's local TZ
+function studioDateToLocalMidnight(d: Date, tz: string): Date {
+  const studioStr = d.toLocaleDateString('en-CA', { timeZone: tz })
+  return new Date(studioStr + 'T00:00:00') // midnight in browser's local TZ
 }
 
 // ── Preset computation ────────────────────────────────────────────────────────
-// Returns local-midnight dates representing the Chicago calendar dates for display.
-// The actual UTC query boundaries are computed in the Apply handler via toChicagoStart/End.
+// Returns local-midnight dates representing the studio-tz calendar dates for display.
+// The actual UTC query boundaries are computed in the Apply handler via toStudioStart/End.
 
-function getPresetDates(id: PresetId): { from: Date; to: Date } {
+function getPresetDates(id: PresetId, tz: string): { from: Date; to: Date } {
   const now = new Date()
-  const chicagoTodayStr = getChicagoDateStr(now)
-  // Local midnight of "today in Chicago" — correct calendar date for any browser timezone
-  const chicagoToday = new Date(chicagoTodayStr + 'T00:00:00')
+  const todayStr = getStudioDateStr(now, tz)
+  // Local midnight of "today in studio tz" — correct calendar date for any browser timezone
+  const studioToday = new Date(todayStr + 'T00:00:00')
 
   switch (id) {
     case 'today':
-      return { from: chicagoToday, to: chicagoToday }
+      return { from: studioToday, to: studioToday }
     case '7d':
-      return { from: new Date(chicagoToday.getTime() - 7 * 86_400_000), to: chicagoToday }
+      return { from: new Date(studioToday.getTime() - 7 * 86_400_000), to: studioToday }
     case '4w':
-      return { from: new Date(chicagoToday.getTime() - 28 * 86_400_000), to: chicagoToday }
+      return { from: new Date(studioToday.getTime() - 28 * 86_400_000), to: studioToday }
     case '3m': {
-      const f = new Date(chicagoToday)
+      const f = new Date(studioToday)
       f.setMonth(f.getMonth() - 3)
-      return { from: f, to: chicagoToday }
+      return { from: f, to: studioToday }
     }
     case 'week-to-date': {
-      const dayName   = new Intl.DateTimeFormat('en-US', { timeZone: STUDIO_TZ, weekday: 'short' }).format(now)
+      const dayName   = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(now)
       const dayOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(dayName)
-      return { from: new Date(chicagoToday.getTime() - dayOfWeek * 86_400_000), to: chicagoToday }
+      return { from: new Date(studioToday.getTime() - dayOfWeek * 86_400_000), to: studioToday }
     }
     case 'month-to-date': {
-      const [year, month] = chicagoTodayStr.split('-')
-      return { from: new Date(`${year}-${month}-01T00:00:00`), to: chicagoToday }
+      const [year, month] = todayStr.split('-')
+      return { from: new Date(`${year}-${month}-01T00:00:00`), to: studioToday }
     }
     case 'year-to-date': {
-      const year = chicagoTodayStr.split('-')[0]
-      return { from: new Date(`${year}-01-01T00:00:00`), to: chicagoToday }
+      const year = todayStr.split('-')[0]
+      return { from: new Date(`${year}-01-01T00:00:00`), to: studioToday }
     }
     case 'all':
-      return { from: new Date('2020-01-01T00:00:00'), to: chicagoToday }
+      return { from: new Date('2020-01-01T00:00:00'), to: studioToday }
   }
 }
 
@@ -147,17 +140,19 @@ function buildMonthCells(year: number, month: number): (Date | null)[] {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function DateRangePickerPopup({ anchorRect, initialFrom, initialTo, onApply, onClose }: DateRangePickerPopupProps) {
+  const { currentStudio } = useCurrentStudio()
+  const tz = currentStudio.timezone
   const ref = useRef<HTMLDivElement>(null)
   const today = new Date()
 
-  // Store display dates as local-midnight of the Chicago calendar date
-  const [fromDate, setFromDate] = useState<Date>(chicagoDateToLocalMidnight(initialFrom))
-  const [toDate, setToDate]     = useState<Date>(chicagoDateToLocalMidnight(initialTo))
+  // Store display dates as local-midnight of the studio calendar date
+  const [fromDate, setFromDate] = useState<Date>(studioDateToLocalMidnight(initialFrom, tz))
+  const [toDate, setToDate]     = useState<Date>(studioDateToLocalMidnight(initialTo, tz))
   const [hoverDate, setHoverDate]   = useState<Date | null>(null)
   const [selecting, setSelecting]   = useState<'from' | 'to'>('from')
   const [activePreset, setActivePreset] = useState<PresetId | null>(null)
 
-  const initDisplay = chicagoDateToLocalMidnight(initialFrom)
+  const initDisplay = studioDateToLocalMidnight(initialFrom, tz)
   const [leftYear,  setLeftYear]  = useState(initDisplay.getFullYear())
   const [leftMonth, setLeftMonth] = useState(initDisplay.getMonth())
 
@@ -174,7 +169,7 @@ export function DateRangePickerPopup({ anchorRect, initialFrom, initialTo, onApp
   }
 
   function handlePreset(id: PresetId) {
-    const { from, to } = getPresetDates(id)
+    const { from, to } = getPresetDates(id, tz)
     setFromDate(from)
     setToDate(to)
     setActivePreset(id)
@@ -394,8 +389,8 @@ export function DateRangePickerPopup({ anchorRect, initialFrom, initialTo, onApp
           </button>
           <button
             onClick={() => {
-              // Convert display (local calendar) dates to Chicago UTC boundaries for the query
-              onApply(toChicagoStart(fromDate), toChicagoEnd(toDate), activePreset)
+              // Convert display (local calendar) dates to studio-tz UTC boundaries for the query
+              onApply(toStudioStart(fromDate, tz), toStudioEnd(toDate, tz), activePreset)
               onClose()
             }}
             className="text-sm font-medium px-3 py-1.5 rounded-lg text-white transition-colors"

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { X, ExternalLink, ChevronDown, ChevronUp, Sparkles, AlertTriangle, MessageSquare, Phone, Tag } from 'lucide-react'
 import type { CallHistoryRow } from '@/app/actions'
 import { formatDateTime } from '@/lib/date-utils'
+import { useCurrentStudio } from '@/components/studio-context'
 import { STATUS_COLORS, NOTION_COLORS } from '@/lib/constants'
 import { Spinner } from '@/components/spinner'
 import { fetchCallTranscriptFull, fetchCallReviewFull } from '@/app/actions'
@@ -106,6 +107,7 @@ interface CallDetailDrawerProps {
 }
 
 export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
+  const { currentStudio } = useCurrentStudio()
   const [transcriptData, setTranscriptData] = useState<{
     transcript: string | null
     toolCalls: RetellTranscriptItem[] | null
@@ -224,7 +226,7 @@ export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
             <div>
               <span style={{ color: 'var(--color-text-secondary)' }}>Date/Time</span>
               <p className="font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                {formatDateTime(call.created_at)}
+                {formatDateTime(call.created_at, currentStudio.timezone)}
               </p>
             </div>
             <div>
