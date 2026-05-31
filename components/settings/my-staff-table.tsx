@@ -64,7 +64,7 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<Role>('studio_staff')
   const [inviteStudioId, setInviteStudioId] = useState(studioId)
-  const { showError, showSuccess } = useToast()
+  const { showError, showSuccess, showDeferred } = useToast()
   const [inviting, setInviting] = useState(false)
   const [pendingRemove, setPendingRemove] = useState<{ userId: string; studioId: string; studioName: string; membershipId: string } | null>(null)
   const [isRemoving, setIsRemoving] = useState(false)
@@ -158,17 +158,31 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
       return
     }
 
-    // (i) Role change confirmed.
+    // (i) Role change confirmed. Defer the toast so it survives the reload.
     if (data.role_changed) {
-      showSuccess(`Role updated to ${ROLE_LABELS[data.role_changed.to as Role]}.`)
+      showDeferred('success', `Role updated to ${ROLE_LABELS[data.role_changed.to as Role]}.`)
       setInviteEmail('')
       window.location.reload()
       return
     }
 
-    // Soft warning (e.g. email failed but membership succeeded).
+    // Blank-studio invite (scenario a / c): no studio_users row is created yet
+    // (invitee hasn't accepted), so the staff table has nothing new to show.
+    // Skip the reload — keeps the success toast on screen.
+    if (isNewStudio) {
+      showSuccess(
+        `Invite sent to ${inviteEmail}. They'll receive an email to set up their studio.`,
+      )
+      setInviteEmail('')
+      return
+    }
+
+    // Defer the toast so it survives window.location.reload() — the in-memory
+    // ToastStack would otherwise be wiped before the user could read it.
     if (data.warning) {
-      showSuccess(`Done. ${data.warning}`)
+      showDeferred('success', `Done. ${data.warning}`)
+    } else {
+      showDeferred('success', `Invite sent to ${inviteEmail}.`)
     }
 
     setInviteEmail('')
@@ -207,11 +221,20 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
       body: JSON.stringify({ userId: member.user_id, studioId: member.studio_id, role: newRole }),
     })
     setUpdatingRoleId(null)
+    const data = await res.json().catch(() => ({}))
     if (!res.ok) {
-      const data = await res.json()
       showError(data.error ?? 'Failed to update role')
       // Rollback
       setMembers(ms => ms.map(m => m.id === member.id ? { ...m, role: prev } : m))
+      return
+    }
+    // Surface the same friendly confirmation the invite-form path produces.
+    // `warning` from the server means the role updated but the notification
+    // email didn't go through — flag that so the operator knows.
+    if (data.warning) {
+      showSuccess(`Role updated to ${ROLE_LABELS[newRole]}. ${data.warning}`)
+    } else {
+      showSuccess(`Role updated to ${ROLE_LABELS[newRole]}. ${member.email} has been notified.`)
     }
   }
 

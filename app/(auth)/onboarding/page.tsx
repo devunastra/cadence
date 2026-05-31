@@ -15,8 +15,11 @@ import { StepSchedule } from '@/components/onboarding/step-schedule'
 
 const STEPS = ['Business Profile', 'Integrations', 'Lead Sources', 'Schedule'] as const
 
+// Address-only key, matches the server-side onboardingDupeKey in app/actions.ts.
+// Name is intentionally excluded — "Duplicate location" appends " (copy)" to the
+// name, so including it would let identical-address dupes slip past this guard.
 function dupeKey(s: OnboardingStudioInput): string {
-  return [s.name, s.street_address, s.city, s.postal_code]
+  return [s.street_address, s.city, s.state, s.postal_code, s.country]
     .map(v => (v ?? '').trim().toLowerCase())
     .join('|')
 }
@@ -116,12 +119,13 @@ export default function OnboardingPage() {
       }
     }
 
-    // Block duplicate name + address across the submitted set.
+    // Block duplicate physical address across the submitted set. Matches the
+    // server-side dedupe so the user gets immediate feedback before submit.
     const seen = new Set<string>()
     for (let i = 0; i < studios.length; i++) {
       const key = dupeKey(studios[i])
       if (seen.has(key)) {
-        showError('Two locations share the same name and address. Please make each location unique.')
+        showError('Two locations share the same physical address. Please give each location a unique address.')
         setActiveIndex(i)
         setStep(0)
         return
@@ -131,7 +135,15 @@ export default function OnboardingPage() {
 
     setSubmitting(true)
     try {
-      await completeStudioOnboarding(studios)
+      const result = await completeStudioOnboarding(studios)
+      // Server returns { error } for user-facing validation failures (instead of
+      // throwing, which Next.js production masks). Genuine unexpected throws are
+      // still caught by the catch below.
+      if ('error' in result) {
+        showError(result.error)
+        setSubmitting(false)
+        return
+      }
       const supabase = createClient()
       // Refresh the session so the new studio_setup_complete flag lands in the JWT.
       await supabase.auth.refreshSession()

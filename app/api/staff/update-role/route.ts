@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { sendRoleChangedNotification } from '@/lib/email'
 
 const VALID_ROLES = new Set(['studio_staff', 'studio_owner', 'super_admin'])
+type StudioRole = 'studio_owner' | 'studio_staff' | 'super_admin'
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -72,6 +74,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const previousRole = targetMembership.role as StudioRole
+
   const { error } = await serviceClient
     .from('studio_users')
     .update({ role })
@@ -80,5 +84,34 @@ export async function POST(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  return NextResponse.json({ ok: true })
+  // Notify the affected user via Resend so the dropdown path is consistent with
+  // the invite-form path (which already sends `sendRoleChangedNotification`).
+  // Email failures are non-fatal — surface as a `warning` so the UI can flag it
+  // without rolling back the role change.
+  const siteUrl = (request.headers.get('origin') ?? process.env.NEXT_PUBLIC_SITE_URL ?? '').replace(/\/$/, '')
+  let emailWarning: string | undefined
+  try {
+    const [targetUserResult, studioResult] = await Promise.all([
+      serviceClient.auth.admin.getUserById(userId),
+      serviceClient.from('studios').select('name').eq('id', studioId).single(),
+    ])
+    const targetEmail = targetUserResult.data?.user?.email
+    const studioName = studioResult.data?.name
+    if (targetEmail && studioName) {
+      await sendRoleChangedNotification({
+        to: targetEmail,
+        loginUrl: `${siteUrl}/login`,
+        studioName,
+        previousRole,
+        newRole: role as StudioRole,
+        invitedBy: user.email ?? 'your administrator',
+      })
+    } else {
+      emailWarning = 'Role updated but notification email could not be sent (missing target email or studio name).'
+    }
+  } catch (e) {
+    emailWarning = e instanceof Error ? e.message : 'Role updated but notification email failed.'
+  }
+
+  return NextResponse.json({ ok: true, previousRole, newRole: role, ...(emailWarning ? { warning: emailWarning } : {}) })
 }

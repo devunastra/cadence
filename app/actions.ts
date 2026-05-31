@@ -2991,10 +2991,15 @@ function onboardingDupeKey(
  */
 export async function completeStudioOnboarding(
   studios: OnboardingStudioInput[],
-): Promise<{ studioIds: string[] }> {
+): Promise<{ studioIds: string[] } | { error: string }> {
+  // User-facing validation errors are RETURNED (not thrown). Next.js masks
+  // server-action throws to a generic "An error occurred in the Server
+  // Components render" message in production, which is useless for the UI.
+  // Genuine bugs (DB writes, auth lookups) still throw — those shouldn't
+  // surface to the user with friendly copy anyway.
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
+  if (!user) return { error: 'Your session expired. Please sign in again.' }
 
   // Auth guard — freshly-invited owner OR a super_admin (test path).
   const meta = user.user_metadata ?? {}
@@ -3004,24 +3009,24 @@ export async function completeStudioOnboarding(
     .select('role')
     .eq('user_id', user.id)
   const isSuperAdmin = memberships?.some(m => m.role === 'super_admin') ?? false
-  if (!isFreshOwner && !isSuperAdmin) throw new Error('Forbidden')
+  if (!isFreshOwner && !isSuperAdmin) return { error: 'You don’t have permission to onboard a studio.' }
 
   // Validate: at least one studio.
   if (!Array.isArray(studios) || studios.length === 0) {
-    throw new Error('At least one studio is required.')
+    return { error: 'At least one studio is required.' }
   }
 
-  // Validate: required business fields + no duplicate name+address.
+  // Validate: required business fields + no duplicate physical address.
   const seenKeys = new Set<string>()
   for (const s of studios) {
-    if (!s.name?.trim()) throw new Error('Each location must have a studio name.')
-    if (!s.street_address?.trim()) throw new Error(`"${s.name}" is missing a street address.`)
-    if (!s.city?.trim()) throw new Error(`"${s.name}" is missing a city.`)
-    if (!s.state?.trim()) throw new Error(`"${s.name}" is missing a state.`)
-    if (!s.postal_code?.trim()) throw new Error(`"${s.name}" is missing a postal / zip code.`)
+    if (!s.name?.trim()) return { error: 'Each location must have a studio name.' }
+    if (!s.street_address?.trim()) return { error: `"${s.name}" is missing a street address.` }
+    if (!s.city?.trim()) return { error: `"${s.name}" is missing a city.` }
+    if (!s.state?.trim()) return { error: `"${s.name}" is missing a state.` }
+    if (!s.postal_code?.trim()) return { error: `"${s.name}" is missing a postal / zip code.` }
     const key = onboardingDupeKey(s)
     if (seenKeys.has(key)) {
-      throw new Error('Two locations share the same physical address. Please give each location a unique address.')
+      return { error: 'Two locations share the same physical address. Please give each location a unique address.' }
     }
     seenKeys.add(key)
   }
@@ -3045,7 +3050,7 @@ export async function completeStudioOnboarding(
   )
   for (const s of studios) {
     if (existingKeys.has(onboardingDupeKey(s))) {
-      throw new Error(`A studio at "${s.street_address}, ${s.city}" already exists.`)
+      return { error: `A studio at "${s.street_address}, ${s.city}" already exists. Please use a different address.` }
     }
   }
 
