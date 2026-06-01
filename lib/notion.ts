@@ -243,15 +243,119 @@ export async function syncOneNotionPageToSupabase(client: SupabaseClient, pageId
   return { status: 'updated', detail }
 }
 
+// ───────────────── Ongoing auto-linking (notion_page_id) ─────────────────
+// Match an unlinked Supabase lead to its Notion page by phone/email — the ONGOING version of the
+// one-time L0 backfill (scripts/notion-link-backfill.mjs), so leads created after the backfill
+// (e.g. GHL-sourced) get linked automatically. Reuses pages the pull already fetched (no extra
+// Notion calls). Writes ONLY the link columns to Supabase — never writes Notion or GHL.
+const stripNotionUrl = (s: unknown): string =>
+  String(s ?? '').replace(/https?:\/\/(www\.)?(app\.)?notion\.(so|com)/gi, '').trim()
+function normMatchPhone(raw: unknown): string | null {
+  const d = stripNotionUrl(raw).replace(/\D/g, '')
+  if (!d) return null
+  const x = d.length === 11 && d[0] === '1' ? d.slice(1) : d
+  return x.length >= 10 ? x.slice(-10) : null
+}
+function normMatchEmail(raw: unknown): string | null {
+  const s = stripNotionUrl(raw).toLowerCase()
+  return s.split(/\s+/).find((t) => t.includes('@')) ?? null
+}
+function readNotionContact(props: any, name: string): string | null {
+  const p = props?.[name]
+  if (!p) return null
+  if (p.type === 'phone_number') return p.phone_number || null
+  if (p.type === 'email') return p.email || null
+  if (p.type === 'rich_text') return (p.rich_text ?? []).map((t: any) => t.plain_text).join('').trim() || null
+  if (p.type === 'title') return (p.title ?? []).map((t: any) => t.plain_text).join('').trim() || null
+  return null
+}
+
+/**
+ * Link unlinked Supabase leads to their Notion page by phone/email match. Conservative + conflict-safe:
+ *  - Only considers Notion pages NOT already linked to a lead (`linkedPageIds`) → a page can never be
+ *    double-assigned (this is what the one-shot backfill script lacked, which caused a unique-violation
+ *    on duplicate leads).
+ *  - Skips a page whose match key is shared by >1 unlinked lead (ambiguous/duplicate → flag, never guess).
+ *  - Skips a lead already claimed by another page in this run.
+ *  - The write is guarded by `.is('notion_page_id', null)` + the leads_notion_page_id_key unique index;
+ *    a 0-row result or constraint hit is logged and skipped, NEVER thrown.
+ *  - Writes ONLY notion_page_id + link timestamps to Supabase. NEVER writes Notion. 'log' mode = dry-run.
+ * Returns the freshly-linked {pageId, leadId} pairs so the caller can sync their values in the same run.
+ */
+export async function linkUnlinkedLeads(
+  client: SupabaseClient, studioId: string, pages: any[], linkedPageIds: Set<string>,
+): Promise<{ linked: Array<{ pageId: string; leadId: string }>; ambiguous: number; conflicts: number }> {
+  const mode = notionSyncMode()
+  if (mode === 'off') return { linked: [], ambiguous: 0, conflicts: 0 }
+
+  // Load unlinked leads (id + contact only).
+  const unlinked: Array<{ id: string; phone: string | null; email: string | null }> = []
+  let from = 0
+  for (;;) {
+    const { data } = await client.from('leads').select('id,phone,email')
+      .eq('studio_id', studioId).is('notion_page_id', null).range(from, from + 999)
+    for (const l of (data ?? []) as any[]) unlinked.push(l)
+    if (!data || data.length < 1000) break
+    from += 1000
+  }
+  if (unlinked.length === 0) return { linked: [], ambiguous: 0, conflicts: 0 }
+
+  // Index by normalized phone/email; a key shared by >1 unlinked lead is ambiguous (skip it).
+  const byPhone = new Map<string, string>(), byEmail = new Map<string, string>()
+  const ambigPhone = new Set<string>(), ambigEmail = new Set<string>()
+  for (const l of unlinked) {
+    const p = normMatchPhone(l.phone)
+    if (p) { if (byPhone.has(p)) ambigPhone.add(p); else byPhone.set(p, l.id) }
+    const e = normMatchEmail(l.email)
+    if (e) { if (byEmail.has(e)) ambigEmail.add(e); else byEmail.set(e, l.id) }
+  }
+
+  const claimed = new Set<string>()
+  const linked: Array<{ pageId: string; leadId: string }> = []
+  let ambiguous = 0, conflicts = 0
+  const nowIso = new Date().toISOString()
+
+  for (const page of pages) {
+    if (linkedPageIds.has(page.id)) continue // page already owned by a lead → never re-link
+    const pPhone = normMatchPhone(readNotionContact(page.properties, 'Phone'))
+    const pEmail = normMatchEmail(readNotionContact(page.properties, 'Email'))
+    if ((pPhone && ambigPhone.has(pPhone)) || (pEmail && ambigEmail.has(pEmail))) { ambiguous++; continue }
+    const leadId = (pPhone && byPhone.get(pPhone)) || (pEmail && byEmail.get(pEmail)) || null
+    if (!leadId) continue
+    if (claimed.has(leadId)) { ambiguous++; continue } // lead already matched by another page this run
+
+    if (mode === 'log') {
+      claimed.add(leadId)
+      linked.push({ pageId: page.id, leadId })
+      await logSync(client, { studio_id: studioId, lead_id: leadId, notion_page_id: page.id, action: 'skip', detail: { mode: 'log', op: 'link' } }, 'notion_to_app')
+      continue
+    }
+    const { data: upd, error } = await client.from('leads')
+      .update({ notion_page_id: page.id, notion_last_edited_time: page.last_edited_time, notion_last_synced_at: nowIso })
+      .eq('id', leadId).eq('studio_id', studioId).is('notion_page_id', null)
+      .select('id')
+    if (error) {
+      conflicts++
+      await logSync(client, { studio_id: studioId, lead_id: leadId, notion_page_id: page.id, action: 'skip', detail: { op: 'link', error: error.message } }, 'notion_to_app')
+      continue
+    }
+    if (!upd || upd.length === 0) continue // already linked by another process — skip silently
+    claimed.add(leadId)
+    linked.push({ pageId: page.id, leadId })
+    await logSync(client, { studio_id: studioId, lead_id: leadId, notion_page_id: page.id, action: 'update', detail: { op: 'link' } }, 'notion_to_app')
+  }
+  return { linked, ambiguous, conflicts }
+}
+
 /**
  * Pull Notion edits into Supabase for one studio's linked leads.
  * Echo suppression = value comparison: only writes a field when Notion ≠ Supabase, so a prior
  * app→Notion push that already matched never bounces back. Writes go DIRECT to the leads table
  * (bypassing updateLead) so they never re-trigger the app→Notion push. Non-fatal; logs everything.
  */
-export async function syncNotionToSupabase(client: SupabaseClient, studioId: string): Promise<{ checked: number; changed: number; skipped: number; unmatched_selects: string[] }> {
+export async function syncNotionToSupabase(client: SupabaseClient, studioId: string): Promise<{ checked: number; changed: number; skipped: number; unmatched_selects: string[]; linked: number; link_ambiguous: number; link_conflicts: number }> {
   const mode = notionSyncMode()
-  const empty = { checked: 0, changed: 0, skipped: 0, unmatched_selects: [] as string[] }
+  const empty = { checked: 0, changed: 0, skipped: 0, unmatched_selects: [] as string[], linked: 0, link_ambiguous: 0, link_conflicts: 0 }
   if (mode === 'off') return empty
 
   const { data: studio } = await client.from('studios').select('notion_leads_db_id').eq('id', studioId).single()
@@ -273,6 +377,23 @@ export async function syncNotionToSupabase(client: SupabaseClient, studioId: str
   }
 
   const pages = await notionQueryAll(dbId)
+
+  // Auto-link unlinked leads to their Notion page (ongoing backfill), then pull values for the
+  // freshly-linked leads in this same run by adding them to leadByPage before the sync loop.
+  const linkResult = await linkUnlinkedLeads(client, studioId, pages, new Set(leadByPage.keys()))
+  if (mode !== 'log' && linkResult.linked.length > 0) {
+    const ids = linkResult.linked.map((l) => l.leadId)
+    const freshById = new Map<string, any>()
+    for (let i = 0; i < ids.length; i += 500) {
+      const { data } = await client.from('leads').select(cols).in('id', ids.slice(i, i + 500))
+      for (const l of (data ?? []) as any[]) freshById.set(l.id, l)
+    }
+    for (const { pageId, leadId } of linkResult.linked) {
+      const l = freshById.get(leadId)
+      if (l) leadByPage.set(pageId, l)
+    }
+  }
+
   const unmatched = new Set<string>()
   const logRows: Array<Record<string, unknown>> = []
   const pushLog = (lead_id: string, notion_page_id: string, action: SyncAction, detail: unknown) =>
@@ -304,5 +425,8 @@ export async function syncNotionToSupabase(client: SupabaseClient, studioId: str
   for (let i = 0; i < logRows.length; i += 500) {
     try { await client.from('notion_sync_log').insert(logRows.slice(i, i + 500)) } catch { /* non-fatal */ }
   }
-  return { checked, changed, skipped, unmatched_selects: [...unmatched] }
+  return {
+    checked, changed, skipped, unmatched_selects: [...unmatched],
+    linked: linkResult.linked.length, link_ambiguous: linkResult.ambiguous, link_conflicts: linkResult.conflicts,
+  }
 }
