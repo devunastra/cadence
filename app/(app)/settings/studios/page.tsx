@@ -16,5 +16,5 @@ export default async function StudiosPage() {
 
   const studios = await getStudios(isSuper, memberships.map(m => m.studio_id))
 
-  return <StudiosForm initialStudios={studios} />
+  return <StudiosForm initialStudios={studios} isSuperAdmin={isSuper} />
 }

@@ -18,6 +18,8 @@ import type { Studio } from "@/lib/types";
 
 interface StudiosFormProps {
     initialStudios: Studio[];
+    /** Super_admin can delete studios; studio_owner cannot (must escalate). */
+    isSuperAdmin: boolean;
 }
 
 const INPUT =
@@ -27,7 +29,7 @@ const LABEL =
 
 const COUNTRY_OPTIONS = getCountryOptions();
 
-export function StudiosForm({ initialStudios }: StudiosFormProps) {
+export function StudiosForm({ initialStudios, isSuperAdmin }: StudiosFormProps) {
     const [studios, setStudios] = useState(initialStudios);
     const [name, setName] = useState("");
     const [streetAddress, setStreetAddress] = useState("");
@@ -194,14 +196,14 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                                 >
                                     Timezone
                                 </th>
-                                <th className="px-6 py-3" />
+                                {isSuperAdmin && <th className="px-6 py-3" />}
                             </tr>
                         </thead>
                         <tbody>
                             {studios.length === 0 ? (
                                 <tr>
                                     <td
-                                        colSpan={5}
+                                        colSpan={isSuperAdmin ? 5 : 4}
                                         className="px-6 py-8 text-center text-sm"
                                         style={{ color: "var(--color-text-muted)" }}
                                     >
@@ -264,25 +266,27 @@ export function StudiosForm({ initialStudios }: StudiosFormProps) {
                                                 triggerClassName="py-1.5"
                                             />
                                         </td>
-                                        <td className="py-3 text-center">
-                                            <button
-                                                type="button"
-                                                onClick={() =>
-                                                    setPendingDelete({ id: studio.id, name: studio.name })
-                                                }
-                                                className="p-1 transition-colors"
-                                                style={{ color: '#dc2626' }}
-                                                onMouseEnter={(e) =>
-                                                    ((e.currentTarget as HTMLElement).style.color = "#b91c1c")
-                                                }
-                                                onMouseLeave={(e) =>
-                                                    ((e.currentTarget as HTMLElement).style.color = "#dc2626")
-                                                }
-                                                title="Delete studio"
-                                            >
-                                                <Trash2 size={18} />
-                                            </button>
-                                        </td>
+                                        {isSuperAdmin && (
+                                            <td className="py-3 text-center">
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setPendingDelete({ id: studio.id, name: studio.name })
+                                                    }
+                                                    className="p-1 transition-colors"
+                                                    style={{ color: '#dc2626' }}
+                                                    onMouseEnter={(e) =>
+                                                        ((e.currentTarget as HTMLElement).style.color = "#b91c1c")
+                                                    }
+                                                    onMouseLeave={(e) =>
+                                                        ((e.currentTarget as HTMLElement).style.color = "#dc2626")
+                                                    }
+                                                    title="Delete studio"
+                                                >
+                                                    <Trash2 size={18} />
+                                                </button>
+                                            </td>
+                                        )}
                                     </tr>
                                 ))
                             )}

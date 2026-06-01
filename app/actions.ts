@@ -559,15 +559,20 @@ export async function deleteStudio(id: string): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Unauthorized')
 
+  // Restricted to super_admin only — studio_owner cannot delete their own
+  // studio (decision 2026-06-01). Studio data is high-value (leads, calls,
+  // appointments, conversations); multi-owner studios mean one owner deleting
+  // affects co-owners without consent. Owners who want to close a studio
+  // escalate to a super_admin.
   const { data: memberships } = await supabase
     .from('studio_users')
-    .select('role, studio_id')
+    .select('role')
     .eq('user_id', user.id)
 
   const isSuperAdmin = memberships?.some(m => m.role === 'super_admin') ?? false
-  const isOwnerOfStudio = memberships?.some(m => m.studio_id === id && (m.role === 'studio_owner' || m.role === 'super_admin')) ?? false
-
-  if (!isSuperAdmin && !isOwnerOfStudio) throw new Error('Forbidden')
+  if (!isSuperAdmin) {
+    throw new Error('Only a super admin can delete a studio. Contact your administrator.')
+  }
 
   const serviceClient = createServiceClient()
   const { error } = await serviceClient

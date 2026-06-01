@@ -53,7 +53,9 @@ export async function POST(request: NextRequest) {
 
   const serviceClient = createServiceClient()
 
-  // Revoke access to this studio only.
+  // Revoke access to this studio only. Hard-delete the studio_users row — it's
+  // pure access control, no related data to preserve (leads.created_by_email,
+  // activity_logs.actor_email are plain text columns, not FKs).
   const { error: membershipError } = await serviceClient
     .from('studio_users')
     .delete()
@@ -64,20 +66,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: membershipError.message }, { status: 500 })
   }
 
-  // Only delete the auth account if this was the user's last studio membership.
-  const { data: remaining } = await serviceClient
-    .from('studio_users')
-    .select('id')
-    .eq('user_id', userId)
-    .limit(1)
-
-  if (!remaining || remaining.length === 0) {
-    const { error: deleteError } = await serviceClient.auth.admin.deleteUser(userId)
-    if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 500 })
-    }
-    return NextResponse.json({ ok: true, accountDeleted: true })
-  }
-
+  // We DO NOT auto-delete the auth account when this was the user's last
+  // membership. Auto-deletion was too aggressive — a single mis-click could
+  // permanently destroy a real user's account (login history, password, etc.),
+  // with no Supabase-side recovery. Orphaned users now land on /no-access via
+  // the (app) layout redirect, where they can sign out or wait for an admin to
+  // re-grant access. A dedicated "Delete user account" flow can be built later
+  // if super_admins actually need to purge users (see client-onboarding-spec
+  // discussion 2026-06-01).
   return NextResponse.json({ ok: true, accountDeleted: false })
 }

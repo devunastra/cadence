@@ -39,11 +39,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     if (user.user_metadata?.studio_setup_complete === false) {
       redirect('/onboarding')
     }
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-500">No studios assigned to your account. Contact your administrator.</p>
-      </div>
-    )
+    // Orphans (logged-in users with no studio_users rows) land on a dedicated
+    // page that has a sign-out button and clearer copy. This case is reachable
+    // when an admin removes a user's last membership — we deliberately stopped
+    // auto-deleting the auth account on last-removal, so orphans need somewhere
+    // to land that doesn't dead-end inside the (app) layout.
+    redirect('/no-access')
   }
 
   const initialStudio = studios.find(s => s.id === selectedStudioId) ?? studios[0]

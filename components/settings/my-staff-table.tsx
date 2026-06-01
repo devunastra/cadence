@@ -69,7 +69,14 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
   const [inviteStudioId, setInviteStudioId] = useState(studioId)
   const { showError, showSuccess, showDeferred } = useToast()
   const [inviting, setInviting] = useState(false)
-  const [pendingRemove, setPendingRemove] = useState<{ userId: string; studioId: string; studioName: string; membershipId: string } | null>(null)
+  const [pendingRemove, setPendingRemove] = useState<{
+    userId: string
+    studioId: string
+    studioName: string
+    membershipId: string
+    targetRole: Role
+    targetEmail: string
+  } | null>(null)
   const [isRemoving, setIsRemoving] = useState(false)
   const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null)
   const [expandedUserIds, setExpandedUserIds] = useState<Set<string>>(new Set())
@@ -279,16 +286,21 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
 
   return (
     <>
-    {pendingRemove && (
-      <ConfirmDeleteModal
-        title="Remove access?"
-        message={`Remove this person's access to ${pendingRemove.studioName}? If it's their only studio, their account will be deleted entirely.`}
-        confirmLabel="Remove"
-        isDeleting={isRemoving}
-        onConfirm={handleRemove}
-        onCancel={() => setPendingRemove(null)}
-      />
-    )}
+    {pendingRemove && (() => {
+      const removingOwner = pendingRemove.targetRole === 'studio_owner'
+      const baseMessage = `Remove ${pendingRemove.targetEmail}'s access to ${pendingRemove.studioName}? They'll lose access to this studio immediately. Their Cadence account stays active — if this is their last studio, they'll see a "no access" screen the next time they sign in until someone re-grants access.`
+      const ownerWarning = `\n\nThey're an owner of ${pendingRemove.studioName}. Removing a co-owner takes away their full control of the studio. Confirm only if you mean to.`
+      return (
+        <ConfirmDeleteModal
+          title={removingOwner ? 'Remove a co-owner?' : 'Remove access?'}
+          message={baseMessage + (removingOwner ? ownerWarning : '')}
+          confirmLabel="Remove"
+          isDeleting={isRemoving}
+          onConfirm={handleRemove}
+          onCancel={() => setPendingRemove(null)}
+        />
+      )
+    })()}
     {pendingRoleChange && (
       <RoleChangeConfirmModal
         email={pendingRoleChange.email}
@@ -382,7 +394,7 @@ export function MyStaffTable({ studioId, initialMembers, currentUserId, isSuperA
                         currentUserId={currentUserId}
                         updatingRoleId={updatingRoleId}
                         onChangeRole={handleRoleChange}
-                        onRemove={(m) => setPendingRemove({ userId: m.user_id, studioId: m.studio_id, studioName: m.studio_name, membershipId: m.id })}
+                        onRemove={(m) => setPendingRemove({ userId: m.user_id, studioId: m.studio_id, studioName: m.studio_name, membershipId: m.id, targetRole: m.role as Role, targetEmail: m.email })}
                       />
                     )
                   })
