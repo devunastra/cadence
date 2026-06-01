@@ -4,15 +4,15 @@ import { syncOneNotionPageToSupabase, notionSyncMode } from '@/lib/notion'
 import crypto from 'node:crypto'
 
 /**
- * Notion webhook receiver (Notion → app, near-instant).
+ * Notion webhook receiver (Notion → app, near-instant — subject to Notion's own delivery latency,
+ * which is seconds-to-minutes; the 5-min polling cron is the eventual-consistency backstop).
  * 1) Verification handshake: on subscription creation Notion POSTs { verification_token } —
  *    stored in notion_webhook_verifications so it can be pasted back into Notion to verify.
- * 2) Events: the changed page is synced into Supabase via syncOneNotionPageToSupabase.
+ * 2) Events: verified via X-Notion-Signature = 'sha256=' + HMAC-SHA256(verification_token, rawBody)
+ *    (format confirmed live 2026-06-01), then the changed page is synced via syncOneNotionPageToSupabase.
  *
- * TEMPORARY DEBUG (2026-06-01, migration 039): every request is captured to notion_webhook_debug,
- * and the signature check is LOG-ONLY — it computes whether the HMAC matches but does NOT block,
- * so one redeploy reveals all failure modes at once (event delivery, signature format, payload
- * shape, sync result). REVERT to enforcing the signature once its format is confirmed (build log §5).
+ * Each event is also recorded to notion_webhook_debug (sig result + sync status) for monitoring the
+ * early rollout. That table can be dropped once delivery is trusted (see build log §5 / migration 039).
  */
 export async function POST(request: NextRequest) {
   const raw = await request.text()
@@ -31,21 +31,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
-  // 2) Signature — LOG-ONLY during debug (does NOT block). Assumed scheme:
-  //    HMAC-SHA256(verification_token, rawBody), hex, prefixed 'sha256='.
+  // 2) Verify Notion's signature (enforced). Scheme confirmed live 2026-06-01.
   const secret = process.env.NOTION_WEBHOOK_SECRET
   const provided = request.headers.get('x-notion-signature') ?? ''
-  let sigExpected: string | null = null
   let sigMatch: boolean | null = null
   if (secret) {
-    sigExpected = 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex')
+    const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex')
     try {
-      sigMatch = provided.length === sigExpected.length &&
-        crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(sigExpected))
+      sigMatch = provided.length === expected.length &&
+        crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected))
     } catch { sigMatch = false }
+    if (!sigMatch) {
+      try {
+        await svc.from('notion_webhook_debug').insert({
+          kind: 'event', sig_provided: provided || null, sig_match: false,
+          body_type: body?.type ?? null, entity_id: body?.entity?.id ?? null,
+          sync_status: 'rejected_signature', headers, raw_body: raw,
+        })
+      } catch { /* non-fatal */ }
+      return NextResponse.json({ error: 'invalid signature' }, { status: 401 })
+    }
   }
 
-  // 3) Sync the changed page (regardless of signature, during debug).
+  // 3) Sync the changed page.
   const pageId = body?.entity?.id
   let syncStatus: string | undefined
   let syncDetail: unknown = null
@@ -60,12 +68,11 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 4) Capture the full picture for diagnosis.
+  // 4) Record for early-rollout monitoring (best-effort).
   try {
     await svc.from('notion_webhook_debug').insert({
       kind: parseError ? 'parse_error' : 'event',
       sig_provided: provided || null,
-      sig_expected: sigExpected,
       sig_match: sigMatch,
       body_type: body?.type ?? null,
       entity_id: pageId ?? null,
@@ -77,6 +84,6 @@ export async function POST(request: NextRequest) {
     })
   } catch { /* non-fatal */ }
 
-  // 200 always (so Notion doesn't retry-storm while we diagnose).
-  return NextResponse.json({ ok: true, sig_match: sigMatch, sync_status: syncStatus ?? null })
+  // 200 always (so Notion doesn't retry-storm).
+  return NextResponse.json({ ok: true, sync_status: syncStatus ?? null })
 }
