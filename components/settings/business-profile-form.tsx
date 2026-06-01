@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { updateStudio } from '@/app/actions'
 import { SimpleSelect } from '@/components/simple-select'
 import { useCurrentStudio } from '@/components/studio-context'
+import { useToast } from '@/components/ui/toast-provider'
 import {
   getCountryOptions,
   getSubdivisionsFor,
@@ -24,6 +25,7 @@ const LABEL = 'block text-sm font-medium text-[var(--color-text-secondary)] mb-1
 
 export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
   const { updateCurrentStudio } = useCurrentStudio()
+  const { showSuccess, showError } = useToast()
   const [name, setName] = useState(studio.name)
   const [streetAddress, setStreetAddress] = useState(studio.street_address ?? '')
   const [city, setCity] = useState(studio.city ?? '')
@@ -50,10 +52,14 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
     setSaving(true)
     setError(null)
 
-    const supabase = createClient()
-    const { error } = await supabase
-      .from('studios')
-      .update({
+    // Go through the updateStudio server action instead of the browser client.
+    // The browser client is RLS-scoped, so a super_admin viewing a studio they
+    // don't have a `studio_users` row in would silently get a no-op update
+    // (no error, no rows affected) — the "Saved ✓" indicator would fire but
+    // the DB would never persist the change. updateStudio uses the service
+    // client for super_admins via getAuthorizedClient.
+    try {
+      await updateStudio(studio.id, {
         name,
         street_address: streetAddress,
         city,
@@ -61,21 +67,22 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
         state,
         country,
         ghl_account_id: ghlId,
-        ghl_api_key: ghlApiKey || null,
+        ghl_api_key: ghlApiKey || undefined,
         ghl_calendar_id: calendarId,
         retell_agent_id: retellId,
-        retell_api_key: retellApiKey || null,
+        retell_api_key: retellApiKey || undefined,
         timezone,
       })
-      .eq('id', studio.id)
-
-    setSaving(false)
-    if (error) {
-      setError(error.message)
-    } else {
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
       updateCurrentStudio({ name, city, state, timezone })
+      showSuccess('Business profile saved.')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save business profile.'
+      setError(message)
+      showError(message)
+    } finally {
+      setSaving(false)
     }
   }
 

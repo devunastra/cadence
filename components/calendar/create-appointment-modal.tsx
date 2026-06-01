@@ -2,9 +2,8 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { X } from "lucide-react";
-import { createAppointment, fetchBookedSlotsForDate } from "@/app/actions";
+import { createAppointment, fetchBookedSlotsForDate, searchLeadsForAppointment } from "@/app/actions";
 import { useToast } from "@/components/ui/toast-provider";
-import { createClient } from "@/lib/supabase/client";
 import { AppointmentDatePicker } from "./appointment-date-picker";
 import { SimpleSelect } from "@/components/simple-select";
 import { getSlotsForDate } from "@/lib/appointment-slots";
@@ -77,23 +76,21 @@ export function CreateAppointmentModal({
             return;
         }
         setLeadsLoading(true);
+        // searchLeadsForAppointment goes through getAuthorizedClient so
+        // super_admin (viewing a studio they don't have a studio_users row in)
+        // sees results too — the browser-client query was RLS-filtering to
+        // zero rows, leaving the "Select contact" picker permanently empty.
         debounceRef.current = setTimeout(() => {
-            const supabase = createClient();
-            const words = q.split(/\s+/);
-            let query = supabase
-                .from("leads")
-                .select("id, name, email, phone, ghl_contact_id", {
-                    count: "exact",
+            searchLeadsForAppointment(studioId, q, 50)
+                .then(({ leads, total }) => {
+                    setLeads(leads as LeadOption[]);
+                    setTotalLeads(total);
                 })
-                .eq("studio_id", studioId)
-                .order("name", { ascending: true })
-                .limit(50);
-            for (const word of words) query = query.ilike("name", `%${word}%`);
-            query.then(({ data, count }) => {
-                setLeads((data as LeadOption[]) ?? []);
-                setTotalLeads(count ?? 0);
-                setLeadsLoading(false);
-            });
+                .catch(() => {
+                    setLeads([]);
+                    setTotalLeads(0);
+                })
+                .finally(() => setLeadsLoading(false));
         }, 250);
         return () => {
             if (debounceRef.current) clearTimeout(debounceRef.current);

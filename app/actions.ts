@@ -336,6 +336,7 @@ export async function createStudio({
   retell_agent_id,
   retell_api_key,
   timezone,
+  sources,
 }: {
   name: string
   city?: string
@@ -349,6 +350,12 @@ export async function createStudio({
   retell_agent_id?: string
   retell_api_key?: string
   timezone?: string
+  /**
+   * Optional custom lead-source list. When provided, the seeded defaults are
+   * reconciled against this — defaults not in `sources` are deleted, custom
+   * sources not in defaults are inserted. Same logic as `completeStudioOnboarding`.
+   */
+  sources?: string[]
 }): Promise<void> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -400,9 +407,69 @@ export async function createStudio({
   if (studio) {
     const { error: seedError } = await serviceClient.rpc('seed_studio_field_options', { p_studio_id: studio.id })
     if (seedError) throw new Error(seedError.message)
+
+    // If caller provided a custom source list, reconcile it against the seeded
+    // defaults. Same idempotent pattern as completeStudioOnboarding.
+    if (sources) {
+      await reconcileStudioSources(serviceClient, studio.id, sources)
+    }
   }
 
   revalidatePath('/', 'layout')
+}
+
+/**
+ * Reconciles `studio_field_options.source` rows for a studio against the
+ * caller's desired list. Deletes seeded/existing sources not in the list and
+ * inserts new ones. Comparison is case-insensitive; preserves sort_order on
+ * existing rows; appends new ones at the end.
+ *
+ * Shared between createStudio (fresh studio, seeded defaults present) and
+ * setStudioSources (existing studio, may have lead rows referencing options
+ * — caller's responsibility to confirm safe-to-delete).
+ */
+async function reconcileStudioSources(
+  serviceClient: SupabaseClient,
+  studioId: string,
+  desiredSources: string[],
+): Promise<void> {
+  const chosen = Array.from(new Set(desiredSources.map(v => v.trim()).filter(Boolean)))
+  const { data: existing } = await serviceClient
+    .from('studio_field_options')
+    .select('id, value, sort_order')
+    .eq('studio_id', studioId)
+    .eq('field', 'source')
+
+  const existingRows = (existing ?? []) as Array<{ id: string; value: string; sort_order: number | null }>
+  const chosenLower = new Set(chosen.map(v => v.toLowerCase()))
+  const existingLower = new Set(existingRows.map(r => r.value.toLowerCase()))
+
+  // Delete options the caller dropped.
+  const toDelete = existingRows.filter(r => !chosenLower.has(r.value.toLowerCase())).map(r => r.id)
+  if (toDelete.length > 0) {
+    const { error } = await serviceClient
+      .from('studio_field_options')
+      .delete()
+      .in('id', toDelete)
+    if (error) throw new Error(error.message)
+  }
+
+  // Insert sources not already present (case-insensitive match).
+  const baseSortOrder = existingRows.reduce((max, r) => Math.max(max, r.sort_order ?? 0), 0)
+  const toInsert = chosen
+    .filter(v => !existingLower.has(v.toLowerCase()))
+    .map((value, i) => ({
+      studio_id: studioId,
+      field: 'source',
+      value,
+      sort_order: baseSortOrder + 1 + i,
+    }))
+  if (toInsert.length > 0) {
+    const { error } = await serviceClient
+      .from('studio_field_options')
+      .insert(toInsert)
+    if (error) throw new Error(error.message)
+  }
 }
 
 export async function updateStudio(id: string, updates: {
@@ -835,6 +902,80 @@ export async function updateStudioFieldOptionOrder(updates: Array<{ id: string; 
  * Returns a flat array of `{ id, field, value, bg, text }`; the caller groups
  * by `field`.
  */
+/**
+ * Read a studio's current lead-source list (`studio_field_options.source`),
+ * sorted as the user sees them in the leads page. Goes through
+ * `getAuthorizedClient` so super_admin sees the rows even on studios where
+ * they have no `studio_users` row.
+ */
+export async function fetchStudioSources(studioId: string): Promise<string[]> {
+  const { client } = await getAuthorizedClient()
+  const { data, error } = await client
+    .from('studio_field_options')
+    .select('value, sort_order')
+    .eq('studio_id', studioId)
+    .eq('field', 'source')
+    .order('sort_order', { ascending: true, nullsFirst: false })
+  if (error) throw new Error(error.message)
+  return (data ?? []).map(r => r.value as string)
+}
+
+/**
+ * Update a studio's lead-source list. Reconciles against the existing rows —
+ * removes options no longer chosen, inserts new ones, preserves untouched
+ * entries (so analytics references and existing-lead source values stay
+ * stable). Reuses the `reconcileStudioSources` helper for the actual diff.
+ *
+ * Auth: super_admin (global) or studio_owner of the target studio.
+ */
+export async function setStudioSources(studioId: string, sources: string[]): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  // Same auth shape as updateStudio — super_admin global, studio_owner per-studio.
+  const { data: memberships } = await supabase
+    .from('studio_users')
+    .select('role, studio_id')
+    .eq('user_id', user.id)
+  const isSuper = memberships?.some(m => m.role === 'super_admin') ?? false
+  const isOwnerHere = memberships?.some(m => m.studio_id === studioId && m.role === 'studio_owner') ?? false
+  if (!isSuper && !isOwnerHere) throw new Error('Forbidden')
+
+  const serviceClient = createServiceClient()
+  await reconcileStudioSources(serviceClient, studioId, sources)
+  revalidatePath('/', 'layout')
+}
+
+/**
+ * Search leads for the New Appointment contact picker. Goes through
+ * `getAuthorizedClient` so super_admins viewing a studio they don't have a
+ * `studio_users` row in still see results (the browser client would RLS-filter
+ * everything out → empty contact picker). Returns the minimal shape the modal
+ * needs.
+ */
+export async function searchLeadsForAppointment(
+  studioId: string,
+  query: string,
+  limit = 50,
+): Promise<{ leads: Array<{ id: string; name: string; email: string | null; phone: string | null; ghl_contact_id: string | null }>; total: number }> {
+  const { client } = await getAuthorizedClient()
+  const words = query.trim().split(/\s+/).filter(Boolean)
+  let q = client
+    .from('leads')
+    .select('id, name, email, phone, ghl_contact_id', { count: 'exact' })
+    .eq('studio_id', studioId)
+    .order('name', { ascending: true })
+    .limit(limit)
+  for (const word of words) q = q.ilike('name', `%${word}%`)
+  const { data, count, error } = await q
+  if (error) throw new Error(error.message)
+  return {
+    leads: (data ?? []) as Array<{ id: string; name: string; email: string | null; phone: string | null; ghl_contact_id: string | null }>,
+    total: count ?? 0,
+  }
+}
+
 export async function fetchStudioFieldOptions(studioId: string): Promise<
   Array<{ id: string; field: string; value: string; bg: string | null; text: string | null }>
 > {

@@ -4,9 +4,12 @@ import { useState, useEffect } from "react";
 import { Eye, EyeOff, Trash2 } from "lucide-react";
 import { createStudio, deleteStudio, updateStudio } from "@/app/actions";
 import { useToast } from "@/components/ui/toast-provider";
+import { useCurrentStudio } from "@/components/studio-context";
 import { NOTION_COLORS } from "@/lib/constants";
 import { SimpleSelect } from "@/components/simple-select";
 import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
+import { LeadSourcesEditor } from "@/components/settings/lead-sources-editor";
+import { DEFAULT_SOURCES } from "@/components/onboarding/onboarding-types";
 import {
     getCountryOptions,
     getSubdivisionsFor,
@@ -30,6 +33,7 @@ const LABEL =
 const COUNTRY_OPTIONS = getCountryOptions();
 
 export function StudiosForm({ initialStudios, isSuperAdmin }: StudiosFormProps) {
+    const { currentStudio, updateCurrentStudio } = useCurrentStudio();
     const [studios, setStudios] = useState(initialStudios);
     const [name, setName] = useState("");
     const [streetAddress, setStreetAddress] = useState("");
@@ -47,6 +51,7 @@ export function StudiosForm({ initialStudios, isSuperAdmin }: StudiosFormProps) 
     const [timezone, setTimezone] = useState<string>("America/Chicago");
     // Tracks whether the owner has manually picked a tz; lets country changes drive it otherwise.
     const [timezoneAuto, setTimezoneAuto] = useState(true);
+    const [sources, setSources] = useState<string[]>([...DEFAULT_SOURCES]);
     const { showError } = useToast();
     const [saving, setSaving] = useState(false);
     const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
@@ -77,6 +82,7 @@ export function StudiosForm({ initialStudios, isSuperAdmin }: StudiosFormProps) 
                 retell_agent_id: retellAgentId,
                 retell_api_key: retellApiKey,
                 timezone,
+                sources,
             });
             setName("");
             setStreetAddress("");
@@ -91,6 +97,7 @@ export function StudiosForm({ initialStudios, isSuperAdmin }: StudiosFormProps) 
             setRetellApiKey("");
             setTimezone("America/Chicago");
             setTimezoneAuto(true);
+            setSources([...DEFAULT_SOURCES]);
             window.location.reload();
         } catch (err) {
             showError(err instanceof Error ? err.message : "Failed to create studio.");
@@ -107,6 +114,14 @@ export function StudiosForm({ initialStudios, isSuperAdmin }: StudiosFormProps) 
         );
         try {
             await updateStudio(studioId, { timezone: nextTz });
+            // If the user just changed the *active* studio's tz, sync the
+            // StudioContext so other surfaces (Business Profile, calendar,
+            // analytics) pick it up without a full page refresh. Without this,
+            // the inline edit only updated our local studios list — switching
+            // to Business Profile would still show the old tz from context.
+            if (studioId === currentStudio.id) {
+                updateCurrentStudio({ timezone: nextTz });
+            }
         } catch (err) {
             setStudios(prev);
             showError(err instanceof Error ? err.message : "Failed to update timezone.");
@@ -477,6 +492,20 @@ export function StudiosForm({ initialStudios, isSuperAdmin }: StudiosFormProps) 
                                     Auto-set from the selected country when unambiguous. Override here if needed.
                                 </p>
                             </div>
+                        </div>
+
+                        {/* Lead sources */}
+                        <div
+                            className="px-6 py-5"
+                            style={{
+                                borderBottom: "1px solid var(--color-border)",
+                            }}
+                        >
+                            <LeadSourcesEditor
+                                sources={sources}
+                                onChange={setSources}
+                                helper="Default lead sources for this studio. Edit them to match how you actually get inquiries — owners can change this later from Business Profile."
+                            />
                         </div>
 
                         {/* Integrations */}

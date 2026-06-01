@@ -15,7 +15,6 @@ import { useCurrentStudio } from '@/components/studio-context'
 import { ALL_LEAD_ENUM_FIELDS, STATUS_COLORS } from '@/lib/constants'
 import { buildDefaultOptions } from '@/lib/field-options'
 import { ALL_COLUMNS_VIEW } from '@/lib/views'
-import { tzCalendarParts } from '@/lib/date-utils'
 import { createLeadView, deleteLeadView, updateLeadView, fetchLeadsPage, fetchLeadById, deleteLeads, bulkUpdateLeads, updateLead, saveUserPreferences, addStudioFieldOption, renameStudioFieldOption, deleteStudioFieldOption, logLeadActivity, savePageFilters, fetchStudioFieldOptions } from '@/app/actions'
 import type { PageFilters } from '@/app/actions'
 import { createClient } from '@/lib/supabase/client'
@@ -46,29 +45,6 @@ function formatDateTime(iso: string | null, tz: string): string {
     hour: 'numeric', minute: '2-digit', hour12: true,
     timeZone: tz,
   }).replace(' at ', ', ')
-}
-
-// Last Contacted is rendered as a date-only field — we strip the time part to
-// avoid spurious "12:00 AM". The Y/M/D MUST be read in the studio's tz (not
-// sliced from the UTC ISO prefix), or values close to the day-boundary
-// display as the wrong calendar date (e.g. picking June 2 00:00 Manila stored
-// 2026-06-01T16:00:00Z, and a slice-prefix render would show "June 1").
-function formatDateOnly(iso: string | null, tz: string): string {
-  if (!iso) return '—'
-  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-  // YYYY-MM-DD-only strings (no time component) get parsed naively to avoid
-  // a tz round-trip that could shift the calendar day.
-  const datePrefixOnly = /^\d{4}-\d{2}-\d{2}$/.test(String(iso).trim())
-  if (datePrefixOnly) {
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso).trim())!
-    return `${months[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`
-  }
-  try {
-    const { year, month, day } = tzCalendarParts(iso, tz)
-    return `${months[month]} ${day}, ${year}`
-  } catch {
-    return formatDateTime(iso, tz)
-  }
 }
 
 const ENUM_FIELDS = Object.keys(ALL_LEAD_ENUM_FIELDS) as (keyof typeof ALL_LEAD_ENUM_FIELDS)[]
@@ -805,9 +781,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
           className="cursor-pointer text-sm text-[var(--color-text-body)] hover:bg-[rgba(55,53,47,0.06)] dark:hover:bg-[rgba(255,255,255,0.06)] rounded px-1 py-0.5 block overflow-hidden whitespace-nowrap min-h-[20px] min-w-[40px]"
         >
           {value
-            ? field === 'last_contacted'
-              ? formatDateOnly(value as string | null, tz)
-              : formatDateTime(value as string | null, tz)
+            ? formatDateTime(value as string | null, tz)
             : ''}
         </span>
       )
