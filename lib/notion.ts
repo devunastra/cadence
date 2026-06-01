@@ -271,12 +271,13 @@ function readNotionContact(props: any, name: string): string | null {
 }
 
 /**
- * Link unlinked Supabase leads to their Notion page by phone/email match. Conservative + conflict-safe:
- *  - Only considers Notion pages NOT already linked to a lead (`linkedPageIds`) → a page can never be
- *    double-assigned (this is what the one-shot backfill script lacked, which caused a unique-violation
- *    on duplicate leads).
- *  - Skips a page whose match key is shared by >1 unlinked lead (ambiguous/duplicate → flag, never guess).
- *  - Skips a lead already claimed by another page in this run.
+ * Link unlinked Supabase leads to their Notion page by phone/email — DEDUP-AWARE & conflict-safe.
+ * Only links when the match is unambiguous on BOTH sides:
+ *  - The contact (phone/email) must be GLOBALLY UNIQUE across all of the studio's leads — i.e. no other
+ *    lead (linked OR unlinked) shares it. This skips duplicate people and couples/shared-phone cases
+ *    (which previously caused wrong links); those are surfaced for manual dedupe, never auto-linked.
+ *  - The Notion page must not already be linked to a lead (`linkedPageIds`) → no double-assignment.
+ *  - If a page's phone and email resolve to two different leads, it's skipped (ambiguous).
  *  - The write is guarded by `.is('notion_page_id', null)` + the leads_notion_page_id_key unique index;
  *    a 0-row result or constraint hit is logged and skipped, NEVER thrown.
  *  - Writes ONLY notion_page_id + link timestamps to Supabase. NEVER writes Notion. 'log' mode = dry-run.
@@ -288,26 +289,35 @@ export async function linkUnlinkedLeads(
   const mode = notionSyncMode()
   if (mode === 'off') return { linked: [], ambiguous: 0, conflicts: 0 }
 
-  // Load unlinked leads (id + contact only).
-  const unlinked: Array<{ id: string; phone: string | null; email: string | null }> = []
+  // Load ALL leads' contact + link state, so a lead is linked ONLY if its contact is globally unique.
+  const all: Array<{ id: string; phone: string | null; email: string | null; notion_page_id: string | null }> = []
   let from = 0
   for (;;) {
-    const { data } = await client.from('leads').select('id,phone,email')
-      .eq('studio_id', studioId).is('notion_page_id', null).range(from, from + 999)
-    for (const l of (data ?? []) as any[]) unlinked.push(l)
+    const { data } = await client.from('leads').select('id,phone,email,notion_page_id')
+      .eq('studio_id', studioId).range(from, from + 999)
+    for (const l of (data ?? []) as any[]) all.push(l)
     if (!data || data.length < 1000) break
     from += 1000
   }
-  if (unlinked.length === 0) return { linked: [], ambiguous: 0, conflicts: 0 }
+  if (all.length === 0) return { linked: [], ambiguous: 0, conflicts: 0 }
 
-  // Index by normalized phone/email; a key shared by >1 unlinked lead is ambiguous (skip it).
-  const byPhone = new Map<string, string>(), byEmail = new Map<string, string>()
-  const ambigPhone = new Set<string>(), ambigEmail = new Set<string>()
-  for (const l of unlinked) {
+  // Count each normalized phone/email across ALL leads; remember the single owner + whether it's linked.
+  const phoneCount = new Map<string, number>(), emailCount = new Map<string, number>()
+  const phoneOwner = new Map<string, { id: string; linked: boolean }>()
+  const emailOwner = new Map<string, { id: string; linked: boolean }>()
+  for (const l of all) {
+    const linkedFlag = l.notion_page_id != null
     const p = normMatchPhone(l.phone)
-    if (p) { if (byPhone.has(p)) ambigPhone.add(p); else byPhone.set(p, l.id) }
+    if (p) { phoneCount.set(p, (phoneCount.get(p) ?? 0) + 1); phoneOwner.set(p, { id: l.id, linked: linkedFlag }) }
     const e = normMatchEmail(l.email)
-    if (e) { if (byEmail.has(e)) ambigEmail.add(e); else byEmail.set(e, l.id) }
+    if (e) { emailCount.set(e, (emailCount.get(e) ?? 0) + 1); emailOwner.set(e, { id: l.id, linked: linkedFlag }) }
+  }
+  // A lead is safe to auto-link only if it shares NEITHER phone NOR email with any other lead.
+  // (Catches dups that share a phone but have distinct emails — which a per-key check would miss.)
+  const sharedLeadIds = new Set<string>()
+  for (const l of all) {
+    const p = normMatchPhone(l.phone), e = normMatchEmail(l.email)
+    if ((p && (phoneCount.get(p) ?? 0) > 1) || (e && (emailCount.get(e) ?? 0) > 1)) sharedLeadIds.add(l.id)
   }
 
   const claimed = new Set<string>()
@@ -319,9 +329,14 @@ export async function linkUnlinkedLeads(
     if (linkedPageIds.has(page.id)) continue // page already owned by a lead → never re-link
     const pPhone = normMatchPhone(readNotionContact(page.properties, 'Phone'))
     const pEmail = normMatchEmail(readNotionContact(page.properties, 'Email'))
-    if ((pPhone && ambigPhone.has(pPhone)) || (pEmail && ambigEmail.has(pEmail))) { ambiguous++; continue }
-    const leadId = (pPhone && byPhone.get(pPhone)) || (pEmail && byEmail.get(pEmail)) || null
-    if (!leadId) continue
+    // Resolve a candidate ONLY via a globally-unique contact (count === 1) whose owner is still unlinked.
+    const phoneLead = pPhone && phoneCount.get(pPhone) === 1 && !phoneOwner.get(pPhone)!.linked ? phoneOwner.get(pPhone)!.id : null
+    const emailLead = pEmail && emailCount.get(pEmail) === 1 && !emailOwner.get(pEmail)!.linked ? emailOwner.get(pEmail)!.id : null
+    const sharedKey = (!!pPhone && (phoneCount.get(pPhone) ?? 0) > 1) || (!!pEmail && (emailCount.get(pEmail) ?? 0) > 1)
+    if (phoneLead && emailLead && phoneLead !== emailLead) { ambiguous++; continue } // phone & email point to different leads
+    const leadId = phoneLead || emailLead
+    if (!leadId) { if (sharedKey) ambiguous++; continue } // no unique unlinked owner (shared/duplicate) → skip
+    if (sharedLeadIds.has(leadId)) { ambiguous++; continue } // lead shares its OTHER contact with someone → dup-unsafe, skip
     if (claimed.has(leadId)) { ambiguous++; continue } // lead already matched by another page this run
 
     if (mode === 'log') {
