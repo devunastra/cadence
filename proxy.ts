@@ -60,13 +60,15 @@ export async function proxy(request: NextRequest) {
     user &&
     user.user_metadata?.studio_setup_complete === false &&
     !pathname.startsWith('/onboarding') &&
-    !pathname.startsWith('/accept-invite')
+    !pathname.startsWith('/accept-invite') &&
+    pathname !== '/login'
   ) {
     return NextResponse.redirect(new URL('/onboarding', request.url))
   }
 
-  // Redirect logged-in users away from login page
-  if (user && pathname === '/login') {
+  // Redirect logged-in users away from login — skip if they have pending onboarding so a
+  // different account can sign in from the same browser without being bounced to /onboarding.
+  if (user && pathname === '/login' && user.user_metadata?.studio_setup_complete !== false) {
     return NextResponse.redirect(new URL('/leads', request.url))
   }
 
