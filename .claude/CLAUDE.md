@@ -39,9 +39,11 @@ A unified web app for **Arthur Murray Lincolnshire (AMLS)** dance studio, built 
 
 | Role | Who | What they can do |
 |---|---|---|
-| `super_admin` | Developers / Agency | Everything. Bypasses all RLS. Creates studios and accounts. |
-| `studio_owner` | Dance studio owners | Full access to their studios. Invite staff. All settings tabs. |
+| `super_admin` | Developers / Agency | Everything. Bypasses all RLS. Creates studios and accounts. **Only role that can delete a studio.** |
+| `studio_owner` | Dance studio owners | Full access to their studios. Invite + remove staff (incl. co-owners, with a UI warning). All settings tabs. Cannot delete studios. |
 | `studio_staff` | Front desk, coaches | Edit leads, view analytics + calendar, use unibox. My Profile only in Settings. |
+
+**Destructive-action rules:** see `rules/authentication.md` § "Destructive Actions" for the full matrix. Two things to know upfront: studio delete is super_admin-only, and removing a staff member's last studio no longer auto-deletes their auth account (they land on `/no-access` instead — see `app/(auth)/no-access/page.tsx`).
 
 **Data isolation is enforced via Supabase RLS at the database level** — every table has a `studio_id` column. Users only see data for their assigned studios.
 

@@ -13,11 +13,26 @@ Accounts are created by a `super_admin` only.
 
 | Role | Who | Permissions |
 |------|-----|-------------|
-| `super_admin` | Developers / Agency (Myrrh) | Everything. Bypasses RLS. Creates studios and accounts. |
-| `studio_owner` | Dance studio owners | Full access to their studios. Invite/manage staff. Inherits staff permissions. |
+| `super_admin` | Developers / Agency (Myrrh) | Everything. Bypasses RLS. Creates studios and accounts. **Only role that can delete a studio.** |
+| `studio_owner` | Dance studio owners | Full access to their studios. Invite/manage staff (including removing co-owners — with a UI warning). Cannot delete studios. Inherits staff permissions. |
 | `studio_staff` | Front desk, coaches | Edit leads, view analytics + calendar, use unibox. My Profile only in Settings. |
 
 Role is stored in the `studio_users` table (`role` column) per studio — a user can have different roles in different studios.
+
+---
+
+## Destructive Actions
+
+Locked behavior for the routes / UI surfaces that destroy data:
+
+| Action | Who can trigger it | Server enforcement | UI surface |
+|---|---|---|---|
+| **Delete studio** (soft) | super_admin only | `app/actions.ts` `deleteStudio` throws Forbidden for non-super_admins | Trash icon in `Settings → Studios` hidden for non-super_admin (`StudiosForm` gates the column on `isSuperAdmin` prop) |
+| **Remove staff from a studio** | super_admin or studio_owner of that studio | `app/api/staff/remove/route.ts` — checks requester's `studio_users` row, blocks non-super_admin from removing a super_admin | `My Staff` row trash icon. Hidden for self and for super_admin targets. Modal shows a stronger warning when the target is a `studio_owner` (title flips to "Remove a co-owner?") |
+| **Change role** | super_admin globally; studio_owner on their own studio | `app/api/staff/update-role/route.ts` — service client for target lookup so RLS doesn't 404 super_admins on studios they're not in | Inline dropdown in `My Staff`. Triggers `sendRoleChangedNotification` email to the affected user. |
+| **Auto-delete auth account on last-membership removal** | **Removed 2026-06-01.** Was too aggressive — one mis-click destroyed a real user's account with no Supabase-side recovery. Orphans now land on `/no-access` (a logged-in route in the `(auth)` group) with a sign-out button. Re-granting access is just an `INSERT` into `studio_users`. | n/a | `/no-access` page |
+
+**The principle:** destructive actions on shared data (studios, multi-owner setups) escalate to super_admin. Self-service destruction stays for narrow cases (a user signing themselves out, an owner removing a staffer from their own studio). Auth accounts are never auto-purged.
 
 ---
 

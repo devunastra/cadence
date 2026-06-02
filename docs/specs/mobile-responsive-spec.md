@@ -1,8 +1,9 @@
 # Mobile Responsive Spec — AMLS WebApp
 
 > **Goal:** Make the entire app mobile-responsive (<768px) without changing the desktop layout.
-> **Status:** All 8 phases complete. Mobile responsive implementation finished.
-> **Last updated:** 2026-05-25
+> **Status:** All 8 phases complete. Pending cross-device visual responsive regression test.
+> **Branch:** `staging` (not yet merged to `deploy-sit`)
+> **Last updated:** 2026-05-26
 
 ---
 
