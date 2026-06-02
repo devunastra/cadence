@@ -6,6 +6,7 @@
 // All failures are non-fatal: Supabase is the source of truth; a Notion hiccup must never break a save.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { tzCalendarParts, studioMidnightFromStr } from './date-utils'
 
 const NOTION_API = 'https://api.notion.com/v1'
 const NOTION_VERSION = '2022-06-28'
@@ -37,21 +38,37 @@ export const NOTION_SYNCED_FIELDS = new Set<string>([
   'name', ...Object.keys(SELECT_PROP), ...Object.keys(TEXT_PROP), ...Object.keys(CHECKBOX_PROP), ...Object.keys(DATE_PROP),
 ])
 
-function notionDateStart(field: string, iso: string): string {
-  // last_contacted is a date-only field; first_lesson keeps its time when present.
-  if (field === 'last_contacted') return iso.slice(0, 10)
-  return /T\d/.test(iso) ? iso : iso.slice(0, 10)
+const pad = (n: number) => String(n).padStart(2, '0')
+
+/** Studio-local YYYY-MM-DD for a UTC ISO stored in the DB (uses tzCalendarParts). */
+function studioLocalDay(iso: string, tz: string): string {
+  const { year, month, day } = tzCalendarParts(iso, tz)
+  return `${year}-${pad(month + 1)}-${pad(day)}`
+}
+
+/**
+ * Notion date object for a date field, adjusted to the studio's timezone.
+ * - last_contacted → date-only (studio-local calendar day)
+ * - first_lesson   → datetime with time_zone so Notion shows the local wall-clock time
+ */
+function notionDateValue(field: string, iso: string, tz: string): { start: string; time_zone?: string } {
+  if (field === 'last_contacted') return { start: studioLocalDay(iso, tz) }
+  if (/T\d/.test(iso)) {
+    const { year, month, day, hour, minute } = tzCalendarParts(iso, tz)
+    return { start: `${year}-${pad(month + 1)}-${pad(day)}T${pad(hour)}:${pad(minute)}:00.000`, time_zone: tz }
+  }
+  return { start: iso.slice(0, 10) }
 }
 
 // fields: resolved values (enum fields already mapped to their option label string)
-export function buildNotionProperties(fields: Record<string, string | boolean | null>): Record<string, unknown> {
+export function buildNotionProperties(fields: Record<string, string | boolean | null>, tz = 'UTC'): Record<string, unknown> {
   const props: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(fields)) {
     if (k === 'name') props['Name'] = { title: v ? [{ text: { content: String(v) } }] : [] }
     else if (k in SELECT_PROP) props[SELECT_PROP[k]] = { select: v ? { name: String(v) } : null }
     else if (k in TEXT_PROP) props[TEXT_PROP[k]] = { rich_text: v ? [{ text: { content: String(v) } }] : [] }
     else if (k in CHECKBOX_PROP) props[CHECKBOX_PROP[k]] = { checkbox: Boolean(v) }
-    else if (k in DATE_PROP) props[DATE_PROP[k]] = { date: v ? { start: notionDateStart(k, String(v)) } : null }
+    else if (k in DATE_PROP) props[DATE_PROP[k]] = { date: v ? notionDateValue(k, String(v), tz) : null }
   }
   return props
 }
@@ -80,7 +97,9 @@ export async function syncLeadUpdateToNotion(client: SupabaseClient, opts: {
 }): Promise<void> {
   const mode = notionSyncMode()
   if (mode === 'off') return
-  const props = buildNotionProperties(opts.fields)
+  const { data: studioRow } = await client.from('studios').select('timezone').eq('id', opts.studioId).single()
+  const tz = (studioRow as { timezone?: string } | null)?.timezone ?? 'UTC'
+  const props = buildNotionProperties(opts.fields, tz)
   if (Object.keys(props).length === 0) return
   const base = { studio_id: opts.studioId, lead_id: opts.leadId, notion_page_id: opts.notionPageId }
   if (!opts.notionPageId) { await logSync(client, { ...base, action: 'skip', detail: { reason: 'no_notion_page_id', would_set: Object.keys(props) } }); return }
@@ -98,7 +117,9 @@ export async function syncLeadCreateToNotion(client: SupabaseClient, opts: {
 }): Promise<string | null> {
   const mode = notionSyncMode()
   if (mode === 'off') return null
-  const props = buildNotionProperties(opts.fields)
+  const { data: studioRow } = await client.from('studios').select('timezone').eq('id', opts.studioId).single()
+  const tz = (studioRow as { timezone?: string } | null)?.timezone ?? 'UTC'
+  const props = buildNotionProperties(opts.fields, tz)
   const base = { studio_id: opts.studioId, lead_id: opts.leadId, notion_page_id: null }
   if (!opts.notionDbId) { await logSync(client, { ...base, action: 'skip', detail: { reason: 'studio_has_no_notion_db' } }); return null }
   if (mode === 'log') { await logSync(client, { ...base, action: 'skip', detail: { mode: 'log', would_create: props } }); return null }
@@ -179,7 +200,7 @@ async function notionQueryAll(dbId: string): Promise<any[]> {
 // Build the Supabase update for one Notion page vs the current lead row (value-comparison).
 // Only includes fields that actually differ. Enum labels resolved via labelToId (`${field}:${label}`).
 function buildLeadUpdateFromPage(
-  props: any, lead: any, labelToId: Map<string, string>, unmatched: Set<string>,
+  props: any, lead: any, labelToId: Map<string, string>, unmatched: Set<string>, tz: string,
 ): { update: Record<string, string | boolean | null>; detail: Record<string, unknown> } {
   const update: Record<string, string | boolean | null> = {}
   const detail: Record<string, unknown> = {}
@@ -194,9 +215,9 @@ function buildLeadUpdateFromPage(
       if (Boolean(nv) !== Boolean(lead[field])) { update[field] = Boolean(nv); detail[field] = { to: nv } }
     } else if (kind === 'date') {
       if (!nv) continue // don't clear from a Notion-empty date
-      const day = String(nv).slice(0, 10)
-      const curDay = lead[field] ? String(lead[field]).slice(0, 10) : null
-      if (day !== curDay) { update[field] = day + 'T00:00:00.000Z'; detail[field] = { to: day } }
+      const day = String(nv).slice(0, 10)  // Notion's studio-local date
+      const curDay = lead[field] ? studioLocalDay(String(lead[field]), tz) : null
+      if (day !== curDay) { update[field] = studioMidnightFromStr(day, tz).toISOString(); detail[field] = { to: day } }
     } else { // title / text
       const cur = (lead[field] ?? null) as string | null
       const val = (nv ?? null) as string | null
@@ -206,7 +227,7 @@ function buildLeadUpdateFromPage(
   return { update, detail }
 }
 
-const LEAD_SYNC_COLS = 'id,notion_page_id,name,phone,email,comments,available,status,level,action,source,reason,partnership,showed,bought,old,texted,last_contacted'
+const LEAD_SYNC_COLS = 'id,studio_id,notion_page_id,name,phone,email,comments,available,status,level,action,source,reason,partnership,showed,bought,old,texted,last_contacted'
 
 /**
  * Sync a SINGLE Notion page into Supabase (used by the webhook for fast, near-instant updates).
@@ -218,19 +239,23 @@ export async function syncOneNotionPageToSupabase(client: SupabaseClient, pageId
 
   const { data: lead } = await client.from('leads').select(LEAD_SYNC_COLS).eq('notion_page_id', pageId).maybeSingle()
   if (!lead) return { status: 'unlinked' } // no linked lead (e.g. a brand-new Notion page) — handled separately
-  const studioId = (lead as { id: string }) && (await client.from('leads').select('studio_id').eq('id', (lead as any).id).single()).data?.studio_id
+  const studioId = (lead as any).studio_id as string | undefined
   if (!studioId) return { status: 'error', detail: 'no studio' }
 
-  const { data: opts } = await client.from('studio_field_options').select('id,field,value').eq('studio_id', studioId)
+  const [{ data: opts }, { data: studioRow }] = await Promise.all([
+    client.from('studio_field_options').select('id,field,value').eq('studio_id', studioId),
+    client.from('studios').select('timezone').eq('id', studioId).single(),
+  ])
   const labelToId = new Map<string, string>()
   for (const o of (opts ?? []) as { id: string; field: string; value: string }[]) labelToId.set(`${o.field}:${o.value}`, o.id)
+  const tz = (studioRow as { timezone?: string } | null)?.timezone ?? 'UTC'
 
   const res = await notionFetch(`/pages/${pageId}`, { method: 'GET' })
   if (!res.ok) { await logSync(client, { studio_id: studioId, lead_id: (lead as any).id, notion_page_id: pageId, action: 'error', detail: { op: 'pull_one', status: res.status } }, 'notion_to_app'); return { status: 'error' } }
   const page = await res.json() as { properties: any }
 
   const unmatched = new Set<string>()
-  const { update, detail } = buildLeadUpdateFromPage(page.properties, lead, labelToId, unmatched)
+  const { update, detail } = buildLeadUpdateFromPage(page.properties, lead, labelToId, unmatched, tz)
   if (Object.keys(update).length === 0) return { status: 'nochange' }
 
   if (mode === 'log') {
@@ -373,8 +398,9 @@ export async function syncNotionToSupabase(client: SupabaseClient, studioId: str
   const empty = { checked: 0, changed: 0, skipped: 0, unmatched_selects: [] as string[], linked: 0, link_ambiguous: 0, link_conflicts: 0 }
   if (mode === 'off') return empty
 
-  const { data: studio } = await client.from('studios').select('notion_leads_db_id').eq('id', studioId).single()
-  const dbId = (studio as { notion_leads_db_id: string | null } | null)?.notion_leads_db_id
+  const { data: studio } = await client.from('studios').select('notion_leads_db_id,timezone').eq('id', studioId).single()
+  const dbId = (studio as { notion_leads_db_id: string | null; timezone?: string } | null)?.notion_leads_db_id
+  const tz = (studio as { timezone?: string } | null)?.timezone ?? 'UTC'
   if (!dbId) return empty
 
   const { data: opts } = await client.from('studio_field_options').select('id,field,value').eq('studio_id', studioId)
@@ -419,7 +445,7 @@ export async function syncNotionToSupabase(client: SupabaseClient, studioId: str
     const lead = leadByPage.get(page.id)
     if (!lead) continue
     checked++
-    const { update, detail } = buildLeadUpdateFromPage(page.properties, lead, labelToId, unmatched)
+    const { update, detail } = buildLeadUpdateFromPage(page.properties, lead, labelToId, unmatched, tz)
     if (Object.keys(update).length === 0) { skipped++; continue }
     if (mode === 'log') {
       pushLog(lead.id, page.id, 'skip', { mode: 'log', would_update: detail })

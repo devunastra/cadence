@@ -8,7 +8,7 @@ A guided flow for onboarding a new client (studio owner) and their studio(s), re
 | Studio creation | Owner creates studio(s) on wizard submit |
 | Scope of client form | Everything: business profile, GHL/Retell IDs, lead sources, calendar/schedule, timezone |
 | Auth gate | `studio_setup_complete` user-metadata flag, enforced in `proxy.ts` |
-| Status | **Built & deployed on `staging`** — Phases 1–5 + 8 complete (2026-05-31). Remaining: email-template redesign, manual QA pass under a non-Chicago studio, P3 (Resend domain), merge `staging` → `main`. |
+| Status | **Built & deployed on `staging`** — Phases 1–5 + 8 complete (2026-05-31). Remaining: manual QA pass (non-Chicago studio), Notion date sync fix, P3 (Resend domain), merge `staging` → `main`. |
 
 > Schema already supports **multiple owners per studio** and **multiple studios per owner** (`studio_users` is unique on `(studio_id, user_id)`). No migration needed for those.
 
@@ -18,11 +18,11 @@ A guided flow for onboarding a new client (studio owner) and their studio(s), re
 
 | ID | Item | Status / Why |
 |---|---|---|
-| **P1** | Supabase Pro + environment branching | Separate Cadence (Netlify) auth config from AMLS-live. **Outstanding:** Supabase Auth **Site URL** is still `amls-dashboard.vercel.app` (the Vercel live app); leave it until cutover. The Netlify callback `https://cadence-amls.netlify.app/auth/callback` IS already in the redirect allowlist, so the invite link resolves to Netlify (not Vercel) as long as `redirectTo` matches it. |
-| **P2** | Custom invite email via Resend | **Built.** `lib/email.ts` + the invite route use `auth.admin.generateLink({ type: 'invite' })` (creates user + token, no Supabase email) and send a branded Resend email; link = `{SITE_URL}/auth/callback?token_hash=…&type=invite`. No Supabase SMTP / Site URL touched, so Vercel-live is unaffected. From-address via `RESEND_FROM` env. |
+| **P1** | ~~Supabase Pro + environment branching~~ | **Dropped — no longer needed.** The original plan required a Pro plan to branch Supabase auth config away from Vercel-live. Bypassed by: (a) adding `https://cadence-amls.netlify.app/auth/callback` + `https://staging--cadence-amls.netlify.app/auth/callback` to the Supabase redirect allowlist, and (b) deriving the invite `redirectTo` base URL from the incoming request `Origin` header so links stay on whichever deploy triggered the invite. Supabase Auth **Site URL** (`amls-dashboard.vercel.app`) is intentionally left unchanged — Vercel-live is unaffected. |
+| **P2** | Custom invite email via Resend | **✅ Built.** `lib/email.ts` + the invite route use `auth.admin.generateLink({ type: 'invite' })` (creates user + token, no Supabase email) and send a branded Resend email; link = `{SITE_URL}/auth/callback?token_hash=…&type=invite`. No Supabase SMTP / Site URL touched, so Vercel-live is unaffected. From-address via `RESEND_FROM` env. |
 | **P3** | Verified Resend sending domain | **Blocked.** Required to send invites to *arbitrary* recipients. Resend free plan allows only **1 domain, already used by another project.** Until resolved (paid Resend plan, or a dedicated domain / Resend account for Cadence), invites can only deliver to the Resend-account's own email via the `onboarding@resend.dev` test sender. |
 
-Note: P2 is implemented. P1 (Site URL cutover) and P3 (sending domain) remain before a real, arbitrary-recipient invite can be sent. Both `RESEND_API_KEY` and `RESEND_FROM` must be set in **Netlify** env vars (not just `.env.local`) for the Netlify-hosted invite to send.
+Note: P1 dropped. P2 built. Only P3 (verified sending domain) blocks inviting arbitrary recipients. Both `RESEND_API_KEY` and `RESEND_FROM` must be set in **Netlify** env vars (not just `.env.local`) for the Netlify-hosted invite to send.
 
 ---
 
@@ -37,6 +37,16 @@ Core invite → onboarding flow is **built and validated end-to-end** on `stagin
 - [x] **Phase 8 — internationalization:** ✅ DONE (2026-05-31, commit `5b9fd99`) — country/region/tz pickers + searchable `SimpleSelect`. New `lib/locale-data.ts` carries the full ISO 3166-1 alpha-2 country list (names via `Intl.DisplayNames`), curated subdivisions for the top 15 expected studio countries (US, CA, GB, AU, NZ, IE, PH, IN, MX, AE, JP, DE, FR, ES) with free-text fallback elsewhere, country→IANA tz mapping, and the full IANA list (~418 zones via `Intl.supportedValuesOf('timeZone')`) as fallback. `defaultTimezoneForCountryRegion` only auto-fills for single-tz countries to avoid wrong defaults. Wired into all three forms (onboarding step-business-profile, Settings → Studios, Settings → Business Profile) with identical UX: searchable country picker, country-aware region dropdown/free-text, country-filtered tz picker. Layout: country/region row above city/postal. Onboarding `*` markers added for the 5 server-required fields + country, Next button disabled on Business Profile step when country is blank.
 - [ ] **P3 — verified Resend sending domain:** required to invite *any* address (not just the Resend-account email); blocked by the free-plan 1-domain limit.
 - [ ] **Manual QA pass — non-Chicago studio:** end-to-end exercise of calendar, appointments, analytics presets, conversations, and follow-ups under a non-US tz to validate Phase 5 + 8 before merge. Highest regression risk; deferred from earlier in the build.
+- [ ] **Notion ↔ Supabase date sync — tz boundary fix:** the date picker and `formatDateOnly` were made tz-aware (2026-06-01), but `lib/notion.ts` pre-dates Phase 5 and still uses `iso.slice(0, 10)` (which reads the UTC calendar date, not studio-tz). Day-boundary writes (e.g. "June 2 12 AM Manila" stored as `2026-06-01T16:00:00Z`) push to Notion as "June 1" and pull back as `2026-06-01T00:00:00Z` — silent off-by-one for any studio whose tz is not UTC. Senior-engineer audit (2026-06-01): only 2 critical sites in `lib/notion.ts` (`notionDateStart` at L42, `buildLeadUpdateFromPage` at L197-199) + 1 medium (the `to_char(... AT TIME ZONE 'UTC')` trigger in migrations 035/036 which writes UTC instants instead of `timestamptz`). No edge functions, no analytics queries, no other backend code groups by these fields. Recommended fix (per architect, 2026-06-01):
+  1. Thread `studios.timezone` into `buildNotionProperties`, `syncOneNotionPageToSupabase`, and `syncNotionToSupabase` (`studios` is already fetched at L221/L257 — just widen the select).
+  2. Push `last_contacted` as `YYYY-MM-DD` derived via `tzCalendarParts(iso, tz)` (replaces `iso.slice(0, 10)`).
+  3. Push `first_lesson` as `{ start: iso, time_zone: tz }` so Notion preserves wall-clock display (Notion-pull is excluded for this field per existing client decision — Supabase-authoritative).
+  4. Pull `last_contacted` via `studioMidnightFromStr(day, tz)` instead of constructing `day + 'T00:00:00.000Z'` (which is UTC midnight, off by hours).
+  5. New migration **037** that replaces the trigger bodies in 035 + 036 — drop the `to_char(... AT TIME ZONE 'UTC')` and assign `NEW.created_at` directly as `timestamptz`. Forward-only; legacy rows unchanged.
+  6. Update `lib/notion.test.ts:13-14` to parametrize on `tz` and assert studio-tz calendar day.
+  7. Out-of-scope until requested: opt-in `/api/admin/normalize-lead-dates?studio_id=X` for ad-hoc backfill if any studio reports legacy drift. Architect estimates <5% of rows touched, day-boundary writes only.
+  
+  Storage contract (codified by architect, 2026-06-01): both columns stay `timestamptz`; `last_contacted` represents "studio-local midnight as UTC", `first_lesson` represents "studio-local wall-clock as UTC". `studios.timezone` is the single lens for read + write. No per-row tz column. No `date` migration.
 - [ ] **Deploy — merge `staging` → `main`** on completion (production `cadence-amls.netlify.app` builds from `main`).
 - [x] **Invite scenario matrix locked** — see "Invite Decision Matrix" below; covers a/b/c/d/e/f/g/h/i/j with the guardrails enforced in `app/api/staff/invite/route.ts`.
 - [x] **Onboarding dedupe fix:** ✅ DONE (2026-05-31, commit `770324e`) — `onboardingDupeKey` no longer includes name; dedupes by `street_address + city + state + postal_code + country`. Without this, the wizard's "Duplicate location" button (which appends " (copy)" to the name) let unedited dupes slip through. Verified in prod by two `test meryel` rows that bypassed the check; cleaned up post-fix.
@@ -89,37 +99,34 @@ Goals satisfied: a co-owner never fills the wizard; a returning owner is never r
 | Timezone | New `timezone` column; **hybrid picker** — auto-suggest from state/address → browser TZ fallback → owner can override |
 | Multi-studio | "Add another location" + "Duplicate to edit"; submit blocked if two studios share **name + address** |
 | Lead source defaults | Website form, Facebook, Email, Walk-in (editable) |
-| Additional studios (existing owner) | Reuse the full wizard in Settings (minus account/password step) |
+| Additional studios (existing owner) | Covered by scenario c (super_admin re-invites existing email with blank studio → owner lands on `/onboarding` wizard). Settings → Studios stays as the super_admin quick-create form. Full wizard in Settings de-scoped — see Phase 6. |
 | Existing email + blank studio | Blocked with guidance message |
 
 ---
 
 ## Build Breakdown
 
-### Phase 1 — Database
-- Add `timezone text not null default 'America/Chicago'` to `studios`; add to `Studio` type in `lib/types.ts`.
-- Update default **source** set → Website form, Facebook, Email, Walk-in. Fix existing Guest/Guests and Event/Events singular-plural mismatch between the SQL seed and `lib/constants.ts`.
-- Field-option seeding: call `seed_studio_field_options(studio_id)` via RPC inside the onboarding action (exists since migration 006, currently unwired). Lead views already auto-seed via the existing `AFTER INSERT ON studios` trigger. The five non-source enum fields (status/level/action/reason/partnership) seed silently so the Leads page works on day one.
+### Phase 1 — Database ✅ DONE
+- Migration 033 added `timezone text not null default 'America/Chicago'` on `studios` + the corresponding `lib/types.ts` Studio type field.
+- Default source set refreshed (Website Form, Facebook, Email, Walk-in) and the Guest/Guests + Event/Events singular-plural mismatch resolved.
+- `seed_studio_field_options(studio_id)` RPC is now called by `completeStudioOnboarding` (wizard path) and `createStudio` (Settings path — added 2026-06-01, commit `a1f54e8`). Lead views auto-seed via the existing `AFTER INSERT ON studios` trigger.
 
-### Phase 2 — Invite path (`app/api/staff/invite/route.ts` + My Staff)
-- Make `studioId` **optional**. When blank: set metadata `{ role_intent: 'studio_owner', studio_setup_complete: false }`, create **no** `studio_users` row.
-- **Existing-email branch:** `inviteUserByEmail` errors for already-registered emails (`route.ts:52`). Look up the auth user; if found, skip the invite and just upsert the `studio_users` row, then send a "you've been added to X" notice. Required for multi-studio owners.
-- Block existing-email + blank-studio with a clear message.
-- **My Staff UI** (`components/settings/my-staff-table.tsx`): add a "New studio (blank)" option to the studio dropdown (super admin only); add a **"Studio assigned"** column (widen the members fetch to all studios for super admin, currently scoped to one studio); relabel for super-admin context.
+### Phase 2 — Invite path (`app/api/staff/invite/route.ts` + My Staff) ✅ DONE
+- `studioId` is optional; blank-studio invites set `{ role_intent: 'studio_owner', studio_setup_complete: false }` metadata and create no `studio_users` row.
+- Existing-email branch implemented via `findUserByEmail` — short-circuits Supabase's `inviteUserByEmail`, upserts membership directly, sends the appropriate branded email per scenario.
+- Full a/b/c/d/e/f/g/h/i/j scenario matrix locked — see Invite Decision Matrix below.
+- My Staff UI groups members by user (one row per person + expandable per-studio rows), shows "N studios" badge + role summary, and adds the "New studio (blank)" option in the studio dropdown for super_admin. Inline role-change dropdown now sends `sendRoleChangedNotification` (commit `192d94c`). Studio filter added 2026-06-01 (commit `033f044`).
+- **Destructive-action rules tightened 2026-06-01 (commit `cf8c2f0`):** `deleteStudio` is super_admin-only (the trash icon in `Settings → Studios` is hidden for studio_owner). Removing a staff member's last membership no longer auto-deletes the auth account — orphans land on `/no-access` instead. Removing a `studio_owner` shows a "Remove a co-owner?" warning modal (UX speed-bump; server-side still allowed for studio_owner-on-studio_owner). Full matrix in `rules/authentication.md` § "Destructive Actions".
 
-### Phase 3 — Onboarding wizard + server action
-- New `/onboarding` route in its own minimal layout. Multi-step form **per location**:
-  1. Business profile (name, address, state, country, postal)
-  2. Integration IDs (GHL account/calendar/API key, Retell agent/inbound-agent/API key, phone number) — help text + format validation, never logged
-  3. Lead sources (defaults editable)
-  4. Calendar/schedule + timezone picker (reuse `calendar-settings-tab.tsx` logic: duration, advance weeks, calendar hours, per-day slots)
-- "Add another location" / "Duplicate to edit" for multi-studio.
-- New server action `completeStudioOnboarding` (do **not** overload `createStudio` — its guard rejects zero-membership users). It: verifies `role_intent === 'studio_owner'` + `studio_setup_complete === false`; loops entries (create studio → link owner as `studio_owner` → RPC seed → write calendar config + timezone); enforces name+address uniqueness; sets `studio_setup_complete: true` via `admin.updateUserById`.
+### Phase 3 — Onboarding wizard + server action ✅ DONE
+- `/onboarding` route live in its own minimal layout — 4 steps per location: Business Profile, Integrations, Lead Sources, Schedule.
+- Multi-location support via "+ Add another location" + "Duplicate location" (the latter appends `(copy)` to the name; address-only dedupe key catches dupes regardless — commit `770324e`).
+- `completeStudioOnboarding` server action verifies `role_intent === 'studio_owner'` + `studio_setup_complete === false` (or super_admin), validates required fields + address uniqueness (within submission + against existing studios), inserts each studio, links owner as `studio_owner`, calls `seed_studio_field_options` + `seed_studio_sources`, writes calendar config + timezone, and flips `studio_setup_complete: true` via `admin.updateUserById`. Returns `{ error }` for validation failures (instead of throwing) so Next.js doesn't mask the message in production (commit `192d94c`).
 
-### Phase 4 — Routing / gating
-- `proxy.ts`: mirror the existing `onboarding_complete` gate (line ~53) with a `studio_setup_complete === false` → `/onboarding` redirect; add `/onboarding` to allowed paths.
-- `app/(auth)/accept-invite/page.tsx`: route `role_intent === 'studio_owner'` (blank-studio) users to `/onboarding`; everyone else to `/leads`.
-- **JWT refresh:** after the metadata flips, call `supabase.auth.refreshSession()` before `router.push('/leads')`, or the proxy bounces the user back to `/onboarding`.
+### Phase 4 — Routing / gating ✅ DONE
+- `proxy.ts:61-65` redirects users with `studio_setup_complete === false` to `/onboarding` and allows the `/onboarding` path itself.
+- `app/(auth)/accept-invite/page.tsx:49-50` routes `role_intent === 'studio_owner'` invitees (blank-studio path) to `/onboarding`; all other accepted invites land on `/leads`.
+- `app/(auth)/onboarding/page.tsx:149-150` calls `supabase.auth.refreshSession()` after the metadata flips so the proxy doesn't bounce the user back to `/onboarding` with a stale JWT.
 
 ### Phase 5 — Timezone threading (regression risk) ✅ DONE 2026-05-31
 - Replaced hardcoded `'America/Chicago'` across `lib/date-utils.ts`, `lib/appointment-slots.ts`, `lib/ghl.ts` and threaded studio tz through every consumer (calendar, analytics, conversations, server actions, conversations API route). `studioMidnightFromStr` rewritten with offset-based math + DST self-correction.
@@ -129,11 +136,19 @@ Goals satisfied: a co-owner never fills the wizard; a returning owner is never r
 - Commits: `95eae66` (tz threading) + `770324e` (onboarding dedupe fix).
 - **Manual QA pass deferred** — see Pending / To-do list at the top.
 
-### Phase 6 — Reuse wizard in Settings
-- Settings → Studios → "Add studio" opens the same wizard (minus account/password) so existing owners get fully-configured additional studios.
+### Phase 6 — Reuse wizard in Settings ⏭ DE-SCOPED 2026-06-01
+- **Original intent:** Settings → Studios → "Add studio" opens the same multi-step wizard (minus account/password) so existing owners get fully-configured additional studios.
+- **Why de-scoped:** the existing-owner-adds-studio case is already covered end-to-end by **scenario c** of the invite matrix — super_admin invites an existing email with blank-studio → owner gets the "Set up another studio" email → lands on `/onboarding` → walks the full wizard. The Settings → Studios form remains for **super_admin quick-create** (single page, basic fields, lead sources + calendar config can be filled in afterward).
+- **Re-open trigger:** if super_admins start consistently needing the full rich-creation experience for direct provisioning (not via invite), wire the wizard as an "Open setup wizard" inline modal from Settings → Studios. Estimated 1-2 days.
 
-### Phase 7 — QA
-- Full invite matrix, RLS isolation across studios, no `(app)` layout dead-end, JWT-refresh gate release, calendar correctness post-timezone, multi-studio name+address uniqueness, dark mode on the wizard.
+### Phase 7 — QA 🟡 IN PROGRESS
+- ✅ Invite scenario matrix verified end-to-end (a/b/c/d/e/f/g/h/i/j locked in `app/api/staff/invite/route.ts`).
+- ✅ RLS isolation across studios — fixed three pattern-repeating gaps (`updateStudio`, `update-role`, `analyze-call-quality`) + the studio_field_options client fetch (commit `a1f54e8`) so super_admin gets the service client for cross-studio reads.
+- ✅ No `(app)` layout dead-end after onboarding submit — JWT-refresh + redirect to `/leads` is wired.
+- ✅ Multi-studio name+address uniqueness — dedupe key is now address-only (commit `770324e`); the wizard's "Duplicate location" path catches identical addresses.
+- ✅ Post-fix re-verification (see `docs/qa/client-onboarding-qa.md` — 5 bugs from QA pass all retested green on commit `192d94c`).
+- 🟡 **Manual QA pass under a non-Chicago studio** — calendar / appointments / analytics presets / conversations / follow-ups exercised end-to-end against a studio with `timezone != 'America/Chicago'`. Highest regression risk; the rest of the §1–§6 checklist in `docs/qa/client-onboarding-qa.md` is the merge gate.
+- ✅ Dark mode pass on the wizard — verified 2026-06-01. Wizard renders correctly in dark mode (inherits the same tokens / `next-themes` provider as the rest of the app).
 
 ### Phase 8 — Internationalization (worldwide studios) ✅ DONE 2026-05-31
 - **Country**: full ISO 3166-1 alpha-2 list, names via `Intl.DisplayNames`, searchable `SimpleSelect` (new `searchable` prop).
