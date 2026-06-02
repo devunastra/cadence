@@ -140,10 +140,10 @@ Deno.serve(async (req) => {
 
     const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-    // Load every studio's timezone so we can ask "what was yesterday in *that* studio's tz."
+    // Load every studio's timezone + review_enabled flag (skip studios with reviews disabled).
     const { data: studioRows, error: studioErr } = await serviceClient
       .from("studios")
-      .select("id, timezone")
+      .select("id, timezone, review_enabled")
       .is("deleted_at", null)
     if (studioErr) {
       return new Response(JSON.stringify({ error: studioErr.message }), {
@@ -155,7 +155,12 @@ Deno.serve(async (req) => {
     const studioWindow = new Map<string, { fromMs: number; toMs: number; label: string }>()
     let wideFromMs = Number.POSITIVE_INFINITY
     let wideToMs = Number.NEGATIVE_INFINITY
-    for (const s of (studioRows ?? []) as Array<{ id: string; timezone: string | null }>) {
+    let disabledStudios = 0
+    for (const s of (studioRows ?? []) as Array<{ id: string; timezone: string | null; review_enabled: boolean }>) {
+      if (s.review_enabled !== true) {
+        disabledStudios++
+        continue
+      }
       const tz = s.timezone || "America/Chicago"
       studioTz.set(s.id, tz)
       const { dateFrom, dateTo, dateLabel } = getYesterdayBoundariesForTz(tz)
@@ -166,15 +171,15 @@ Deno.serve(async (req) => {
       if (toMs > wideToMs) wideToMs = toMs
     }
     if (!Number.isFinite(wideFromMs) || !Number.isFinite(wideToMs)) {
-      console.log("[daily-call-review] no studios found, exiting")
+      console.log("[daily-call-review] no studios with review_enabled=true found (disabled=", disabledStudios, "), exiting")
       return new Response(
-        JSON.stringify({ analyzed: 0, skipped: 0, total_eligible: 0, errors: [] }),
+        JSON.stringify({ analyzed: 0, skipped: 0, total_eligible: 0, disabled_studios: disabledStudios, errors: [] }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       )
     }
     const wideFrom = new Date(wideFromMs).toISOString()
     const wideTo = new Date(wideToMs).toISOString()
-    console.log("[daily-call-review] wide UTC window:", wideFrom, "→", wideTo, "across", studioTz.size, "studios")
+    console.log("[daily-call-review] wide UTC window:", wideFrom, "→", wideTo, "across", studioTz.size, "enabled studios (disabled=", disabledStudios, ")")
 
     // Fetch every call within the wide window. We'll filter per-studio next.
     const { data: calls, error: fetchError } = await serviceClient
@@ -229,7 +234,10 @@ Deno.serve(async (req) => {
     )
     const callsToAnalyze = eligible.filter((c) => !reviewedIds.has(c.id))
     const skipped = eligible.length - callsToAnalyze.length
+    const realtimeCoverage = eligible.length > 0 ? skipped / eligible.length : 1
     console.log("[daily-call-review] callsToAnalyze=", callsToAnalyze.length, "skipped(already-reviewed)=", skipped)
+    console.log("[daily-call-review] realtime_coverage=", realtimeCoverage.toFixed(3),
+      "(of", eligible.length, "eligible yesterday,", skipped, "were already reviewed by the realtime trigger before this cron ran)")
 
     // Process with concurrency
     const results = await processWithConcurrency(callsToAnalyze, serviceClient, "cron")

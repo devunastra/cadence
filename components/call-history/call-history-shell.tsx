@@ -481,6 +481,39 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
     return () => { supabase.removeChannel(channel) }
   }, [studioId, tab, page, pageSize, filters]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Realtime subscription on call_reviews — flips Result label live when a review arrives.
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('call-reviews-realtime')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'call_reviews',
+        filter: `studio_id=eq.${studioId}`,
+      }, (payload) => {
+        const row = (payload.new ?? payload.old) as
+          { call_id?: string; booking_successful?: boolean | null; booking_attempted?: boolean | null; callback_requested?: boolean | null } | undefined
+        if (!row?.call_id) return
+        const patch = {
+          booking_successful: row.booking_successful ?? null,
+          booking_attempted: row.booking_attempted ?? null,
+          callback_requested: row.callback_requested ?? null,
+        }
+        setCalls(prev => prev.map(c => c.id === row.call_id ? { ...c, ...patch } : c))
+        const cache = tabCache.current
+        for (const key in cache) {
+          const entry = cache[key]
+          if (entry.calls.some(c => c.id === row.call_id)) {
+            entry.calls = entry.calls.map(c => c.id === row.call_id ? { ...c, ...patch } : c)
+          }
+        }
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [studioId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const loadCalls = useCallback((
     t: Tab, s: string, f: CallHistoryFilters,
     srt: { field: string; ascending: boolean },

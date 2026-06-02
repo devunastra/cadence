@@ -32,6 +32,7 @@ export interface Studio {
   appointment_min_advance_weeks: number
   appointment_slots: Record<string, string[]>
   timezone: string
+  review_enabled: boolean
   created_at: string
 }
 
@@ -162,7 +163,7 @@ export interface CallReview {
   topics_discussed: string[]
   raw_ai_response: Record<string, unknown> | null
   model_used: string
-  trigger_type: 'manual' | 'cron'
+  trigger_type: 'manual' | 'cron' | 'realtime'
   created_at: string
   updated_at: string
 }
