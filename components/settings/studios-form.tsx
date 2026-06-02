@@ -310,7 +310,8 @@ export function StudiosForm({ initialStudios, isSuperAdmin }: StudiosFormProps) 
                   </div>
                 </div>
 
-                {/* Add new studio section */}
+                {/* Add new studio section — super_admin only; studio_owners add via re-invite (scenario c) */}
+                {!isSuperAdmin ? null : <>
                 <div className="mt-12">
                     <h3
                         className="text-lg font-semibold mb-1"
@@ -648,6 +649,7 @@ export function StudiosForm({ initialStudios, isSuperAdmin }: StudiosFormProps) 
                         </div>
                     </div>
                 </form>
+                </>}
             </div>
         </>
     );
