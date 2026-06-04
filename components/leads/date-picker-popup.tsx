@@ -129,12 +129,31 @@ export function DatePickerPopup({ currentValue, anchorRect, onSelect, onClose, s
   function goToday() {
     setViewMonth(todayParts.month)
     setViewYear(todayParts.year)
+    setSelYear(todayParts.year)
+    setSelMonth(todayParts.month)
+    setSelDay(todayParts.day)
+    setHeaderText(formatHeader(todayParts.year, todayParts.month, todayParts.day))
+    if (showTime) {
+      const now = tzCalendarParts(new Date(), tz)
+      setHour(now.hour % 12 || 12)
+      setMinute(now.minute)
+      setAmpm(now.hour >= 12 ? 'PM' : 'AM')
+    } else {
+      onSelect(buildISO(todayParts.year, todayParts.month, todayParts.day, 12, 0, 'PM'))
+      onClose()
+    }
   }
   function selectDay(day: number) {
     setSelYear(viewYear)
     setSelMonth(viewMonth)
     setSelDay(day)
     setHeaderText(formatHeader(viewYear, viewMonth, day))
+    if (showTime && todayParts.year === viewYear && todayParts.month === viewMonth && todayParts.day === day) {
+      const now = tzCalendarParts(new Date(), tz)
+      setHour(now.hour % 12 || 12)
+      setMinute(now.minute)
+      setAmpm(now.hour >= 12 ? 'PM' : 'AM')
+    }
     if (!showTime) {
       onSelect(buildISO(viewYear, viewMonth, day, 12, 0, 'PM'))
       onClose()
