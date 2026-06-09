@@ -560,7 +560,8 @@ export async function setVoiceAgentEnabled(studioId: string, enabled: boolean): 
         // PAUSE
         if (!studio.retell_inbound_agent_id) {
           const current = await getRetellPhoneNumber(studio.retell_phone_number, studio.retell_api_key ?? undefined)
-          if (current?.inbound_agent_id) dbUpdates.retell_inbound_agent_id = current.inbound_agent_id
+          const currentInboundId = current?.inbound_agents?.[0]?.agent_id
+          if (currentInboundId) dbUpdates.retell_inbound_agent_id = currentInboundId
         }
         await updateRetellPhoneNumberInboundAgent(
           studio.retell_phone_number,

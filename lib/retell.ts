@@ -14,10 +14,16 @@ function retellFetch(path: string, options: RequestInit = {}, apiKey?: string): 
   })
 }
 
+interface RetellPhoneAgent {
+  agent_id: string
+  agent_version?: number
+  weight: number
+}
+
 export interface RetellPhoneNumber {
   phone_number: string
-  inbound_agent_id: string | null
-  outbound_agent_id: string | null
+  inbound_agents: RetellPhoneAgent[]
+  outbound_agents: RetellPhoneAgent[]
 }
 
 export async function getRetellPhoneNumber(phoneNumber: string, apiKey?: string): Promise<RetellPhoneNumber | null> {
@@ -31,9 +37,12 @@ export async function updateRetellPhoneNumberInboundAgent(
   inboundAgentId: string | null,
   apiKey?: string,
 ): Promise<void> {
+  const body = inboundAgentId
+    ? { inbound_agents: [{ agent_id: inboundAgentId, weight: 1 }] }
+    : { inbound_agents: [] }
   const res = await retellFetch(
     `/update-phone-number/${encodeURIComponent(phoneNumber)}`,
-    { method: 'PATCH', body: JSON.stringify({ inbound_agent_id: inboundAgentId }) },
+    { method: 'PATCH', body: JSON.stringify(body) },
     apiKey,
   )
   if (!res.ok) {
