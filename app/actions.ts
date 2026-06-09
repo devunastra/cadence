@@ -2981,7 +2981,11 @@ interface N8nCallbackRow {
   called_at: string | null
 }
 
-async function callN8nCallbacksWebhook<T>(url: string | undefined, body: object): Promise<T> {
+async function callN8nCallbacksWebhook<T>(
+  url: string | undefined,
+  body: object,
+  options?: { emptyBodyFallback?: T },
+): Promise<T> {
   if (!url) throw new Error('Scheduled Callbacks webhook URL not configured')
   const secret = process.env.N8N_SCHEDULED_CALLBACKS_SECRET
   if (!secret) throw new Error('Scheduled Callbacks webhook secret not configured')
@@ -3002,6 +3006,10 @@ async function callN8nCallbacksWebhook<T>(url: string | undefined, body: object)
     throw new Error(`Scheduled Callbacks webhook ${res.status}: ${raw.slice(0, 200) || '(empty body)'}`)
   }
   if (!raw.trim()) {
+    // n8n's Respond to Webhook node returns an empty body when the upstream
+    // data table query yields zero rows. Callers that expect a list shape can
+    // opt into a fallback value instead of surfacing a misleading error.
+    if (options && 'emptyBodyFallback' in options) return options.emptyBodyFallback as T
     throw new Error(
       `Scheduled Callbacks webhook returned empty body (status ${res.status}). ` +
       `Check that the n8n workflow is ACTIVE and the Respond to Webhook node is reached. URL: ${url}`,
@@ -3028,6 +3036,7 @@ export async function fetchScheduledCallbacks(): Promise<ScheduledCallback[]> {
   const response = await callN8nCallbacksWebhook<{ rows: N8nCallbackRow[] }>(
     process.env.N8N_SCHEDULED_CALLBACKS_LIST_URL,
     {},
+    { emptyBodyFallback: { rows: [] } },
   )
   const n8nRows = response.rows ?? []
   if (n8nRows.length === 0) return []

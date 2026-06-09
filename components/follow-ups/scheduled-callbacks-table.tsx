@@ -168,7 +168,12 @@ export function ScheduledCallbacksTable({ refreshTrigger }: Props) {
         const data = await fetchScheduledCallbacks()
         setRows(data)
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load scheduled callbacks')
+        const raw = e instanceof Error ? e.message : ''
+        // Next.js production builds sanitize server action errors into a generic
+        // "An error occurred in the Server Components render..." string. Show a
+        // useful message instead of that blob.
+        const isSanitized = raw.includes('Server Components render') || raw.includes('digest property')
+        setError(isSanitized ? 'Could not load scheduled callbacks. Please refresh or try again.' : raw || 'Failed to load scheduled callbacks')
       } finally {
         setLoading(false)
       }
