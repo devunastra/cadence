@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { getSelectedStudioId } from '@/lib/data-cache'
-import { getTestAgents } from '@/lib/test-agents'
+import { getStudioTestAgents } from '@/lib/test-agents'
 
 // Normalize the form's "reason" value to what the agent's prompts expect.
 function normalizeReason(input?: string): string | undefined {
@@ -76,20 +76,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Studio not found' }, { status: 404 })
   }
 
-  // Pick agent: form's selection > env var > studio default
-  // Each test agent has its own provisioned Retell number (mapped in TEST_AGENTS).
-  const requestedAgentId = body.agentId || process.env.TEST_RETELL_AGENT_ID || studio.retell_agent_id
-  if (!requestedAgentId) {
-    return NextResponse.json({ error: 'No Retell agent selected' }, { status: 400 })
+  // The agents this studio is allowed to call, from the studio_test_agents table.
+  // Each agent carries its own provisioned Retell from_number.
+  const studioAgents = await getStudioTestAgents(studio.id)
+
+  let agentId: string | undefined
+  let fromNumber: string | undefined
+
+  if (body.agentId) {
+    // An explicit selection must be one of THIS studio's configured agents — a user
+    // cannot trigger another studio's agent by passing an arbitrary agent_id.
+    const match = studioAgents.find((a) => a.id === body.agentId)
+    if (!match) {
+      return NextResponse.json({ error: 'Selected agent is not available for this studio' }, { status: 403 })
+    }
+    agentId = match.id
+    fromNumber = match.fromNumber
+  } else {
+    // No explicit selection: default to the studio's first configured agent,
+    // then the studio's configured Retell agent, then env defaults.
+    const first = studioAgents[0]
+    agentId = first?.id || process.env.TEST_RETELL_AGENT_ID || studio.retell_agent_id || undefined
+    fromNumber = first?.fromNumber || process.env.RETELL_FROM_NUMBER
   }
 
-  // If the agent is in the configured TEST_AGENTS list, use its bundled from_number.
-  // Otherwise fall back to env RETELL_FROM_NUMBER.
-  const knownAgent = getTestAgents().find((a) => a.id === requestedAgentId)
-  const agentId = requestedAgentId
-  const fromNumber = knownAgent?.fromNumber || process.env.RETELL_FROM_NUMBER
+  if (!agentId) {
+    return NextResponse.json({ error: 'No Retell agent selected' }, { status: 400 })
+  }
   if (!fromNumber) {
-    return NextResponse.json({ error: `No from_number for agent ${agentId} — add to TEST_AGENTS env var or set RETELL_FROM_NUMBER in .env.local` }, { status: 500 })
+    return NextResponse.json({ error: `No from_number for agent ${agentId} — add the agent to studio_test_agents or set RETELL_FROM_NUMBER in .env.local` }, { status: 500 })
   }
 
   const retellApiKey =
