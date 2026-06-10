@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
     if (body.message) dynamicVars.dance_interest = body.message
 
     const retellPayload: Record<string, unknown> = {
-      agent_id: agentId,
+      override_agent_id: agentId,
       from_number: fromNumber,
       to_number: body.phoneNumber,
     }
