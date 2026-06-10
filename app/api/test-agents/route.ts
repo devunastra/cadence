@@ -13,30 +13,29 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Resolve the selected studio (cookie), falling back to the user's first membership.
+  // Fetch the user's memberships once. super_admin is stored per-studio in
+  // studio_users but the app treats it as GLOBAL — a super_admin can switch to
+  // any studio without an explicit membership row for it.
   const serviceClient = createServiceClient()
+  const { data: memberships } = await serviceClient
+    .from('studio_users')
+    .select('studio_id, role')
+    .eq('user_id', session.user.id)
+  const isSuper = memberships?.some((m) => m.role === 'super_admin') ?? false
+
+  // Resolve the selected studio (cookie), falling back to the user's first membership.
   let studioId = await getSelectedStudioId()
   if (!studioId) {
-    const { data: memberships } = await serviceClient
-      .from('studio_users')
-      .select('studio_id')
-      .eq('user_id', session.user.id)
-      .limit(1)
     studioId = memberships?.[0]?.studio_id ?? null
   }
   if (!studioId) {
     return NextResponse.json({ agents: [] })
   }
 
-  // Guard: confirm the user actually belongs to the resolved studio before returning
-  // its agents (the cookie is user-controlled; service client bypasses RLS).
-  const { data: membership } = await serviceClient
-    .from('studio_users')
-    .select('studio_id')
-    .eq('user_id', session.user.id)
-    .eq('studio_id', studioId)
-    .maybeSingle()
-  if (!membership) {
+  // Guard: super_admins may view any studio; everyone else must be a member of the
+  // resolved studio (the cookie is user-controlled and the service client bypasses RLS).
+  const isMember = memberships?.some((m) => m.studio_id === studioId) ?? false
+  if (!isSuper && !isMember) {
     return NextResponse.json({ agents: [] })
   }
 
