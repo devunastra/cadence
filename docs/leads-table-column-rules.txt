@@ -18,7 +18,9 @@ DATE — EDITABLE  (last_contacted, first_lesson)
   - Renders as formatted text: "April 3, 2026 at 12:00 AM".
   - Click opens a custom calendar popup:
       • Editable date header — click to type a date (e.g. "Apr 2, 2026").
-      • Month grid with prev/next navigation and a Today shortcut.
+      • Month grid with prev/next navigation and a Today button that selects
+        today's date and auto-fills the time picker with the current time.
+      • Clicking today's date cell directly also auto-fills the current time.
       • Time picker (hour, minute, AM/PM) at the bottom.
       • Apply button saves the selected date + time.
       • Clear date removes the value entirely.

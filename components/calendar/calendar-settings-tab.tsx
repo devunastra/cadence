@@ -5,6 +5,7 @@ import { X, AlertCircle, Copy, TriangleAlert } from 'lucide-react'
 import { saveCalendarSettings } from '@/app/actions'
 import { useToast } from '@/components/ui/toast-provider'
 import { SimpleSelect } from '@/components/simple-select'
+import { useCurrentStudio } from '@/components/studio-context'
 import type { StudioSlotConfig } from '@/lib/types'
 
 interface CalendarSettingsTabProps {
@@ -137,6 +138,7 @@ function TimeColumnPicker({ hour, minute, period, onHour, onMinute, onPeriod }: 
 
 export function CalendarSettingsTab({ studioId, initialConfig, calStartHour: initCalStart, calEndHour: initCalEnd }: CalendarSettingsTabProps) {
   const { showError } = useToast()
+  const { updateCurrentStudio } = useCurrentStudio()
   const [duration, setDuration]   = useState(initialConfig.appointment_duration_minutes)
   const [advWeeks, setAdvWeeks]   = useState(initialConfig.appointment_min_advance_weeks)
   const [calStart, setCalStart]   = useState(initCalStart)
@@ -251,6 +253,14 @@ export function CalendarSettingsTab({ studioId, initialConfig, calStartHour: ini
 
     setSaving(false)
     if (result.error) { showError(result.error); return }
+    // Update context so navigating away and back within the session shows fresh data
+    updateCurrentStudio({
+      appointment_duration_minutes:  duration,
+      appointment_min_advance_weeks: advWeeks,
+      appointment_slots:             cleanSlots,
+      calendar_start_hour:           calStart,
+      calendar_end_hour:             calEnd,
+    })
     setSaved(true)
     setTimeout(() => setSaved(false), 3000)
   }
