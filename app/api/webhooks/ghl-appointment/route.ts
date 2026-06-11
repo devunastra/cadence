@@ -66,6 +66,7 @@ export async function POST(req: Request) {
   // Hard delete / explicit delete event — soft-delete the row
   if (payload.type === 'AppointmentDelete' || status === 'deleted') {
     const contactId = payload.contact_id ?? null
+    const contactName = payload.full_name ?? payload.contact_full_name ?? null
     await Promise.all([
       supabase.from('appointments').update({
         deleted_at: new Date().toISOString(),
@@ -78,6 +79,13 @@ export async function POST(req: Request) {
         contact_id: contactId,
         verb: 'Deleted',
       }),
+      supabase.from('activity_logs').insert({
+        studio_id:   studio.id,
+        lead_name:   contactName,
+        actor_email: null,
+        event_type:  'appointment_deleted',
+        source:      'ghl',
+      }),
     ])
     return NextResponse.json({ ok: true })
   }
@@ -86,6 +94,7 @@ export async function POST(req: Request) {
   if (payload.type === 'AppointmentReschedule') {
     const newStartTime = payload.start_time ?? null
     const contactId = payload.contact_id ?? null
+    const contactName = payload.full_name ?? payload.contact_full_name ?? null
     if (newStartTime) {
       const newEndTime = new Date(new Date(newStartTime + 'Z').getTime() + 45 * 60 * 1000)
         .toISOString()
@@ -100,6 +109,14 @@ export async function POST(req: Request) {
           contact_id: contactId,
           verb: 'Updated',
           new_start_time: new Date(newStartTime + 'Z').toISOString(),
+        }),
+        supabase.from('activity_logs').insert({
+          studio_id:   studio.id,
+          lead_name:   contactName,
+          actor_email: null,
+          event_type:  'appointment_rescheduled',
+          source:      'ghl',
+          changes:     [{ field: 'start_time', old_value: null, new_value: newStartTime }],
         }),
       ])
     }
@@ -144,6 +161,11 @@ export async function POST(req: Request) {
     ) :
     'Created'
 
+  const activityEventType =
+    payload.type === 'AppointmentUpdate'       ? 'appointment_updated'     :
+    payload.type === 'AppointmentStatusUpdate' ? 'appointment_updated'     :
+    'appointment_created'
+
   // Emit appointment event (drives real-time chip update in conversations UI)
   await supabase.from('appointment_events').insert({
     studio_id: studio.id,
@@ -152,6 +174,14 @@ export async function POST(req: Request) {
     verb,
     new_start_time: row.start_time ?? null,
   })
+
+  supabase.from('activity_logs').insert({
+    studio_id:   studio.id,
+    lead_name:   row.contact_name ?? null,
+    actor_email: null,
+    event_type:  activityEventType,
+    source:      'ghl',
+  }).then(() => {}, () => {})
 
   // Middle-man linking: link the appointment activity message closest to now to this appointment.
   // We look for a chip within ±5 minutes of the current time that has no appointment_id yet.

@@ -15,7 +15,7 @@ import { useCurrentStudio } from '@/components/studio-context'
 import { ALL_LEAD_ENUM_FIELDS, STATUS_COLORS } from '@/lib/constants'
 import { buildDefaultOptions } from '@/lib/field-options'
 import { ALL_COLUMNS_VIEW } from '@/lib/views'
-import { createLeadView, deleteLeadView, updateLeadView, fetchLeadsPage, fetchLeadById, deleteLeads, bulkUpdateLeads, updateLead, saveUserPreferences, addStudioFieldOption, renameStudioFieldOption, deleteStudioFieldOption, logLeadActivity, savePageFilters, fetchStudioFieldOptions } from '@/app/actions'
+import { createLeadView, deleteLeadView, updateLeadView, fetchLeadsPage, fetchLeadById, deleteLeads, bulkUpdateLeads, updateLead, saveUserPreferences, addStudioFieldOption, renameStudioFieldOption, deleteStudioFieldOption, savePageFilters, fetchStudioFieldOptions } from '@/app/actions'
 import type { PageFilters } from '@/app/actions'
 import { createClient } from '@/lib/supabase/client'
 import { useTheme } from 'next-themes'
@@ -420,12 +420,6 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
       event: 'leads_updated',
       payload: { leads, updatedBy: currentUserEmailRef.current },
     })
-    // Log to activity log
-    if (studioId) {
-      const uNames = [...new Set(leads.map(l => l.name))]
-      const nameStr = uNames.length === 1 ? uNames[0] : uNames.length === 2 ? `${uNames[0]} and ${uNames[1]}` : `${uNames[0]}, ${uNames[1]}, and ${uNames.length - 2} more`
-      logLeadActivity(studioId, nameStr, currentUserEmailRef.current, 'update').catch(() => {})
-    }
   }
 
   function startResize(e: React.MouseEvent, field: string) {
