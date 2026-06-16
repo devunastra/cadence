@@ -4,9 +4,16 @@ import { parse } from 'csv-parse/sync'
 import fs from 'fs'
 import path from 'path'
 
-const SUPABASE_URL             = 'https://npcpkffnswzvzmqolort.supabase.co'
-const SUPABASE_SERVICE_ROLE_KEY = 'sb_secret_zomoQMOT4bE0vFaC2vxxzA_g14UVj6K'
-const STUDIO_ID                = '71274499-7c29-4621-990f-b60669ed1de3'
+// .env loader (house style) — secrets come from .env (gitignored), never hardcoded.
+const env = {}
+for (const line of fs.readFileSync('.env', 'utf8').split(/\r?\n/)) {
+  const m = line.match(/^([A-Z0-9_]+)=(.*)$/); if (m) env[m[1]] = m[2].trim()
+}
+const SUPABASE_URL              = env.NEXT_PUBLIC_SUPABASE_URL
+const SUPABASE_SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY
+const STUDIO_ID                 = '71274499-7c29-4621-990f-b60669ed1de3'
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY)
+  throw new Error('Supabase config missing: set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env')
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
