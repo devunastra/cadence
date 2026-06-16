@@ -443,7 +443,7 @@ Goal: configure **both** Schaumburg n8n workflows so they process **only** Schau
 - **GHL location** `slTYdxI6vskx4r28zsIo` → `upQmnNZT3QeZXbNOA34D` in: Search Contact, Create New Event, Update Dashboard, HTTP Request, HTTP Request1 (incl. app-webhook body locationId).
 - **GHL calendar** `TYARmrJpYZlj4lGbA9iS` → `Wsb5f6Fjf1zYf8a0ZuzX` in: Get Free Slots on GHL, Get Free Slots on GHL1, Get Free Slots (Earliest), Create New Event, Update Dashboard.  ⚠ calendar id UNVERIFIED.
 - **GHL assigned user** `S9hw1iaCvrOo4fhJknxH` → `pSffQn8bFaJIvBSBiP0l` (Create New Event).
-- **GHL PIT → credential:** 7 HTTP nodes (Search Contact, Delete Event, Create New Event, Update Appointment, Get Free Slots on GHL/GHL1/Earliest) had the **Lincolnshire PIT hardcoded inline** (`Bearer pit-738a26d4-…`). Converted all to use credential **"GHL AM Schaumburg PIT"** (`bT1Mmjy5NLfMUU5G`, httpHeaderAuth) — plaintext token removed entirely.
+- **GHL PIT → credential:** 7 HTTP nodes (Search Contact, Delete Event, Create New Event, Update Appointment, Get Free Slots on GHL/GHL1/Earliest) had the **Lincolnshire PIT hardcoded inline** (`Bearer pit-…` — redacted). Converted all to use credential **"GHL AM Schaumburg PIT"** (`bT1Mmjy5NLfMUU5G`, httpHeaderAuth) — plaintext token removed entirely.
 
 ### Voice wf — Get Studio Details tool: FIXED (was fully broken)
 Verification found 3 defects; fixed the 2 mechanical ones, now returns real data (`studio_found:"true"`):
@@ -525,7 +525,7 @@ The real Schaumburg Notion **leads database_id** is **`14a71c37-5730-80df-ab57-e
 - n8n inquiry wf `rMbzNhw2XP7eBJQq` `Create Notion Page` + `Check Notion Duplicate` → `…80df…` (with `cachedResultName` "SCHAUMBURG INQUIRY MASTER LIST"). **The `…8184…` value had been silently breaking those nodes** (404 → fail-fast → Discord error on every real inquiry); revert fixed it.
 
 ### GHL PIT
-- `studios.ghl_api_key` for Schaumburg set to `pit-57baf592-6705-4137-8bc3-5eb5d522bccb` (runtime UPDATE — secret deliberately NOT in a committed migration). Also `.env` `GHL_SCHAUMBURG_PIT`.
+- `studios.ghl_api_key` for Schaumburg set to the GHL PIT (value **redacted** — it was committed here in error and **rotated 2026-06-16** after a GitGuardian alert; the live value lives only in `studios.ghl_api_key` + `.env GHL_SCHAUMBURG_PIT`, never in the repo). Runtime UPDATE, not a committed migration.
 
 ### Notion integration access + webhook
 - Joshua added the app integration **`leads/n8n-integrations`** to the Schaumburg DB's Connections (same "AMLS's Notion" workspace) → app token can now read/write it. (n8n uses a separate cred "AMLS Notion Acc".)
