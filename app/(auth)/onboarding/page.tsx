@@ -2,18 +2,23 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, Plus, Copy, Trash2, Check } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Copy, Trash2, Check, AlertCircle, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/toast-provider'
 import { completeStudioOnboarding } from '@/app/actions'
 import type { OnboardingStudioInput } from '@/lib/types'
 import { makeEmptyStudio } from '@/components/onboarding/onboarding-types'
 import { StepBusinessProfile } from '@/components/onboarding/step-business-profile'
-import { StepIntegrations } from '@/components/onboarding/step-integrations'
+// Integrations step is hidden — Myrrh provisions GHL sub-accounts and Retell agents
+// for clients now, so owners no longer paste IDs/keys in the wizard. The
+// step-integrations.tsx component and the GHL/Retell fields on OnboardingStudioInput
+// are intentionally left in place — re-arm by adding 'Integrations' back to STEPS,
+// re-adding the import below, and re-adding the `step === N && <StepIntegrations…/>` render.
+// import { StepIntegrations } from '@/components/onboarding/step-integrations'
 import { StepLeadSources } from '@/components/onboarding/step-lead-sources'
 import { StepSchedule } from '@/components/onboarding/step-schedule'
 
-const STEPS = ['Business Profile', 'Integrations', 'Lead Sources', 'Schedule'] as const
+const STEPS = ['Business Profile', 'Lead Sources', 'Schedule'] as const
 
 // Address-only key, matches the server-side onboardingDupeKey in app/actions.ts.
 // Name is intentionally excluded — "Duplicate location" appends " (copy)" to the
@@ -34,6 +39,11 @@ export default function OnboardingPage() {
   const [activeIndex, setActiveIndex] = useState(0)
   const [step, setStep] = useState(0)
   const [submitting, setSubmitting] = useState(false)
+  // Names of sources whose detail field is blank when the user clicks Next out
+  // of the Lead Sources step. Shown in a soft confirm so they can fill in now
+  // or proceed (sales call covers gaps). Scoped to the active studio — each
+  // studio's Lead Sources step is visited individually.
+  const [pendingMissingDetail, setPendingMissingDetail] = useState<string[] | null>(null)
 
   const active = studios[activeIndex]
 
@@ -60,7 +70,7 @@ export default function OnboardingPage() {
       appointment_slots: Object.fromEntries(
         Object.entries(active.appointment_slots).map(([d, times]) => [d, [...times]]),
       ),
-      sources: [...active.sources],
+      sources: active.sources.map(s => ({ ...s })),
     }
     setStudios(prev => [...prev, clone])
     // A duplicate inherits the source's timezone explicitly — treat as overridden.
@@ -100,6 +110,20 @@ export default function OnboardingPage() {
   function goNext() {
     const err = validateStep()
     if (err) { showError(err); return }
+
+    // Leaving the Lead Sources step (index 1): soft-confirm any selected source
+    // with an empty detail field. Owners can fill now or proceed; sales call
+    // covers gaps. Walk-In and other 'none'-kind sources are exempt.
+    if (step === 1) {
+      const missing = active.sources
+        .filter(src => src.kind !== 'none' && !src.value.trim())
+        .map(src => src.name)
+      if (missing.length > 0) {
+        setPendingMissingDetail(missing)
+        return
+      }
+    }
+
     setStep(s => Math.min(s + 1, STEPS.length - 1))
   }
 
@@ -159,6 +183,17 @@ export default function OnboardingPage() {
 
   return (
     <div className="w-full max-w-2xl">
+      {pendingMissingDetail && (
+        <MissingSourceDetailModal
+          sourceNames={pendingMissingDetail}
+          onCancel={() => setPendingMissingDetail(null)}
+          onContinue={() => {
+            setPendingMissingDetail(null)
+            setStep(s => Math.min(s + 1, STEPS.length - 1))
+          }}
+        />
+      )}
+
       <div className="rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
 
         {/* Header */}
@@ -235,9 +270,8 @@ export default function OnboardingPage() {
           {step === 0 && (
             <StepBusinessProfile studio={active} timezoneAuto={timezoneAuto[activeIndex]} onChange={patchActive} />
           )}
-          {step === 1 && <StepIntegrations studio={active} onChange={patchActive} />}
-          {step === 2 && <StepLeadSources studio={active} onChange={patchActive} />}
-          {step === 3 && (
+          {step === 1 && <StepLeadSources studio={active} onChange={patchActive} />}
+          {step === 2 && (
             <StepSchedule studio={active} onChange={patchActive} onTimezoneOverride={markTimezoneOverridden} />
           )}
         </div>
@@ -327,6 +361,83 @@ export default function OnboardingPage() {
       <p className="text-center text-xs mt-4" style={{ color: 'var(--color-text-muted)' }}>
         Have multiple studios? Add each location before finishing.
       </p>
+    </div>
+  )
+}
+
+interface MissingSourceDetailModalProps {
+  sourceNames: string[]
+  onCancel: () => void
+  onContinue: () => void
+}
+
+function MissingSourceDetailModal({ sourceNames, onCancel, onContinue }: MissingSourceDetailModalProps) {
+  const isPlural = sourceNames.length > 1
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
+
+      <div
+        className="relative w-full max-w-md mx-4 rounded-2xl shadow-2xl animate-in zoom-in-95 duration-150"
+        style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
+      >
+        <button
+          onClick={onCancel}
+          className="absolute top-4 right-4 p-1.5 rounded-lg transition-colors"
+          style={{ color: 'var(--color-text-muted)' }}
+          onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'}
+          onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
+        >
+          <X size={20} />
+        </button>
+
+        <div className="px-6 pt-6 pb-4">
+          <div
+            className="w-11 h-11 rounded-full flex items-center justify-center mb-4"
+            style={{ backgroundColor: 'rgba(203,145,47,0.12)' }}
+          >
+            <AlertCircle size={20} style={{ color: '#CB912F' }} />
+          </div>
+
+          <p className="text-base font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>
+            {isPlural ? 'Some lead source details are blank' : 'A lead source detail is blank'}
+          </p>
+          <p className="text-sm leading-relaxed mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+            You can fill {isPlural ? 'these' : 'this'} in now or during your onboarding call. We&apos;ll save what you have and you can update details from Settings later.
+          </p>
+
+          <div
+            className="rounded-lg p-3 text-sm"
+            style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+          >
+            <span style={{ color: 'var(--color-text-primary)' }}>{sourceNames.join(', ')}</span>
+          </div>
+        </div>
+
+        <div
+          className="flex items-center justify-end gap-3 px-6 py-4"
+          style={{ borderTop: '1px solid var(--color-border)' }}
+        >
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-sm font-medium rounded-lg transition-colors"
+            style={{ border: '1px solid var(--color-border)', color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg)' }}
+            onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'}
+            onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)'}
+          >
+            Go back and fill
+          </button>
+          <button
+            onClick={onContinue}
+            className="px-4 py-2 text-sm font-medium rounded-lg text-white transition-colors"
+            style={{ backgroundColor: 'var(--color-accent)' }}
+            onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent-hover)'}
+            onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent)'}
+          >
+            Continue anyway
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -10,6 +10,7 @@ import { SimpleSelect } from "@/components/simple-select";
 import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { LeadSourcesEditor } from "@/components/settings/lead-sources-editor";
 import { DEFAULT_SOURCES } from "@/components/onboarding/onboarding-types";
+import type { SourceDetail } from "@/lib/source-kinds";
 import {
     getCountryOptions,
     getSubdivisionsFor,
@@ -51,7 +52,7 @@ export function StudiosForm({ initialStudios, isSuperAdmin }: StudiosFormProps) 
     const [timezone, setTimezone] = useState<string>("America/Chicago");
     // Tracks whether the owner has manually picked a tz; lets country changes drive it otherwise.
     const [timezoneAuto, setTimezoneAuto] = useState(true);
-    const [sources, setSources] = useState<string[]>([...DEFAULT_SOURCES]);
+    const [sources, setSources] = useState<SourceDetail[]>(DEFAULT_SOURCES.map(s => ({ ...s })));
     const { showError } = useToast();
     const [saving, setSaving] = useState(false);
     const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
@@ -97,7 +98,7 @@ export function StudiosForm({ initialStudios, isSuperAdmin }: StudiosFormProps) 
             setRetellApiKey("");
             setTimezone("America/Chicago");
             setTimezoneAuto(true);
-            setSources([...DEFAULT_SOURCES]);
+            setSources(DEFAULT_SOURCES.map(s => ({ ...s })));
             window.location.reload();
         } catch (err) {
             showError(err instanceof Error ? err.message : "Failed to create studio.");

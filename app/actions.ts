@@ -9,6 +9,8 @@ import { NOTION_ENUM_FIELDS, NOTION_SYNCED_FIELDS, notionSyncMode, syncLeadUpdat
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Lead, ScheduledCallback, StudioSlotConfig, OnboardingStudioInput } from '@/lib/types'
 import type { FieldOption } from '@/lib/field-options'
+import { reconcileSourceDetail } from '@/lib/source-kinds'
+import type { SourceDetail } from '@/lib/source-kinds'
 
 // Converts a naive studio-local ISO string ("2026-05-08T17:00:00") to a UTC ISO string
 // by formatting that naive moment in the studio's timezone and computing the offset.
@@ -442,11 +444,12 @@ export async function createStudio({
   retell_api_key?: string
   timezone?: string
   /**
-   * Optional custom lead-source list. When provided, the seeded defaults are
-   * reconciled against this — defaults not in `sources` are deleted, custom
-   * sources not in defaults are inserted. Same logic as `completeStudioOnboarding`.
+   * Optional custom lead-source list with per-source detail. When provided,
+   * the seeded defaults are reconciled against this — defaults not in
+   * `sources` are deleted, custom sources not in defaults are inserted, and
+   * each row's metadata jsonb is set to the detail captured in the wizard.
    */
-  sources?: string[]
+  sources?: SourceDetail[]
 }): Promise<void> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -511,20 +514,31 @@ export async function createStudio({
 
 /**
  * Reconciles `studio_field_options.source` rows for a studio against the
- * caller's desired list. Deletes seeded/existing sources not in the list and
- * inserts new ones. Comparison is case-insensitive; preserves sort_order on
+ * caller's desired list. Deletes sources not in the list, updates metadata on
+ * matched existing rows (so renames/value edits flow through), and inserts new
+ * ones. Comparison is case-insensitive on `name`; preserves `sort_order` on
  * existing rows; appends new ones at the end.
  *
- * Shared between createStudio (fresh studio, seeded defaults present) and
- * setStudioSources (existing studio, may have lead rows referencing options
- * — caller's responsibility to confirm safe-to-delete).
+ * Shared between createStudio (fresh studio, seeded defaults present),
+ * setStudioSources (existing studio — caller's responsibility to confirm
+ * safe-to-delete), and completeStudioOnboarding (brand-new studio).
  */
 async function reconcileStudioSources(
   serviceClient: SupabaseClient,
   studioId: string,
-  desiredSources: string[],
+  desiredSources: SourceDetail[],
 ): Promise<void> {
-  const chosen = Array.from(new Set(desiredSources.map(v => v.trim()).filter(Boolean)))
+  // Normalize: trim names, strip blanks, dedupe case-insensitively (keep first).
+  const normalized: SourceDetail[] = []
+  const seen = new Set<string>()
+  for (const s of desiredSources) {
+    const reconciled = reconcileSourceDetail(s)
+    const key = reconciled.name.toLowerCase()
+    if (!reconciled.name || seen.has(key)) continue
+    seen.add(key)
+    normalized.push(reconciled)
+  }
+
   const { data: existing } = await serviceClient
     .from('studio_field_options')
     .select('id, value, sort_order')
@@ -532,8 +546,7 @@ async function reconcileStudioSources(
     .eq('field', 'source')
 
   const existingRows = (existing ?? []) as Array<{ id: string; value: string; sort_order: number | null }>
-  const chosenLower = new Set(chosen.map(v => v.toLowerCase()))
-  const existingLower = new Set(existingRows.map(r => r.value.toLowerCase()))
+  const chosenLower = new Set(normalized.map(s => s.name.toLowerCase()))
 
   // Delete options the caller dropped.
   const toDelete = existingRows.filter(r => !chosenLower.has(r.value.toLowerCase())).map(r => r.id)
@@ -545,15 +558,29 @@ async function reconcileStudioSources(
     if (error) throw new Error(error.message)
   }
 
+  // Update metadata on already-existing sources so detail edits land.
+  const existingByLower = new Map(existingRows.map(r => [r.value.toLowerCase(), r]))
+  for (const s of normalized) {
+    const match = existingByLower.get(s.name.toLowerCase())
+    if (!match) continue
+    const { error } = await serviceClient
+      .from('studio_field_options')
+      .update({ metadata: metadataFromDetail(s) })
+      .eq('id', match.id)
+    if (error) throw new Error(error.message)
+  }
+
   // Insert sources not already present (case-insensitive match).
+  const existingLower = new Set(existingRows.map(r => r.value.toLowerCase()))
   const baseSortOrder = existingRows.reduce((max, r) => Math.max(max, r.sort_order ?? 0), 0)
-  const toInsert = chosen
-    .filter(v => !existingLower.has(v.toLowerCase()))
-    .map((value, i) => ({
+  const toInsert = normalized
+    .filter(s => !existingLower.has(s.name.toLowerCase()))
+    .map((s, i) => ({
       studio_id: studioId,
       field: 'source',
-      value,
+      value: s.name,
       sort_order: baseSortOrder + 1 + i,
+      metadata: metadataFromDetail(s),
     }))
   if (toInsert.length > 0) {
     const { error } = await serviceClient
@@ -561,6 +588,14 @@ async function reconcileStudioSources(
       .insert(toInsert)
     if (error) throw new Error(error.message)
   }
+}
+
+// Shape stored in studio_field_options.metadata for source rows. `kind: 'none'`
+// is the explicit "no detail field" marker (Walk-In); everything else carries
+// the user-typed value alongside the kind that was rendered for it.
+function metadataFromDetail(s: SourceDetail): Record<string, unknown> {
+  if (s.kind === 'none') return { kind: 'none' }
+  return { kind: s.kind, value: s.value }
 }
 
 export async function updateStudio(id: string, updates: {
@@ -995,21 +1030,33 @@ export async function updateStudioFieldOptionOrder(updates: Array<{ id: string; 
  * by `field`.
  */
 /**
- * Read a studio's current lead-source list (`studio_field_options.source`),
- * sorted as the user sees them in the leads page. Goes through
- * `getAuthorizedClient` so super_admin sees the rows even on studios where
- * they have no `studio_users` row.
+ * Read a studio's current lead-source list (`studio_field_options.source`)
+ * with per-source detail (metadata jsonb), sorted as the user sees them in
+ * the leads page. Goes through `getAuthorizedClient` so super_admin sees the
+ * rows even on studios where they have no `studio_users` row.
+ *
+ * Rows with NULL metadata (legacy rows pre-migration 046) get their kind
+ * re-derived from the source name and value defaulted to ''.
  */
-export async function fetchStudioSources(studioId: string): Promise<string[]> {
+export async function fetchStudioSources(studioId: string): Promise<SourceDetail[]> {
   const { client } = await getAuthorizedClient()
   const { data, error } = await client
     .from('studio_field_options')
-    .select('value, sort_order')
+    .select('value, sort_order, metadata')
     .eq('studio_id', studioId)
     .eq('field', 'source')
     .order('sort_order', { ascending: true, nullsFirst: false })
   if (error) throw new Error(error.message)
-  return (data ?? []).map(r => r.value as string)
+  return (data ?? []).map(r => {
+    const meta = (r.metadata ?? null) as { value?: string } | null
+    // Kind is always re-derived from the source name via the registry. The
+    // persisted `kind` in metadata is informational — the registry is the
+    // single source of truth for which input renders.
+    return reconcileSourceDetail({
+      name: r.value as string,
+      value: meta?.value ?? '',
+    })
+  })
 }
 
 /**
@@ -1020,7 +1067,7 @@ export async function fetchStudioSources(studioId: string): Promise<string[]> {
  *
  * Auth: super_admin (global) or studio_owner of the target studio.
  */
-export async function setStudioSources(studioId: string, sources: string[]): Promise<void> {
+export async function setStudioSources(studioId: string, sources: SourceDetail[]): Promise<void> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Unauthorized')
@@ -3468,48 +3515,10 @@ export async function completeStudioOnboarding(
     const { error: seedError } = await serviceClient.rpc('seed_studio_field_options', { p_studio_id: studioId })
     if (seedError) throw new Error(seedError.message)
 
-    // Reconcile lead sources to the owner's chosen list. Safe to delete seeded
-    // sources the owner removed because a brand-new studio has no leads yet.
-    const chosen = Array.from(
-      new Set(s.sources.map(v => v.trim()).filter(Boolean)),
-    )
-    const { data: seededSources } = await serviceClient
-      .from('studio_field_options')
-      .select('id, value')
-      .eq('studio_id', studioId)
-      .eq('field', 'source')
-
-    const seededValues = (seededSources ?? []).map(o => o.value)
-    const chosenLower = new Set(chosen.map(v => v.toLowerCase()))
-
-    // Delete seeded sources the owner removed.
-    const toDelete = (seededSources ?? [])
-      .filter(o => !chosenLower.has(o.value.toLowerCase()))
-      .map(o => o.id)
-    if (toDelete.length > 0) {
-      const { error: delError } = await serviceClient
-        .from('studio_field_options')
-        .delete()
-        .in('id', toDelete)
-      if (delError) throw new Error(delError.message)
-    }
-
-    // Insert any custom sources not already seeded (case-insensitive match).
-    const seededLower = new Set(seededValues.map(v => v.toLowerCase()))
-    const toInsert = chosen
-      .filter(v => !seededLower.has(v.toLowerCase()))
-      .map((value, i) => ({
-        studio_id: studioId,
-        field: 'source',
-        value,
-        sort_order: seededValues.length + i,
-      }))
-    if (toInsert.length > 0) {
-      const { error: insError } = await serviceClient
-        .from('studio_field_options')
-        .insert(toInsert)
-      if (insError) throw new Error(insError.message)
-    }
+    // Reconcile lead sources + per-source detail to the owner's chosen list.
+    // Safe to delete seeded sources the owner removed — brand-new studio has
+    // no leads yet — and writes metadata jsonb for each retained/new source.
+    await reconcileStudioSources(serviceClient, studioId, s.sources)
 
     createdIds.push(studioId)
   }
