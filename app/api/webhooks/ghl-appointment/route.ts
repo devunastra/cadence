@@ -183,6 +183,21 @@ export async function POST(req: Request) {
     source:      'ghl',
   }).then(() => {}, () => {})
 
+  // Notification fan-out — only on creation, guarded against retries.
+  if (verb === 'Created') {
+    try {
+      await dispatchAppointmentNotifications(supabase, {
+        appointmentId: id,
+        studioId: studio.id,
+        contactName: row.contact_name,
+        startTime: row.start_time,
+      })
+    } catch (err) {
+      console.error('[ghl-appointment] notification dispatch failed', err)
+      // Never let notification failure 500 the webhook — GHL would just retry.
+    }
+  }
+
   // Middle-man linking: link the appointment activity message closest to now to this appointment.
   // We look for a chip within ±5 minutes of the current time that has no appointment_id yet.
   if (row.contact_id) {
@@ -234,4 +249,102 @@ export async function POST(req: Request) {
 // GHL health-check
 export async function GET() {
   return NextResponse.json({ ok: true })
+}
+
+// ---------------------------------------------------------------------------
+// Appointment notification fan-out.
+//
+// Audience: opted-in studio members ∪ all super_admins (cross-studio visibility
+// is the role's purpose). De-dup by user_id; a super_admin who is also a member
+// of the studio gets exactly one notification, and a member's pref=false wins
+// over the super_admin global default. Spec:
+// docs/specs/appointment-notifications-spec.md
+// ---------------------------------------------------------------------------
+async function dispatchAppointmentNotifications(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  args: {
+    appointmentId: string
+    studioId: string
+    contactName: string | null
+    startTime: string | null
+  },
+): Promise<void> {
+  const { appointmentId, studioId, contactName, startTime } = args
+
+  // Idempotency: GHL may retry the same AppointmentCreate, and our own
+  // createAppointment server action also causes GHL to fire the webhook back.
+  const { data: apptRow } = await supabase
+    .from('appointments')
+    .select('notified_at')
+    .eq('id', appointmentId)
+    .single()
+  if (apptRow?.notified_at) return
+
+  // Members of this studio.
+  const { data: memberRows } = await supabase
+    .from('studio_users')
+    .select('user_id')
+    .eq('studio_id', studioId)
+  const memberIds = new Set<string>((memberRows ?? []).map((r: { user_id: string }) => r.user_id))
+
+  // Members' per-studio opt-in prefs.
+  const { data: prefRows } = memberIds.size === 0 ? { data: [] } : await supabase
+    .from('user_preferences')
+    .select('user_id, notify_appointment_created')
+    .eq('studio_id', studioId)
+    .in('user_id', Array.from(memberIds))
+  const prefByUser = new Map<string, boolean>(
+    (prefRows ?? []).map((p: { user_id: string; notify_appointment_created: boolean }) =>
+      [p.user_id, p.notify_appointment_created !== false],
+    ),
+  )
+  // Missing pref → default true.
+  const optedInMembers = new Set<string>(
+    Array.from(memberIds).filter(id => prefByUser.get(id) !== false),
+  )
+
+  // All super_admins anywhere.
+  const { data: superRows } = await supabase
+    .from('studio_users')
+    .select('user_id')
+    .eq('role', 'super_admin')
+  const superIds = new Set<string>((superRows ?? []).map((r: { user_id: string }) => r.user_id))
+
+  // Union with member-opt-out precedence: a super_admin who is a member of this
+  // studio AND has pref=false stays excluded.
+  const recipients = new Set<string>(optedInMembers)
+  for (const id of superIds) {
+    if (memberIds.has(id) && !optedInMembers.has(id)) continue
+    recipients.add(id)
+  }
+
+  if (recipients.size === 0) {
+    await supabase.from('appointments').update({ notified_at: new Date().toISOString() }).eq('id', appointmentId)
+    return
+  }
+
+  const startLabel = startTime
+    ? new Date(startTime.length === 19 ? startTime + 'Z' : startTime).toLocaleString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      })
+    : null
+  const who = contactName ?? 'Someone'
+  const title = 'New appointment booked'
+  const body = startLabel ? `${who} — ${startLabel}` : who
+
+  const rows = Array.from(recipients).map(user_id => ({
+    studio_id: studioId,
+    user_id,
+    type: 'appointment_booked',
+    title,
+    body,
+    link: `/calendar?appointmentId=${appointmentId}`,
+    metadata: { appointment_id: appointmentId, contact_name: contactName, start_time: startTime },
+  }))
+
+  const { error: insertErr } = await supabase.from('notifications').insert(rows)
+  if (insertErr) throw insertErr
+
+  await supabase.from('appointments').update({ notified_at: new Date().toISOString() }).eq('id', appointmentId)
 }

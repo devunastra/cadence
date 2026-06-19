@@ -242,3 +242,18 @@ export interface Appointment {
   deleted_at?: string | null
   appointment_id?: string
 }
+
+export type NotificationType = 'appointment_booked'
+
+export interface Notification {
+  id: string
+  studio_id: string
+  user_id: string
+  type: NotificationType
+  title: string
+  body: string | null
+  link: string | null
+  metadata: Record<string, unknown> | null
+  read_at: string | null
+  created_at: string
+}

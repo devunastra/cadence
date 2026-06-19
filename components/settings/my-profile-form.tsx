@@ -13,17 +13,29 @@ interface MyProfileFormProps {
   notifyCreated: boolean
   notifyUpdated: boolean
   notifyDeleted: boolean
+  notifyAppointmentCreated: boolean
+  notifyAppointmentToast: boolean
 }
 
 const INPUT = 'w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-base md:text-sm text-[var(--color-text-primary)] bg-[var(--color-bg)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]'
 const LABEL = 'block text-sm font-medium text-[var(--color-text-secondary)] mb-1'
 
-export function MyProfileForm({ email, avatarUrl: initialAvatarUrl, notifyCreated: initialNotifyCreated, notifyUpdated: initialNotifyUpdated, notifyDeleted: initialNotifyDeleted }: MyProfileFormProps) {
+export function MyProfileForm({
+  email,
+  avatarUrl: initialAvatarUrl,
+  notifyCreated: initialNotifyCreated,
+  notifyUpdated: initialNotifyUpdated,
+  notifyDeleted: initialNotifyDeleted,
+  notifyAppointmentCreated: initialNotifyApptCreated,
+  notifyAppointmentToast: initialNotifyApptToast,
+}: MyProfileFormProps) {
   const { theme, setTheme } = useTheme()
   const { showError } = useToast()
   const [notifyCreated, setNotifyCreated] = useState(initialNotifyCreated)
   const [notifyUpdated, setNotifyUpdated] = useState(initialNotifyUpdated)
   const [notifyDeleted, setNotifyDeleted] = useState(initialNotifyDeleted)
+  const [notifyApptCreated, setNotifyApptCreated] = useState(initialNotifyApptCreated)
+  const [notifyApptToast, setNotifyApptToast] = useState(initialNotifyApptToast)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -90,7 +102,22 @@ export function MyProfileForm({ email, avatarUrl: initialAvatarUrl, notifyCreate
     setNotifyCreated(next.created)
     setNotifyUpdated(next.updated)
     setNotifyDeleted(next.deleted)
-    saveNotificationPreferences(next.created, next.updated, next.deleted).catch(console.error)
+    saveNotificationPreferences({
+      notify_lead_created: next.created,
+      notify_lead_updated: next.updated,
+      notify_lead_deleted: next.deleted,
+    }).catch(console.error)
+  }
+
+  function handleApptToggle(field: 'created' | 'toast') {
+    const next = { created: notifyApptCreated, toast: notifyApptToast }
+    next[field] = !next[field]
+    setNotifyApptCreated(next.created)
+    setNotifyApptToast(next.toast)
+    saveNotificationPreferences({
+      notify_appointment_created: next.created,
+      notify_appointment_toast: next.toast,
+    }).catch(console.error)
   }
 
   return (
@@ -229,6 +256,39 @@ export function MyProfileForm({ email, avatarUrl: initialAvatarUrl, notifyCreate
                   role="switch"
                   aria-checked={value}
                   onClick={() => handleNotifyToggle(field)}
+                  className="relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2"
+                  style={{
+                    backgroundColor: value ? 'var(--color-accent)' : 'var(--color-surface-hover)',
+                  }}
+                >
+                  <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform duration-200 ${value ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Appointment Notifications card */}
+      <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
+        <div className="px-6 py-5">
+          <p className="text-base font-semibold mb-1" style={{ color: 'var(--color-text-primary)' }}>Appointment Notifications</p>
+          <p className="text-sm mb-5" style={{ color: 'var(--color-text-secondary)' }}>Choose how you&apos;re notified when an appointment is booked for this studio.</p>
+          <div className="space-y-4">
+            {([
+              { field: 'created', label: 'New appointment booked', description: 'Add it to your notification bell', value: notifyApptCreated },
+              { field: 'toast',   label: 'Show a toast as well',   description: 'Briefly show a pop-up in the corner when one comes in', value: notifyApptToast },
+            ] as const).map(({ field, label, description, value }) => (
+              <div key={field} className="flex items-center justify-between gap-4 py-3 last:border-b-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                <div>
+                  <p className="text-base font-medium" style={{ color: 'var(--color-text-primary)' }}>{label}</p>
+                  <p className="text-sm mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>{description}</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={value}
+                  onClick={() => handleApptToggle(field)}
                   className="relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2"
                   style={{
                     backgroundColor: value ? 'var(--color-accent)' : 'var(--color-surface-hover)',

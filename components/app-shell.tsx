@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Menu } from "lucide-react";
 import { Sidebar } from "@/components/sidebar/sidebar";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { useCurrentStudio } from "@/components/studio-context";
 import { useIsMobile, useMounted } from "@/lib/hooks";
 import type { Studio } from "@/lib/types";
@@ -38,7 +39,7 @@ export function AppShell({ studios, initialStudioId, initialCollapsed, children 
                 {/* Mobile hamburger header */}
                 {showMobile && (
                     <div
-                        className="flex-shrink-0 flex items-center justify-between px-4 py-3 sticky top-0 z-30"
+                        className="flex-shrink-0 flex items-center gap-2 px-4 py-3 sticky top-0 z-30"
                         style={{ borderBottom: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}
                     >
                         <button
@@ -55,6 +56,20 @@ export function AppShell({ studios, initialStudioId, initialCollapsed, children 
                         >
                             {currentStudio?.name}
                         </span>
+                        <NotificationBell />
+                    </div>
+                )}
+                {/* Desktop top header */}
+                {!showMobile && (
+                    <div
+                        className="flex-shrink-0 flex items-center justify-end px-5 sticky top-0 z-30"
+                        style={{
+                            height: 48,
+                            borderBottom: '1px solid var(--color-border)',
+                            backgroundColor: 'var(--color-bg)',
+                        }}
+                    >
+                        <NotificationBell />
                     </div>
                 )}
                 <main className="flex-1 flex flex-col md:overflow-hidden md:min-h-0">
