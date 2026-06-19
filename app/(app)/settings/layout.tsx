@@ -9,7 +9,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   return (
     <div className="flex flex-col md:h-full" style={{ backgroundColor: 'var(--color-bg)' }}>
       {/* Page header */}
-      <div className="px-5 pt-5 md:pt-10 pb-5 flex-shrink-0">
+      <div className="px-5 pt-5 pb-5 flex-shrink-0">
         <h1 className="text-2xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>Settings</h1>
         <p className="text-base mt-1" style={{ color: 'var(--color-text-secondary)' }}>Manage your account and preferences</p>
       </div>

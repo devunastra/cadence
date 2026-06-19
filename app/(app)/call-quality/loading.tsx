@@ -4,7 +4,7 @@ export default function CallQualityLoading() {
   return (
     <>
       <h1
-        className="text-2xl font-semibold flex-shrink-0 px-5 pt-5 md:pt-10 pb-3"
+        className="text-2xl font-semibold flex-shrink-0 px-5 pt-5 pb-3"
         style={{ color: 'var(--color-text-primary)' }}
       >
         Quality Review

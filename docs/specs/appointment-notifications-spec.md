@@ -40,7 +40,7 @@ Notifying from the webhook (filtered to `'Created'` verb) catches every path wit
 
 Lives in a new sticky top header, present on every authenticated route.
 
-- **Header:** ~48px tall, `sticky top-0 z-30`, `bg: var(--color-bg)`, `borderBottom: 1px solid var(--color-border)`, no shadow. Sits **to the right of the sidebar** (sidebar stays full-height on the left), spans only the main content column. Added in `components/app-shell.tsx` above `<main>`.
+- **Header:** ~48px tall, `sticky top-0 z-30`, `bg: var(--color-bg)`, `borderBottom: 1px solid var(--color-border)`, no shadow. Sits **to the right of the sidebar** (sidebar stays full-height on the left), spans only the main content column. Added in `components/app-shell.tsx` above `<main>`. Page heading top padding tightened from `pt-5 md:pt-10` to `pt-5` everywhere to compensate (rule updated in `rules/ui-styling.md`).
 - **Bell:** Lucide `Bell` `size={20}`, right-aligned in the header. Red unread dot with count, "9+" cap.
 - **Popover:** ~360px wide, anchored under the bell, right-edge aligned. List of notifications, most recent first. Unread rows get a subtle accent dot or background tint. Footer: "Mark all as read". Empty state: "No notifications yet". Close on outside click or Esc.
 - **Row click:** marks read, navigates to the `link` (e.g. `/calendar?appointmentId=...`).
