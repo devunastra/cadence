@@ -118,8 +118,8 @@ export default function TestPage() {
           <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--color-text-primary)' }}>
             Which agent should call?
           </label>
-          <div className="px-3 py-2.5 rounded-lg text-sm" style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', color: '#C4554D' }}>
-            No agents configured. Set TEST_AGENTS env var.
+          <div className="px-3 py-2.5 rounded-lg text-sm" style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}>
+            No agents configured for this studio yet.
           </div>
         </div>
       )

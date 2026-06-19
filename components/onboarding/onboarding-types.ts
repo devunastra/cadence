@@ -1,5 +1,7 @@
 import { SOURCE_OPTIONS } from '@/lib/constants'
 import { defaultTimezoneForCountryRegion } from '@/lib/locale-data'
+import { defaultSourceDetail } from '@/lib/source-kinds'
+import type { SourceDetail } from '@/lib/source-kinds'
 import type { OnboardingStudioInput } from '@/lib/types'
 
 // Shared form input class — 16px on mobile (prevents iOS zoom), 14px on desktop.
@@ -9,7 +11,8 @@ export const LABEL = 'block text-sm font-medium text-[var(--color-text-secondary
 export const HELP = 'mt-1 text-xs'
 
 // First four SOURCE_OPTIONS are the new defaults: Website Form, Facebook, Email, Walk-In.
-export const DEFAULT_SOURCES: string[] = SOURCE_OPTIONS.slice(0, 4)
+const DEFAULT_SOURCE_NAMES: readonly string[] = SOURCE_OPTIONS.slice(0, 4)
+export const DEFAULT_SOURCES: SourceDetail[] = DEFAULT_SOURCE_NAMES.map(defaultSourceDetail)
 
 export function makeEmptyStudio(): OnboardingStudioInput {
   // Defaults to the US so the existing onboarding flow still gets the state dropdown
@@ -30,7 +33,7 @@ export function makeEmptyStudio(): OnboardingStudioInput {
     retell_inbound_agent_id: '',
     retell_api_key: '',
     retell_phone_number: '',
-    sources: [...DEFAULT_SOURCES],
+    sources: DEFAULT_SOURCE_NAMES.map(defaultSourceDetail),
     timezone: defaultTimezoneForCountryRegion(defaultCountry, '') ?? 'America/Chicago',
     calendar_start_hour: 9,
     calendar_end_hour: 21,

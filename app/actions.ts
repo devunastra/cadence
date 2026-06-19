@@ -9,6 +9,8 @@ import { NOTION_ENUM_FIELDS, NOTION_SYNCED_FIELDS, notionSyncMode, syncLeadUpdat
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Lead, ScheduledCallback, StudioSlotConfig, OnboardingStudioInput } from '@/lib/types'
 import type { FieldOption } from '@/lib/field-options'
+import { reconcileSourceDetail } from '@/lib/source-kinds'
+import type { SourceDetail } from '@/lib/source-kinds'
 
 // Converts a naive studio-local ISO string ("2026-05-08T17:00:00") to a UTC ISO string
 // by formatting that naive moment in the studio's timezone and computing the offset.
@@ -85,6 +87,33 @@ export async function createLeadView(studioId: string, name: string, columns: st
 }
 
 // Note: 'tick' is intentionally excluded — the field exists in Notion but is not present in the dashboard schema
+// Fields whose values are UUIDs referencing studio_field_options — must be resolved to labels before logging
+const ENUM_LEAD_FIELDS = new Set(['status', 'level', 'action', 'source', 'reason', 'partnership'])
+
+async function resolveOptionLabels(
+  client: Awaited<ReturnType<typeof getAuthorizedClient>>['client'],
+  uuids: (string | null | unknown)[],
+): Promise<Record<string, string>> {
+  const ids = uuids.filter((v): v is string => typeof v === 'string' && v.length === 36)
+  if (ids.length === 0) return {}
+  const { data } = await client.from('studio_field_options').select('id, value').in('id', ids)
+  return Object.fromEntries((data ?? []).map((o: { id: string; value: string }) => [o.id, o.value]))
+}
+
+function resolveChangeValues(
+  changes: { field: string; old_value: unknown; new_value: unknown }[],
+  labelMap: Record<string, string>,
+) {
+  return changes.map(c => {
+    if (!ENUM_LEAD_FIELDS.has(c.field)) return c
+    return {
+      ...c,
+      old_value: (typeof c.old_value === 'string' && labelMap[c.old_value]) ? labelMap[c.old_value] : c.old_value,
+      new_value: (typeof c.new_value === 'string' && labelMap[c.new_value]) ? labelMap[c.new_value] : c.new_value,
+    }
+  })
+}
+
 const BULK_UPDATABLE_LEAD_FIELDS = new Set([
   'status', 'level', 'action', 'source', 'reason', 'partnership',
   'showed', 'bought', 'old', 'comments', 'available', 'texted',
@@ -93,7 +122,24 @@ const BULK_UPDATABLE_LEAD_FIELDS = new Set([
 export async function bulkUpdateLeads(ids: string[], field: string, value: string | null) {
   if (ids.length === 0) return
   if (!BULK_UPDATABLE_LEAD_FIELDS.has(field)) throw new Error('Invalid field')
-  const { client } = await getAuthorizedClient()
+  const { client, user } = await getAuthorizedClient()
+
+  // Fetch current values before update for activity log diff
+  type BeforeRow = { id: string; studio_id: string; name: string | null; [key: string]: unknown }
+  const { data: beforeRowsRaw } = await client
+    .from('leads')
+    .select('id, studio_id, name')
+    .in('id', ids)
+  // Fetch the specific field separately to avoid Supabase template-literal type errors
+  const { data: fieldRows } = await client
+    .from('leads')
+    .select(`id, ${field}`)
+    .in('id', ids)
+  const fieldMap = Object.fromEntries(((fieldRows ?? []) as unknown as Record<string, unknown>[]).map(r => [r.id as string, r[field]]))
+  const beforeRows: BeforeRow[] = (beforeRowsRaw ?? []).map((r: { id: string; studio_id: string; name: string | null }) => ({
+    ...r, [field]: fieldMap[r.id] ?? null,
+  }))
+
   const { error } = await client.from('leads').update({ [field]: value }).in('id', ids)
   if (error) throw new Error(error.message)
 
@@ -104,6 +150,25 @@ export async function bulkUpdateLeads(ids: string[], field: string, value: strin
     for (const r of (rows ?? []) as { id: string; studio_id: string; notion_page_id: string | null }[]) {
       await syncLeadUpdateToNotion(client, { leadId: r.id, studioId: r.studio_id, notionPageId: r.notion_page_id, fields })
     }
+  }
+
+  // Log activity — one row per affected lead
+  const changedRows = beforeRows.filter(row => row[field] !== value)
+  if (changedRows.length > 0) {
+    const uuids = changedRows.flatMap(row => [row[field], value])
+    resolveOptionLabels(client, uuids).then(labelMap => {
+      const oldResolved = (id: unknown) => (typeof id === 'string' && labelMap[id]) ? labelMap[id] : id ?? null
+      const newResolved = typeof value === 'string' && labelMap[value] ? labelMap[value] : value ?? null
+      const logs = changedRows.map(row => ({
+        studio_id:   row.studio_id,
+        lead_id:     row.id,
+        lead_name:   row.name ?? null,
+        actor_email: user.email ?? null,
+        event_type:  'update',
+        changes:     [{ field, old_value: oldResolved(row[field]), new_value: newResolved }],
+      }))
+      client.from('activity_logs').insert(logs).then(() => {}, () => {})
+    }).catch(() => {})
   }
 }
 
@@ -120,7 +185,14 @@ export async function updateLead(id: string, updates: Record<string, string | bo
     Object.entries(updates).filter(([k]) => UPDATABLE_LEAD_FIELDS.has(k))
   )
   if (Object.keys(sanitized).length === 0) return
-  const { client } = await getAuthorizedClient()
+  const { client, user } = await getAuthorizedClient()
+
+  // Fetch current values before update for activity log diff
+  const fieldKeys = Object.keys(sanitized)
+  const selectCols = ['studio_id', 'name', ...fieldKeys].join(', ')
+  const { data: beforeRaw } = await client.from('leads').select(selectCols).eq('id', id).single()
+  const before = beforeRaw as unknown as Record<string, unknown> | null
+
   const { error } = await client.from('leads').update(sanitized).eq('id', id)
   if (error) throw new Error(error.message)
 
@@ -154,6 +226,27 @@ export async function updateLead(id: string, updates: Record<string, string | bo
         const fields = await resolveNotionFields(client, notionRaw)
         await syncLeadUpdateToNotion(client, { leadId: id, studioId: leadRow.studio_id, notionPageId: leadRow.notion_page_id, fields })
       }
+    }
+  }
+
+  // Log activity diff
+  if (before?.studio_id) {
+    const rawChanges = fieldKeys
+      .filter(field => before[field] !== sanitized[field])
+      .map(field => ({ field, old_value: before[field] ?? null, new_value: sanitized[field] ?? null }))
+    if (rawChanges.length > 0) {
+      const uuids = rawChanges.flatMap(c => [c.old_value, c.new_value])
+      resolveOptionLabels(client, uuids).then(labelMap => {
+        const changes = resolveChangeValues(rawChanges, labelMap)
+        client.from('activity_logs').insert({
+          studio_id:   before.studio_id as string,
+          lead_id:     id,
+          lead_name:   (before.name as string | null) ?? null,
+          actor_email: user.email ?? null,
+          event_type:  'update',
+          changes,
+        }).then(() => {}, () => {})
+      }).catch(() => {})
     }
   }
 }
@@ -195,19 +288,18 @@ export async function deleteLeads(ids: string[]) {
   const { error } = await client.from('leads').delete().in('id', ids)
   if (error) throw new Error(error.message)
 
-  // Log the activity
-  const studioId = (toDelete ?? [])[0]?.studio_id
-  if (studioId) {
-    const names = (toDelete ?? []).map(l => l.name || 'Unknown')
-    const nameStr = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names[0]}, ${names[1]}, and ${names.length - 2} more`
-    try {
-      await client.from('activity_logs').insert({
-        studio_id: studioId,
-        lead_name: nameStr,
-        actor_email: user.email ?? null,
-        event_type: 'delete',
-      })
-    } catch { /* non-critical */ }
+  // Log one activity row per deleted lead
+  const deleteLogs = (toDelete ?? [])
+    .filter(l => l.studio_id)
+    .map(l => ({
+      studio_id:   l.studio_id,
+      lead_id:     l.id,
+      lead_name:   l.name || null,
+      actor_email: user.email ?? null,
+      event_type:  'delete',
+    }))
+  if (deleteLogs.length > 0) {
+    client.from('activity_logs').insert(deleteLogs).then(() => {}, () => {})
   }
 }
 
@@ -302,10 +394,11 @@ export async function createLead({
   // Log the activity
   try {
     await client.from('activity_logs').insert({
-      studio_id: studioId,
-      lead_name: lead.name,
+      studio_id:   studioId,
+      lead_id:     lead.id,
+      lead_name:   lead.name,
       actor_email: user.email ?? null,
-      event_type: 'create',
+      event_type:  'create',
     })
   } catch { /* non-critical */ }
 
@@ -351,11 +444,12 @@ export async function createStudio({
   retell_api_key?: string
   timezone?: string
   /**
-   * Optional custom lead-source list. When provided, the seeded defaults are
-   * reconciled against this — defaults not in `sources` are deleted, custom
-   * sources not in defaults are inserted. Same logic as `completeStudioOnboarding`.
+   * Optional custom lead-source list with per-source detail. When provided,
+   * the seeded defaults are reconciled against this — defaults not in
+   * `sources` are deleted, custom sources not in defaults are inserted, and
+   * each row's metadata jsonb is set to the detail captured in the wizard.
    */
-  sources?: string[]
+  sources?: SourceDetail[]
 }): Promise<void> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -420,20 +514,31 @@ export async function createStudio({
 
 /**
  * Reconciles `studio_field_options.source` rows for a studio against the
- * caller's desired list. Deletes seeded/existing sources not in the list and
- * inserts new ones. Comparison is case-insensitive; preserves sort_order on
+ * caller's desired list. Deletes sources not in the list, updates metadata on
+ * matched existing rows (so renames/value edits flow through), and inserts new
+ * ones. Comparison is case-insensitive on `name`; preserves `sort_order` on
  * existing rows; appends new ones at the end.
  *
- * Shared between createStudio (fresh studio, seeded defaults present) and
- * setStudioSources (existing studio, may have lead rows referencing options
- * — caller's responsibility to confirm safe-to-delete).
+ * Shared between createStudio (fresh studio, seeded defaults present),
+ * setStudioSources (existing studio — caller's responsibility to confirm
+ * safe-to-delete), and completeStudioOnboarding (brand-new studio).
  */
 async function reconcileStudioSources(
   serviceClient: SupabaseClient,
   studioId: string,
-  desiredSources: string[],
+  desiredSources: SourceDetail[],
 ): Promise<void> {
-  const chosen = Array.from(new Set(desiredSources.map(v => v.trim()).filter(Boolean)))
+  // Normalize: trim names, strip blanks, dedupe case-insensitively (keep first).
+  const normalized: SourceDetail[] = []
+  const seen = new Set<string>()
+  for (const s of desiredSources) {
+    const reconciled = reconcileSourceDetail(s)
+    const key = reconciled.name.toLowerCase()
+    if (!reconciled.name || seen.has(key)) continue
+    seen.add(key)
+    normalized.push(reconciled)
+  }
+
   const { data: existing } = await serviceClient
     .from('studio_field_options')
     .select('id, value, sort_order')
@@ -441,8 +546,7 @@ async function reconcileStudioSources(
     .eq('field', 'source')
 
   const existingRows = (existing ?? []) as Array<{ id: string; value: string; sort_order: number | null }>
-  const chosenLower = new Set(chosen.map(v => v.toLowerCase()))
-  const existingLower = new Set(existingRows.map(r => r.value.toLowerCase()))
+  const chosenLower = new Set(normalized.map(s => s.name.toLowerCase()))
 
   // Delete options the caller dropped.
   const toDelete = existingRows.filter(r => !chosenLower.has(r.value.toLowerCase())).map(r => r.id)
@@ -454,15 +558,29 @@ async function reconcileStudioSources(
     if (error) throw new Error(error.message)
   }
 
+  // Update metadata on already-existing sources so detail edits land.
+  const existingByLower = new Map(existingRows.map(r => [r.value.toLowerCase(), r]))
+  for (const s of normalized) {
+    const match = existingByLower.get(s.name.toLowerCase())
+    if (!match) continue
+    const { error } = await serviceClient
+      .from('studio_field_options')
+      .update({ metadata: metadataFromDetail(s) })
+      .eq('id', match.id)
+    if (error) throw new Error(error.message)
+  }
+
   // Insert sources not already present (case-insensitive match).
+  const existingLower = new Set(existingRows.map(r => r.value.toLowerCase()))
   const baseSortOrder = existingRows.reduce((max, r) => Math.max(max, r.sort_order ?? 0), 0)
-  const toInsert = chosen
-    .filter(v => !existingLower.has(v.toLowerCase()))
-    .map((value, i) => ({
+  const toInsert = normalized
+    .filter(s => !existingLower.has(s.name.toLowerCase()))
+    .map((s, i) => ({
       studio_id: studioId,
       field: 'source',
-      value,
+      value: s.name,
       sort_order: baseSortOrder + 1 + i,
+      metadata: metadataFromDetail(s),
     }))
   if (toInsert.length > 0) {
     const { error } = await serviceClient
@@ -470,6 +588,14 @@ async function reconcileStudioSources(
       .insert(toInsert)
     if (error) throw new Error(error.message)
   }
+}
+
+// Shape stored in studio_field_options.metadata for source rows. `kind: 'none'`
+// is the explicit "no detail field" marker (Walk-In); everything else carries
+// the user-typed value alongside the kind that was rendered for it.
+function metadataFromDetail(s: SourceDetail): Record<string, unknown> {
+  if (s.kind === 'none') return { kind: 'none' }
+  return { kind: s.kind, value: s.value }
 }
 
 export async function updateStudio(id: string, updates: {
@@ -904,21 +1030,33 @@ export async function updateStudioFieldOptionOrder(updates: Array<{ id: string; 
  * by `field`.
  */
 /**
- * Read a studio's current lead-source list (`studio_field_options.source`),
- * sorted as the user sees them in the leads page. Goes through
- * `getAuthorizedClient` so super_admin sees the rows even on studios where
- * they have no `studio_users` row.
+ * Read a studio's current lead-source list (`studio_field_options.source`)
+ * with per-source detail (metadata jsonb), sorted as the user sees them in
+ * the leads page. Goes through `getAuthorizedClient` so super_admin sees the
+ * rows even on studios where they have no `studio_users` row.
+ *
+ * Rows with NULL metadata (legacy rows pre-migration 046) get their kind
+ * re-derived from the source name and value defaulted to ''.
  */
-export async function fetchStudioSources(studioId: string): Promise<string[]> {
+export async function fetchStudioSources(studioId: string): Promise<SourceDetail[]> {
   const { client } = await getAuthorizedClient()
   const { data, error } = await client
     .from('studio_field_options')
-    .select('value, sort_order')
+    .select('value, sort_order, metadata')
     .eq('studio_id', studioId)
     .eq('field', 'source')
     .order('sort_order', { ascending: true, nullsFirst: false })
   if (error) throw new Error(error.message)
-  return (data ?? []).map(r => r.value as string)
+  return (data ?? []).map(r => {
+    const meta = (r.metadata ?? null) as { value?: string } | null
+    // Kind is always re-derived from the source name via the registry. The
+    // persisted `kind` in metadata is informational — the registry is the
+    // single source of truth for which input renders.
+    return reconcileSourceDetail({
+      name: r.value as string,
+      value: meta?.value ?? '',
+    })
+  })
 }
 
 /**
@@ -929,7 +1067,7 @@ export async function fetchStudioSources(studioId: string): Promise<string[]> {
  *
  * Auth: super_admin (global) or studio_owner of the target studio.
  */
-export async function setStudioSources(studioId: string, sources: string[]): Promise<void> {
+export async function setStudioSources(studioId: string, sources: SourceDetail[]): Promise<void> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Unauthorized')
@@ -1151,29 +1289,41 @@ export async function logLeadActivity(
   const { client } = await getAuthorizedClient()
   try {
     await client.from('activity_logs').insert({
-      studio_id: studioId,
-      lead_name: leadName,
+      studio_id:   studioId,
+      lead_name:   leadName,
       actor_email: actorEmail,
-      event_type: eventType,
+      event_type:  eventType,
     })
   } catch { /* non-critical */ }
 }
 
 export async function getActivityLogs(studioId: string): Promise<{
   id: string
+  lead_id: string | null
   lead_name: string | null
   actor_email: string | null
   event_type: string | null
+  changes: { field: string; old_value: unknown; new_value: unknown }[] | null
+  source: string | null
   created_at: string
 }[]> {
   const { client } = await getAuthorizedClient()
   const { data } = await client
     .from('activity_logs')
-    .select('id, lead_name, actor_email, event_type, created_at')
+    .select('id, lead_id, lead_name, actor_email, event_type, changes, source, created_at')
     .eq('studio_id', studioId)
     .order('created_at', { ascending: false })
-    .limit(200)
-  return (data ?? []) as { id: string; lead_name: string | null; actor_email: string | null; event_type: string | null; created_at: string }[]
+    .limit(500)
+  return (data ?? []) as {
+    id: string
+    lead_id: string | null
+    lead_name: string | null
+    actor_email: string | null
+    event_type: string | null
+    changes: { field: string; old_value: unknown; new_value: unknown }[] | null
+    source: string | null
+    created_at: string
+  }[]
 }
 
 export async function deleteActivityLog(id: string): Promise<void> {
@@ -2074,7 +2224,7 @@ export async function rescheduleAppointment(
   // Fetch full appointment so we can preserve all fields in the GHL PUT
   const { data: appt } = await supabase
     .from('appointments')
-    .select('calendar_id, studio_id, title, contact_id, status, assigned_user_id, notes, address')
+    .select('calendar_id, studio_id, title, contact_id, contact_name, status, assigned_user_id, notes, address')
     .eq('id', appointmentId)
     .single()
 
@@ -2146,6 +2296,15 @@ export async function rescheduleAppointment(
     new_start_time: newStartUtc,
   })
 
+  supabase.from('activity_logs').insert({
+    studio_id:   appt.studio_id,
+    lead_name:   (appt as Record<string, unknown>).contact_name as string ?? null,
+    actor_email: user.email ?? null,
+    event_type:  'appointment_rescheduled',
+    source:      'app',
+    changes:     [{ field: 'start_time', old_value: null, new_value: newStartTime }],
+  }).then(() => {}, () => {})
+
   return { newId: ghlNewId }
 }
 
@@ -2157,10 +2316,10 @@ export async function deleteAppointment(appointmentId: string): Promise<{ error?
 
   const supabase = createServiceClient()
 
-  // Fetch studio_id and contact_id before deleting
+  // Fetch studio_id, contact_id, and contact_name before deleting
   const { data: appt } = await supabase
     .from('appointments')
-    .select('studio_id, contact_id')
+    .select('studio_id, contact_id, contact_name')
     .eq('id', appointmentId)
     .single()
 
@@ -2201,6 +2360,13 @@ export async function deleteAppointment(appointmentId: string): Promise<{ error?
       contact_id: appt.contact_id ?? null,
       verb: 'Deleted',
     })
+    supabase.from('activity_logs').insert({
+      studio_id:   appt.studio_id,
+      lead_name:   (appt as Record<string, unknown>).contact_name as string ?? null,
+      actor_email: user.email ?? null,
+      event_type:  'appointment_deleted',
+      source:      'app',
+    }).then(() => {}, () => {})
   }
 
   return {}
@@ -2232,7 +2398,7 @@ export async function updateAppointmentDetails(
 
   const { data: appt } = await supabase
     .from('appointments')
-    .select('calendar_id, studio_id, contact_id')
+    .select('calendar_id, studio_id, contact_id, contact_name')
     .eq('id', appointmentId)
     .single()
 
@@ -2269,6 +2435,19 @@ export async function updateAppointmentDetails(
     verb: 'Updated',
   })
 
+  const detailChanges = [
+    ...(updates.title !== undefined ? [{ field: 'title', old_value: null, new_value: updates.title ?? null }] : []),
+    ...(updates.notes !== undefined ? [{ field: 'notes', old_value: null, new_value: updates.notes ?? null }] : []),
+  ]
+  supabase.from('activity_logs').insert({
+    studio_id:   appt.studio_id,
+    lead_name:   (appt as Record<string, unknown>).contact_name as string ?? null,
+    actor_email: user.email ?? null,
+    event_type:  'appointment_updated',
+    source:      'app',
+    changes:     detailChanges.length > 0 ? detailChanges : null,
+  }).then(() => {}, () => {})
+
   return {}
 }
 
@@ -2278,25 +2457,28 @@ export async function saveCalendarSettings(
   calStartHour: number,
   calEndHour: number,
 ): Promise<{ error?: string }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const authClient = await createClient()
+  const { data: { user } } = await authClient.auth.getUser()
   if (!user) return { error: 'Unauthorized' }
 
   // Role check: must be studio_owner or super_admin for this studio
-  const { data: membership } = await supabase
+  const { data: membership } = await authClient
     .from('studio_users')
     .select('role')
     .eq('user_id', user.id)
     .eq('studio_id', studioId)
     .single()
 
-  const { data: allMemberships } = await supabase.from('studio_users').select('role').eq('user_id', user.id)
+  const { data: allMemberships } = await authClient.from('studio_users').select('role').eq('user_id', user.id)
   const isSuperAdmin = allMemberships?.some(m => m.role === 'super_admin') ?? false
   const role = membership?.role ?? null
 
   if (!isSuperAdmin && role !== 'studio_owner') {
     return { error: 'You do not have permission to edit calendar settings.' }
   }
+
+  // Use service client so super_admins not in studio_users can still write
+  const supabase = createServiceClient()
 
   // Validate
   if (!Number.isInteger(config.appointment_duration_minutes) || config.appointment_duration_minutes < 1) {
@@ -2357,7 +2539,8 @@ export async function searchLeadsByName(
 /** Creates a new appointment in GHL and upserts it into Supabase. */
 export async function createAppointment(opts: {
   studioId: string
-  contactId: string
+  contactId: string   // GHL contact ID — may be empty string if lead not yet in GHL
+  leadId?: string     // ALMS lead UUID — used to auto-create GHL contact if contactId is missing
   contactName: string
   startTime: string   // naive local "YYYY-MM-DDThh:mm:ss"
   endTime: string
@@ -2376,15 +2559,41 @@ export async function createAppointment(opts: {
     .eq('id', opts.studioId)
     .single()
 
-  if (!studio?.ghl_account_id) return { error: 'Studio not found' }
-  if (!studio?.ghl_calendar_id) return { error: 'No GHL calendar configured for this studio. Set ghl_calendar_id in Settings.' }
+  if (!studio) return { error: 'Studio not found' }
+  if (!studio.ghl_account_id) return { error: 'This studio is not connected to GHL. Set the GHL Location ID in Settings → Business Profile.' }
+  if (!studio.ghl_calendar_id) return { error: 'No GHL calendar configured for this studio. Set the GHL Calendar ID in Settings → Business Profile.' }
+
+  // Auto-create GHL contact if the lead has not been synced yet
+  let resolvedContactId = opts.contactId
+  if (!resolvedContactId && opts.leadId) {
+    const { data: lead } = await supabase
+      .from('leads')
+      .select('name, phone, email')
+      .eq('id', opts.leadId)
+      .single()
+    if (lead) {
+      const newGhlId = await createGHLContact(
+        studio.ghl_account_id,
+        { name: lead.name, phone: lead.phone, email: lead.email },
+        studio.ghl_api_key ?? undefined,
+      )
+      if (newGhlId) {
+        resolvedContactId = newGhlId
+        await supabase.from('leads').update({ ghl_contact_id: newGhlId }).eq('id', opts.leadId)
+      }
+    }
+  }
+
+  if (!resolvedContactId) {
+    return { error: 'Could not resolve GHL contact for this lead. Check that the studio has a valid GHL API key.' }
+  }
 
   let ghlId: string
   try {
     ghlId = await createGHLAppointment({
       calendarId: studio.ghl_calendar_id,
       locationId: studio.ghl_account_id,
-      contactId:  opts.contactId,
+      contactId:  resolvedContactId,
       startTime:  opts.startTime,
       endTime:    opts.endTime,
       title:      opts.title ?? 'Dance Appointment',
@@ -2405,7 +2614,7 @@ export async function createAppointment(opts: {
     end_time:     opts.endTime,
     status:       'confirmed',
     calendar_id:  studio.ghl_calendar_id,
-    contact_id:   opts.contactId,
+    contact_id:   resolvedContactId,
     contact_name: opts.contactName,
     notes:        opts.notes ?? null,
     created_at:   now,
@@ -2423,9 +2632,17 @@ export async function createAppointment(opts: {
   await supabase.from('appointment_events').insert({
     studio_id:      opts.studioId,
     appointment_id: ghlId,
-    contact_id:     opts.contactId,
+    contact_id:     resolvedContactId,
     verb:           'Created',
   })
+
+  supabase.from('activity_logs').insert({
+    studio_id:   opts.studioId,
+    lead_name:   opts.contactName,
+    actor_email: user.email ?? null,
+    event_type:  'appointment_created',
+    source:      'app',
+  }).then(() => {}, () => {})
 
   return { appointment: appt as import('@/lib/types').Appointment }
 }
@@ -2480,7 +2697,7 @@ export async function updateAppointmentStatus(
 
   const { data: appt } = await supabase
     .from('appointments')
-    .select('calendar_id, studio_id, contact_id')
+    .select('calendar_id, studio_id, contact_id, contact_name')
     .eq('id', appointmentId)
     .single()
 
@@ -2520,6 +2737,15 @@ export async function updateAppointmentStatus(
     contact_id:     appt.contact_id ?? null,
     verb:           verbMap[status] ?? 'Updated',
   })
+
+  supabase.from('activity_logs').insert({
+    studio_id:   appt.studio_id,
+    lead_name:   (appt as Record<string, unknown>).contact_name as string ?? null,
+    actor_email: user.email ?? null,
+    event_type:  'appointment_updated',
+    source:      'app',
+    changes:     [{ field: 'status', old_value: null, new_value: status }],
+  }).then(() => {}, () => {})
 
   return {}
 }
@@ -3289,48 +3515,10 @@ export async function completeStudioOnboarding(
     const { error: seedError } = await serviceClient.rpc('seed_studio_field_options', { p_studio_id: studioId })
     if (seedError) throw new Error(seedError.message)
 
-    // Reconcile lead sources to the owner's chosen list. Safe to delete seeded
-    // sources the owner removed because a brand-new studio has no leads yet.
-    const chosen = Array.from(
-      new Set(s.sources.map(v => v.trim()).filter(Boolean)),
-    )
-    const { data: seededSources } = await serviceClient
-      .from('studio_field_options')
-      .select('id, value')
-      .eq('studio_id', studioId)
-      .eq('field', 'source')
-
-    const seededValues = (seededSources ?? []).map(o => o.value)
-    const chosenLower = new Set(chosen.map(v => v.toLowerCase()))
-
-    // Delete seeded sources the owner removed.
-    const toDelete = (seededSources ?? [])
-      .filter(o => !chosenLower.has(o.value.toLowerCase()))
-      .map(o => o.id)
-    if (toDelete.length > 0) {
-      const { error: delError } = await serviceClient
-        .from('studio_field_options')
-        .delete()
-        .in('id', toDelete)
-      if (delError) throw new Error(delError.message)
-    }
-
-    // Insert any custom sources not already seeded (case-insensitive match).
-    const seededLower = new Set(seededValues.map(v => v.toLowerCase()))
-    const toInsert = chosen
-      .filter(v => !seededLower.has(v.toLowerCase()))
-      .map((value, i) => ({
-        studio_id: studioId,
-        field: 'source',
-        value,
-        sort_order: seededValues.length + i,
-      }))
-    if (toInsert.length > 0) {
-      const { error: insError } = await serviceClient
-        .from('studio_field_options')
-        .insert(toInsert)
-      if (insError) throw new Error(insError.message)
-    }
+    // Reconcile lead sources + per-source detail to the owner's chosen list.
+    // Safe to delete seeded sources the owner removed — brand-new studio has
+    // no leads yet — and writes metadata jsonb for each retained/new source.
+    await reconcileStudioSources(serviceClient, studioId, s.sources)
 
     createdIds.push(studioId)
   }

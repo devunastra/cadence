@@ -47,6 +47,16 @@ function studioLocalDay(iso: string, tz: string): string {
 }
 
 /**
+ * Convert a Notion date property value (any string) into the studio-local-midnight UTC ISO the app
+ * stores. Mirrors the importer's studioMidnightIso: .slice(0,10) drops any time component, then
+ * midnight in `tz`. Returns null for an empty value.
+ */
+function studioMidnightIso(rawStart: string | boolean | null, tz: string): string | null {
+  if (!rawStart) return null
+  return studioMidnightFromStr(String(rawStart).slice(0, 10), tz).toISOString()
+}
+
+/**
  * Notion date object for a date field, adjusted to the studio's timezone.
  * - last_contacted → date-only (studio-local calendar day)
  * - first_lesson   → datetime with time_zone so Notion shows the local wall-clock time
@@ -285,6 +295,19 @@ function normMatchEmail(raw: unknown): string | null {
   const s = stripNotionUrl(raw).toLowerCase()
   return s.split(/\s+/).find((t) => t.includes('@')) ?? null
 }
+// E.164 normalization for a NEW lead's stored phone (mirrors the importer's normalizePhone +
+// the app's normalizePhone): "+1XXXXXXXXXX" for a US 10/11-digit number, else null.
+function normalizePhone(raw: unknown): string | null {
+  const d = stripNotionUrl(raw).replace(/\D/g, '')
+  if (!d) return null
+  const x = d.length === 11 && d[0] === '1' ? d.slice(1) : d
+  return x.length === 10 ? `+1${x}` : null
+}
+// Stored email for a NEW lead (mirrors the importer's normalizeEmail): lowercase, first @-bearing token.
+function normalizeEmail(raw: unknown): string | null {
+  const s = stripNotionUrl(raw).toLowerCase()
+  return s.split(/\s+/).find((t) => t.includes('@')) ?? null
+}
 function readNotionContact(props: any, name: string): string | null {
   const p = props?.[name]
   if (!p) return null
@@ -387,20 +410,177 @@ export async function linkUnlinkedLeads(
   return { linked, ambiguous, conflicts }
 }
 
+// ───────────────── Create-from-unmatched (INSERT-ONLY, per-studio gated) ─────────────────
+// Mirrors scripts/import-notion-leads-schaumburg.mjs row building exactly: same enum props
+// (level reads the EMPTY-NAME '' select), same checkboxes, same date handling, created_at from
+// the page's created_time, created_by_email = 'import'; ghl_contact_id/tick intentionally unset.
+
+// Apostrophe-normalize + NFC + collapse whitespace + lowercase — the importer's fuzzy key.
+const aposNorm = (s: string): string =>
+  s.replace(/’/g, "'").normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase()
+// Explicit, deliberate label-drift remap (parity with the importer). NOT a silent guess.
+const ENUM_REMAP: Record<string, Record<string, string>> = { level: { lost: 'Loss' } }
+const ENUM_PROPS: Array<[string, string]> = [
+  ['Status', 'status'], ['', 'level'], ['Action', 'action'],
+  ['Source', 'source'], ['Reason', 'reason'], ['Partnership', 'partnership'],
+]
+const CHECKBOX_PROPS: Array<[string, string]> = [
+  ['Showed', 'showed'], ['Bought', 'bought'], ['OLD', 'old'], ['Texted', 'texted'],
+]
+
+// Build an enum resolver from the pull's labelToId map: exact (case-sensitive) → remap → fuzzy.
+// Unresolved → null (FK-safe). Same precedence as the importer's buildResolver.
+function buildEnumResolver(labelToId: Map<string, string>): (field: string, label: string) => string | null {
+  const fuzzy = new Map<string, string>()
+  for (const [key, id] of labelToId) {
+    const i = key.indexOf(':')
+    if (i < 0) continue
+    fuzzy.set(`${key.slice(0, i)}:${aposNorm(key.slice(i + 1))}`, id)
+  }
+  return (field, label) => {
+    if (label == null) return null
+    const raw = String(label)
+    const e = labelToId.get(`${field}:${raw}`)
+    if (e) return e
+    const remapped = ENUM_REMAP[field]?.[aposNorm(raw)]
+    if (remapped) {
+      const r = labelToId.get(`${field}:${remapped}`)
+      if (r) return r
+    }
+    return fuzzy.get(`${field}:${aposNorm(raw)}`) ?? null
+  }
+}
+
+/**
+ * INSERT-ONLY: create a Supabase lead for any Notion page that has no matching lead.
+ * Per-studio gated by the caller (studios.notion_create_unmatched). Operates ONLY on the pages
+ * the pull already fetched — NEVER calls Notion, NEVER updates/deletes an existing lead.
+ *
+ * Skips, in order, per page:
+ *  - archived/trashed pages
+ *  - pages already linked to a lead (linkedPageIds)
+ *  - empty pages (no name AND no phone AND no email)
+ *  - DEDUP GUARD: pages whose normalized phone OR email already belongs to ANY existing lead in
+ *    this studio (catches unlinked dups the linker won't touch — shared/ambiguous contacts).
+ *
+ * 'log' mode = dry-run: counts what it WOULD create (under `created`) and logs it, inserts nothing.
+ * 'live' mode = one row at a time, each guarded by try/catch + .select('id'); a unique-index hit on
+ * notion_page_id is caught/logged, never thrown. All writes logged to notion_sync_log.
+ */
+export async function createUnmatchedLeads(
+  client: SupabaseClient, studioId: string, pages: any[], linkedPageIds: Set<string>,
+  tz: string, labelToId: Map<string, string>,
+): Promise<{ created: number; skipped_dup: number; skipped_empty: number; skipped_archived: number; errors: number }> {
+  const result = { created: 0, skipped_dup: 0, skipped_empty: 0, skipped_archived: 0, errors: 0 }
+  const mode = notionSyncMode()
+  if (mode === 'off') return result
+
+  const resolve = buildEnumResolver(labelToId)
+
+  // DEDUP GUARD: load ALL of this studio's leads' normalized phone + email ONCE (page through like
+  // linkUnlinkedLeads). A page whose contact already exists (linked or not) is never duplicated.
+  const existingPhones = new Set<string>()
+  const existingEmails = new Set<string>()
+  let from = 0
+  for (;;) {
+    const { data } = await client.from('leads').select('phone,email')
+      .eq('studio_id', studioId).range(from, from + 999)
+    for (const l of (data ?? []) as Array<{ phone: string | null; email: string | null }>) {
+      const p = normMatchPhone(l.phone); if (p) existingPhones.add(p)
+      const e = normMatchEmail(l.email); if (e) existingEmails.add(e)
+    }
+    if (!data || data.length < 1000) break
+    from += 1000
+  }
+
+  for (const page of pages) {
+    if (page.archived === true || page.in_trash === true) { result.skipped_archived++; continue }
+    if (linkedPageIds.has(page.id)) continue // already owned by a lead → never duplicate
+
+    const props = page.properties ?? {}
+    const name = (readNotionContact(props, 'Name') ?? '').trim() || null
+    const phone = normalizePhone(readNotionContact(props, 'Phone'))
+    const email = normalizeEmail(readNotionContact(props, 'Email'))
+    if (!name && !phone && !email) { result.skipped_empty++; continue }
+
+    // DEDUP GUARD: normalized phone OR email already belongs to an existing lead → skip.
+    const mPhone = normMatchPhone(phone), mEmail = normMatchEmail(email)
+    if ((mPhone && existingPhones.has(mPhone)) || (mEmail && existingEmails.has(mEmail))) {
+      result.skipped_dup++
+      await logSync(client, { studio_id: studioId, lead_id: null, notion_page_id: page.id, action: 'skip', detail: { op: 'create', reason: 'dup_contact_exists' } }, 'notion_to_app')
+      continue
+    }
+
+    // Build the row exactly like the importer (nulls stripped so DB defaults apply).
+    const row: Record<string, unknown> = {
+      studio_id: studioId,
+      name, phone, email,
+      comments: readNotionProp(props, 'Comments', 'text'),
+      available: readNotionProp(props, 'Available', 'text'),
+      notion_page_id: page.id,
+      notion_last_edited_time: page.last_edited_time ?? null,
+      notion_last_synced_at: new Date().toISOString(),
+      notion_archived_at: null,
+      created_by_email: 'import',
+      created_at: page.created_time ?? null, // preserve Notion chronology (else collapses to now())
+      // ghl_contact_id / tick: intentionally NOT set — let the DB defaults apply.
+    }
+    for (const [propName, field] of ENUM_PROPS) {
+      const label = readNotionProp(props, propName, 'select')
+      if (label == null || label === '') continue
+      const id = resolve(field, String(label))
+      if (id) row[field] = id // unresolved → leave null (FK-safe)
+    }
+    for (const [propName, field] of CHECKBOX_PROPS) row[field] = Boolean(readNotionProp(props, propName, 'checkbox'))
+    row.last_contacted = studioMidnightIso(readNotionProp(props, 'Last Contacted', 'date'), tz)
+    row.first_lesson = studioMidnightIso(readNotionProp(props, 'First Lesson', 'date'), tz)
+    const insertRow = Object.fromEntries(Object.entries(row).filter(([, v]) => v !== null))
+
+    if (mode === 'log') {
+      result.created++ // count would-create for the dry-run report
+      await logSync(client, { studio_id: studioId, lead_id: null, notion_page_id: page.id, action: 'skip', detail: { mode: 'log', op: 'create', name } }, 'notion_to_app')
+      continue
+    }
+
+    try {
+      const { data: ins, error } = await client.from('leads').insert(insertRow).select('id')
+      if (error) {
+        result.errors++
+        await logSync(client, { studio_id: studioId, lead_id: null, notion_page_id: page.id, action: 'error', detail: { op: 'create', message: error.message } }, 'notion_to_app')
+        continue
+      }
+      result.created++
+      // Pre-register this contact so a duplicate Notion page later in the same run is skipped.
+      if (mPhone) existingPhones.add(mPhone)
+      if (mEmail) existingEmails.add(mEmail)
+      await logSync(client, { studio_id: studioId, lead_id: (ins?.[0] as { id?: string } | undefined)?.id ?? null, notion_page_id: page.id, action: 'create', detail: { op: 'create', name } }, 'notion_to_app')
+    } catch (e) {
+      result.errors++
+      await logSync(client, { studio_id: studioId, lead_id: null, notion_page_id: page.id, action: 'error', detail: { op: 'create', message: String(e) } }, 'notion_to_app')
+    }
+  }
+  return result
+}
+
 /**
  * Pull Notion edits into Supabase for one studio's linked leads.
  * Echo suppression = value comparison: only writes a field when Notion ≠ Supabase, so a prior
  * app→Notion push that already matched never bounces back. Writes go DIRECT to the leads table
  * (bypassing updateLead) so they never re-trigger the app→Notion push. Non-fatal; logs everything.
  */
-export async function syncNotionToSupabase(client: SupabaseClient, studioId: string): Promise<{ checked: number; changed: number; skipped: number; unmatched_selects: string[]; linked: number; link_ambiguous: number; link_conflicts: number }> {
+export async function syncNotionToSupabase(client: SupabaseClient, studioId: string): Promise<{ checked: number; changed: number; skipped: number; unmatched_selects: string[]; linked: number; link_ambiguous: number; link_conflicts: number; created: number; create_skipped_dup: number; create_skipped_empty: number; create_skipped_archived: number; create_errors: number }> {
   const mode = notionSyncMode()
-  const empty = { checked: 0, changed: 0, skipped: 0, unmatched_selects: [] as string[], linked: 0, link_ambiguous: 0, link_conflicts: 0 }
+  const empty = {
+    checked: 0, changed: 0, skipped: 0, unmatched_selects: [] as string[],
+    linked: 0, link_ambiguous: 0, link_conflicts: 0,
+    created: 0, create_skipped_dup: 0, create_skipped_empty: 0, create_skipped_archived: 0, create_errors: 0,
+  }
   if (mode === 'off') return empty
 
-  const { data: studio } = await client.from('studios').select('notion_leads_db_id,timezone').eq('id', studioId).single()
+  const { data: studio } = await client.from('studios').select('notion_leads_db_id,timezone,notion_create_unmatched').eq('id', studioId).single()
   const dbId = (studio as { notion_leads_db_id: string | null; timezone?: string } | null)?.notion_leads_db_id
   const tz = (studio as { timezone?: string } | null)?.timezone ?? 'UTC'
+  const createUnmatched = (studio as { notion_create_unmatched?: boolean } | null)?.notion_create_unmatched === true
   if (!dbId) return empty
 
   const { data: opts } = await client.from('studio_field_options').select('id,field,value').eq('studio_id', studioId)
@@ -434,6 +614,13 @@ export async function syncNotionToSupabase(client: SupabaseClient, studioId: str
       if (l) leadByPage.set(pageId, l)
     }
   }
+
+  // Create-from-unmatched (INSERT-ONLY) — per-studio gated, AFTER linking so links take precedence.
+  // leadByPage now contains every page that owns a lead (existing + freshly-linked); pass its keys
+  // so an already-linked page is never duplicated.
+  const createResult = createUnmatched
+    ? await createUnmatchedLeads(client, studioId, pages, new Set(leadByPage.keys()), tz, labelToId)
+    : { created: 0, skipped_dup: 0, skipped_empty: 0, skipped_archived: 0, errors: 0 }
 
   const unmatched = new Set<string>()
   const logRows: Array<Record<string, unknown>> = []
@@ -469,5 +656,8 @@ export async function syncNotionToSupabase(client: SupabaseClient, studioId: str
   return {
     checked, changed, skipped, unmatched_selects: [...unmatched],
     linked: linkResult.linked.length, link_ambiguous: linkResult.ambiguous, link_conflicts: linkResult.conflicts,
+    created: createResult.created, create_skipped_dup: createResult.skipped_dup,
+    create_skipped_empty: createResult.skipped_empty, create_skipped_archived: createResult.skipped_archived,
+    create_errors: createResult.errors,
   }
 }

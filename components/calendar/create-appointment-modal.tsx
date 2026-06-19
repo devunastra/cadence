@@ -132,11 +132,6 @@ export function CreateAppointmentModal({
             showError("Please select a date.");
             return;
         }
-        const unsynced = selectedContacts.find((c) => !c.ghl_contact_id);
-        if (unsynced) {
-            showError(`${unsynced.name} has no GHL contact ID — sync them to GHL first.`);
-            return;
-        }
         if (!timeVal) {
             showError("Please select a time slot.");
             return;
@@ -154,7 +149,8 @@ export function CreateAppointmentModal({
             selectedContacts.map((c) =>
                 createAppointment({
                     studioId,
-                    contactId: c.ghl_contact_id!,
+                    contactId: c.ghl_contact_id ?? '',
+                    leadId: c.id,
                     contactName: c.name,
                     startTime: startISO,
                     endTime: endISO,

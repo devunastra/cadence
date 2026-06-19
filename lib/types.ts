@@ -51,7 +51,7 @@ export interface OnboardingStudioInput {
   retell_inbound_agent_id: string
   retell_api_key: string
   retell_phone_number: string
-  sources: string[]
+  sources: import('./source-kinds').SourceDetail[]
   timezone: string
   calendar_start_hour: number
   calendar_end_hour: number
