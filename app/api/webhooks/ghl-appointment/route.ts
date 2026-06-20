@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { syncLeadUpdateToNotion } from '@/lib/notion'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Payload = Record<string, any>
@@ -119,6 +120,11 @@ export async function POST(req: Request) {
           changes:     [{ field: 'start_time', old_value: null, new_value: newStartTime }],
         }),
       ])
+      try {
+        await syncAppointmentFirstLesson(supabase, { studioId: studio.id, contactId })
+      } catch (err) {
+        console.error('[ghl-appointment] first_lesson sync (reschedule) failed', err)
+      }
     }
     return NextResponse.json({ ok: true })
   }
@@ -198,6 +204,23 @@ export async function POST(req: Request) {
     }
   }
 
+  // first_lesson → Notion sync — runs on Created and on any Update that may have
+  // changed the time (AppointmentUpdate covers reschedules sent without the
+  // explicit AppointmentReschedule type). Skipped for status-only updates.
+  if (
+    row.contact_id &&
+    (verb === 'Created' || payload.type === 'AppointmentUpdate')
+  ) {
+    try {
+      await syncAppointmentFirstLesson(supabase, {
+        studioId: studio.id,
+        contactId: row.contact_id,
+      })
+    } catch (err) {
+      console.error('[ghl-appointment] first_lesson sync failed', err)
+    }
+  }
+
   // Middle-man linking: link the appointment activity message closest to now to this appointment.
   // We look for a chip within ±5 minutes of the current time that has no appointment_id yet.
   if (row.contact_id) {
@@ -249,6 +272,73 @@ export async function POST(req: Request) {
 // GHL health-check
 export async function GET() {
   return NextResponse.json({ ok: true })
+}
+
+// ---------------------------------------------------------------------------
+// first_lesson sync: appointment → lead.first_lesson → Notion.
+//
+// Gated by studios.notion_sync_appointments. Recomputes lead.first_lesson as
+// the earliest non-deleted appointment for the contact, then pushes via the
+// existing syncLeadUpdateToNotion (which handles studio timezone conversion).
+// Idempotent — safe on GHL retries and out-of-order delivery. Spec:
+// docs/specs/appointment-first-lesson-notion-sync-spec.md
+// ---------------------------------------------------------------------------
+async function syncAppointmentFirstLesson(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  args: { studioId: string; contactId: string | null },
+): Promise<void> {
+  const { studioId, contactId } = args
+  if (!contactId) return
+
+  const { data: studioRow } = await supabase
+    .from('studios')
+    .select('notion_sync_appointments')
+    .eq('id', studioId)
+    .single()
+  if (!studioRow?.notion_sync_appointments) return
+
+  const { data: lead } = await supabase
+    .from('leads')
+    .select('id, first_lesson, notion_page_id')
+    .eq('studio_id', studioId)
+    .eq('ghl_contact_id', contactId)
+    .limit(1)
+    .maybeSingle()
+  if (!lead) return
+
+  const { data: earliest } = await supabase
+    .from('appointments')
+    .select('start_time')
+    .eq('studio_id', studioId)
+    .eq('contact_id', contactId)
+    .is('deleted_at', null)
+    .not('start_time', 'is', null)
+    .order('start_time', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  // leads.first_lesson is stored as ISO text (see rules/architecture.md "Date
+  // columns stored as text"). Normalize via toISOString so the value Notion
+  // sees is canonical and the recompute equality check is reliable.
+  const newFirstLesson = earliest?.start_time
+    ? new Date(earliest.start_time).toISOString()
+    : null
+
+  if (lead.first_lesson === newFirstLesson) return
+
+  const { error: updateErr } = await supabase
+    .from('leads')
+    .update({ first_lesson: newFirstLesson })
+    .eq('id', lead.id)
+  if (updateErr) throw updateErr
+
+  await syncLeadUpdateToNotion(supabase, {
+    leadId: lead.id,
+    studioId,
+    notionPageId: lead.notion_page_id,
+    fields: { first_lesson: newFirstLesson },
+  })
 }
 
 // ---------------------------------------------------------------------------
