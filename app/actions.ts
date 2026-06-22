@@ -748,6 +748,64 @@ export async function setVoiceAgentEnabled(studioId: string, enabled: boolean): 
   revalidatePath('/leads')
 }
 
+export async function setActiveOutboundAgent(studioId: string, agentId: string | null): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  // Role gate: owner/super_admin of this studio, else global super_admin (mirrors setVoiceAgentEnabled).
+  const { data: studioMembership } = await supabase
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('studio_id', studioId)
+  const isOwnerOrAbove = studioMembership?.some(m => m.role === 'studio_owner' || m.role === 'super_admin') ?? false
+
+  if (!isOwnerOrAbove) {
+    const { data: anyMembership } = await supabase
+      .from('studio_users')
+      .select('role')
+      .eq('user_id', user.id)
+    const isSuper = anyMembership?.some(m => m.role === 'super_admin') ?? false
+    if (!isSuper) throw new Error('Forbidden')
+  }
+
+  const serviceClient = createServiceClient()
+
+  // '' -> null (reset to the studio default, i.e. retell_agent_id).
+  const nextAgentId = agentId && agentId.trim() ? agentId.trim() : null
+
+  // Never trust the client: a non-null selection must be one of THIS studio's active agents.
+  let agentLabel = 'Default'
+  if (nextAgentId) {
+    const { data: agentRow } = await serviceClient
+      .from('studio_test_agents')
+      .select('label')
+      .eq('studio_id', studioId)
+      .eq('agent_id', nextAgentId)
+      .eq('is_active', true)
+      .maybeSingle()
+    if (!agentRow) throw new Error('That agent is not available for this studio.')
+    agentLabel = agentRow.label
+  }
+
+  const { error: updateErr } = await serviceClient
+    .from('studios')
+    .update({ active_outbound_agent_id: nextAgentId })
+    .eq('id', studioId)
+  if (updateErr) throw new Error(updateErr.message)
+
+  // Activity log — non-critical, fire-and-forget (mirrors setVoiceAgentEnabled).
+  serviceClient.from('activity_logs').insert({
+    studio_id: studioId,
+    lead_name: `Outbound agent set to: ${agentLabel}`,
+    actor_email: user.email ?? null,
+    event_type: 'update',
+  }).then(() => {}, () => {})
+
+  revalidatePath('/leads')
+}
+
 export async function deleteStudio(id: string): Promise<void> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -1597,6 +1655,18 @@ export async function syncRetellCallsNow(studioId: string): Promise<{ synced: nu
   const apiKey = studio.retell_api_key
   if (!apiKey) return { synced: 0, error: 'No Retell API key set — add it in Business Profile settings' }
 
+  // Attribute calls from EVERY agent this studio can use outbound (its studio_test_agents
+  // list), not just retell_agent_id — otherwise a call placed by a newly-selected active
+  // agent would never be synced into this studio's calls.
+  const { data: studioAgents } = await supabase
+    .from('studio_test_agents')
+    .select('agent_id')
+    .eq('studio_id', studioId)
+    .eq('is_active', true)
+  const agentIds = Array.from(new Set(
+    [studio.retell_agent_id, ...(studioAgents ?? []).map(a => a.agent_id)].filter(Boolean)
+  ))
+
   // Start from the most recent call we already have (with 1-min overlap to avoid gaps)
   // Falls back to 7 days if no calls exist yet
   const { data: latest } = await supabase
@@ -1615,7 +1685,7 @@ export async function syncRetellCallsNow(studioId: string): Promise<{ synced: nu
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      filter_criteria: { agent_id: [studio.retell_agent_id], after_start_timestamp: afterTimestamp },
+      filter_criteria: { agent_id: agentIds, after_start_timestamp: afterTimestamp },
       limit: 500,
       sort_order: 'descending',
     }),

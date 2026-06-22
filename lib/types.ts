@@ -26,6 +26,7 @@ export interface Studio {
   voice_agent_enabled: boolean
   voice_agent_paused_at: string | null
   voice_agent_paused_by: string | null
+  active_outbound_agent_id: string | null
   calendar_start_hour: number
   calendar_end_hour: number
   appointment_duration_minutes: number
