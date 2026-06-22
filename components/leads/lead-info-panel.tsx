@@ -10,6 +10,7 @@ import { EnumDropdown } from './enum-dropdown'
 import { PhoneInput } from './phone-input'
 import { DatePickerPopup } from './date-picker-popup'
 import { useCurrentStudio } from '@/components/studio-context'
+import { displayTzForLeadField } from '@/lib/date-utils'
 
 export interface LeadInfoPanelProps {
   lead: Lead
@@ -208,7 +209,7 @@ export function LeadInfoPanel({
           style={{ paddingBottom: '4px' }}
         >
           <div className="text-sm" style={{ color: 'var(--color-text-body)' }}>
-            {formatDateTime(data[field], tz)}
+            {formatDateTime(data[field], displayTzForLeadField(field, tz))}
           </div>
           <ChevronDown size={14} className="opacity-0 group-hover/btn:opacity-100 transition-opacity" style={{ color: 'var(--color-text-muted)' }} />
         </button>

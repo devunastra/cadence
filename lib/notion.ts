@@ -64,7 +64,14 @@ function studioMidnightIso(rawStart: string | boolean | null, tz: string): strin
 function notionDateValue(field: string, iso: string, tz: string): { start: string; time_zone?: string } {
   if (field === 'last_contacted') return { start: studioLocalDay(iso, tz) }
   if (/T\d/.test(iso)) {
-    const { year, month, day, hour, minute } = tzCalendarParts(iso, tz)
+    // first_lesson is stored as the booking studio's wall-clock written as UTC
+    // (the n8n appointment webhook sends naive ISO strings without a tz marker;
+    // see lib/date-utils.ts displayTzForLeadField for the matching UI workaround).
+    // Read the UTC components directly so the wall-clock we send to Notion
+    // matches what the app shows. Revert both helpers together when n8n is
+    // updated to send tz-aware timestamps.
+    const sourceTz = field === 'first_lesson' ? 'UTC' : tz
+    const { year, month, day, hour, minute } = tzCalendarParts(iso, sourceTz)
     return { start: `${year}-${pad(month + 1)}-${pad(day)}T${pad(hour)}:${pad(minute)}:00.000`, time_zone: tz }
   }
   return { start: iso.slice(0, 10) }

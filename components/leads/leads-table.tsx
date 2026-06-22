@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useEffect, useCallback, useRef } from 'react'
 import { useMounted } from '@/lib/hooks'
+import { displayTzForLeadField } from '@/lib/date-utils'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, PanelRightOpen, Clock, User, CircleDot, Trophy, Zap, Phone, Calendar, GraduationCap, MessageSquare, Globe, Mail, Tag, AlarmClock, Users, CheckSquare, Copy, Check, Trash2, ChevronDown, X, type LucideIcon } from 'lucide-react'
 import { EnumDropdown } from './enum-dropdown'
@@ -775,7 +776,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
           className="cursor-pointer text-sm text-[var(--color-text-body)] hover:bg-[rgba(55,53,47,0.06)] dark:hover:bg-[rgba(255,255,255,0.06)] rounded px-1 py-0.5 block overflow-hidden whitespace-nowrap min-h-[20px] min-w-[40px]"
         >
           {value
-            ? formatDateTime(value as string | null, tz)
+            ? formatDateTime(value as string | null, displayTzForLeadField(field, tz))
             : ''}
         </span>
       )

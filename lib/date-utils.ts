@@ -173,6 +173,30 @@ export function formatDateTime(iso: string, tz: string): string {
   })
 }
 
+/**
+ * Per-field display-timezone override for lead date fields.
+ *
+ * `leads.first_lesson` is stored as the booking studio's wall-clock written as
+ * a UTC ISO — the n8n appointment workflow sends naive ISO strings
+ * (e.g. "2026-06-24T14:45:00") without a timezone marker, and Postgres
+ * defaults the missing offset to UTC. Each studio's appointments therefore
+ * encode that studio's own local time, regardless of which studio booked it.
+ *
+ * To display correctly, read the stored UTC components directly as wall-clock
+ * (timeZone: 'UTC'). Converting through `studios.timezone` would double-shift
+ * and produce the wrong hour.
+ *
+ * Other fields (`last_contacted`, `created_at`, etc.) are real UTC timestamps
+ * and continue to use the studio's timezone.
+ *
+ * Revert: if n8n is later updated to send tz-aware timestamps and the data
+ * is backfilled, delete this helper and call sites can pass `studioTz`
+ * directly to `formatDateTime`.
+ */
+export function displayTzForLeadField(field: string, studioTz: string): string {
+  return field === 'first_lesson' ? 'UTC' : studioTz
+}
+
 /** "YYYY-MM-DD" for input[type=date] */
 export function toDateInputValue(d: Date): string {
   return d.toISOString().slice(0, 10)
