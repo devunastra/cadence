@@ -5,6 +5,7 @@ import { Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from '
 import { createClient } from '@/lib/supabase/client'
 import { deleteActivityLog } from '@/app/actions'
 import { useCurrentStudio } from '@/components/studio-context'
+import { displayTzForLeadField } from '@/lib/date-utils'
 import type { Role } from '@/lib/types'
 
 interface LogEntry {
@@ -42,7 +43,7 @@ function formatValue(field: string, value: unknown, tz: string): string {
   if (value === null || value === undefined || value === '') return '—'
   if (DATE_FIELDS.has(field) && typeof value === 'string') {
     return new Date(value).toLocaleString('en-US', {
-      timeZone: tz, month: 'short', day: 'numeric', year: 'numeric',
+      timeZone: displayTzForLeadField(field, tz), month: 'short', day: 'numeric', year: 'numeric',
       hour: 'numeric', minute: '2-digit', hour12: true,
     })
   }
