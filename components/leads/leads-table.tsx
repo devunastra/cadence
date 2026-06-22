@@ -1345,7 +1345,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
             anchorRect={datePicker.anchorRect}
             onSelect={iso => commitDateSelect(lead, datePicker.field, iso)}
             onClose={() => setDatePicker(null)}
-            tz={tz}
+            tz={displayTzForLeadField(datePicker.field, tz)}
           />
         ) : null
       })()}

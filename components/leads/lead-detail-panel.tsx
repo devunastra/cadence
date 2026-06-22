@@ -10,6 +10,7 @@ import type { FieldOption } from '@/lib/field-options'
 import { EnumDropdown } from './enum-dropdown'
 import { PhoneInput } from './phone-input'
 import { DatePickerPopup } from './date-picker-popup'
+import { displayTzForLeadField } from '@/lib/date-utils'
 import { TranscriptViewer } from '@/components/call-analytics/transcript-viewer'
 import { Spinner } from '@/components/spinner'
 import { useCurrentStudio } from '@/components/studio-context'
@@ -501,7 +502,7 @@ export function LeadDetailPanel({
           anchorRect={datePicker.anchorRect}
           onSelect={iso => save(datePicker.field, iso)}
           onClose={() => setDatePicker(null)}
-          tz={tz}
+          tz={displayTzForLeadField(datePicker.field, tz)}
         />
       )}
     </>
