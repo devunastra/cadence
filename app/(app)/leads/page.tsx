@@ -9,7 +9,7 @@ export default function LeadsPage() {
 
   return (
     <>
-      <h1 className="text-2xl font-semibold flex-shrink-0 px-5 pt-5 md:pt-10 pb-3" style={{ color: 'var(--color-text-primary)' }}>Leads</h1>
+      <h1 className="text-2xl font-semibold flex-shrink-0 px-5 pt-5 pb-3" style={{ color: 'var(--color-text-primary)' }}>Leads</h1>
       <div className="flex-shrink-0 px-5 pb-3">
         <VoiceAgentToggle />
       </div>

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { syncLeadUpdateToNotion } from '@/lib/notion'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Payload = Record<string, any>
@@ -119,6 +120,11 @@ export async function POST(req: Request) {
           changes:     [{ field: 'start_time', old_value: null, new_value: newStartTime }],
         }),
       ])
+      try {
+        await syncAppointmentFirstLesson(supabase, { studioId: studio.id, contactId })
+      } catch (err) {
+        console.error('[ghl-appointment] first_lesson sync (reschedule) failed', err)
+      }
     }
     return NextResponse.json({ ok: true })
   }
@@ -183,6 +189,38 @@ export async function POST(req: Request) {
     source:      'ghl',
   }).then(() => {}, () => {})
 
+  // Notification fan-out — only on creation, guarded against retries.
+  if (verb === 'Created') {
+    try {
+      await dispatchAppointmentNotifications(supabase, {
+        appointmentId: id,
+        studioId: studio.id,
+        contactName: row.contact_name,
+        startTime: row.start_time,
+      })
+    } catch (err) {
+      console.error('[ghl-appointment] notification dispatch failed', err)
+      // Never let notification failure 500 the webhook — GHL would just retry.
+    }
+  }
+
+  // first_lesson → Notion sync — runs on Created and on any Update that may have
+  // changed the time (AppointmentUpdate covers reschedules sent without the
+  // explicit AppointmentReschedule type). Skipped for status-only updates.
+  if (
+    row.contact_id &&
+    (verb === 'Created' || payload.type === 'AppointmentUpdate')
+  ) {
+    try {
+      await syncAppointmentFirstLesson(supabase, {
+        studioId: studio.id,
+        contactId: row.contact_id,
+      })
+    } catch (err) {
+      console.error('[ghl-appointment] first_lesson sync failed', err)
+    }
+  }
+
   // Middle-man linking: link the appointment activity message closest to now to this appointment.
   // We look for a chip within ±5 minutes of the current time that has no appointment_id yet.
   if (row.contact_id) {
@@ -234,4 +272,169 @@ export async function POST(req: Request) {
 // GHL health-check
 export async function GET() {
   return NextResponse.json({ ok: true })
+}
+
+// ---------------------------------------------------------------------------
+// first_lesson sync: appointment → lead.first_lesson → Notion.
+//
+// Gated by studios.notion_sync_appointments. Recomputes lead.first_lesson as
+// the earliest non-deleted appointment for the contact, then pushes via the
+// existing syncLeadUpdateToNotion (which handles studio timezone conversion).
+// Idempotent — safe on GHL retries and out-of-order delivery. Spec:
+// docs/specs/appointment-first-lesson-notion-sync-spec.md
+// ---------------------------------------------------------------------------
+async function syncAppointmentFirstLesson(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  args: { studioId: string; contactId: string | null },
+): Promise<void> {
+  const { studioId, contactId } = args
+  if (!contactId) return
+
+  const { data: studioRow } = await supabase
+    .from('studios')
+    .select('notion_sync_appointments')
+    .eq('id', studioId)
+    .single()
+  if (!studioRow?.notion_sync_appointments) return
+
+  const { data: lead } = await supabase
+    .from('leads')
+    .select('id, first_lesson, notion_page_id')
+    .eq('studio_id', studioId)
+    .eq('ghl_contact_id', contactId)
+    .limit(1)
+    .maybeSingle()
+  if (!lead) return
+
+  const { data: earliest } = await supabase
+    .from('appointments')
+    .select('start_time')
+    .eq('studio_id', studioId)
+    .eq('contact_id', contactId)
+    .is('deleted_at', null)
+    .not('start_time', 'is', null)
+    .order('start_time', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  // leads.first_lesson is stored as ISO text (see rules/architecture.md "Date
+  // columns stored as text"). Normalize via toISOString so the value Notion
+  // sees is canonical and the recompute equality check is reliable.
+  const newFirstLesson = earliest?.start_time
+    ? new Date(earliest.start_time).toISOString()
+    : null
+
+  if (lead.first_lesson === newFirstLesson) return
+
+  const { error: updateErr } = await supabase
+    .from('leads')
+    .update({ first_lesson: newFirstLesson })
+    .eq('id', lead.id)
+  if (updateErr) throw updateErr
+
+  await syncLeadUpdateToNotion(supabase, {
+    leadId: lead.id,
+    studioId,
+    notionPageId: lead.notion_page_id,
+    fields: { first_lesson: newFirstLesson },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Appointment notification fan-out.
+//
+// Audience: opted-in studio members ∪ all super_admins (cross-studio visibility
+// is the role's purpose). De-dup by user_id; a super_admin who is also a member
+// of the studio gets exactly one notification, and a member's pref=false wins
+// over the super_admin global default. Spec:
+// docs/specs/appointment-notifications-spec.md
+// ---------------------------------------------------------------------------
+async function dispatchAppointmentNotifications(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  args: {
+    appointmentId: string
+    studioId: string
+    contactName: string | null
+    startTime: string | null
+  },
+): Promise<void> {
+  const { appointmentId, studioId, contactName, startTime } = args
+
+  // Idempotency: GHL may retry the same AppointmentCreate, and our own
+  // createAppointment server action also causes GHL to fire the webhook back.
+  const { data: apptRow } = await supabase
+    .from('appointments')
+    .select('notified_at')
+    .eq('id', appointmentId)
+    .single()
+  if (apptRow?.notified_at) return
+
+  // Members of this studio.
+  const { data: memberRows } = await supabase
+    .from('studio_users')
+    .select('user_id')
+    .eq('studio_id', studioId)
+  const memberIds = new Set<string>((memberRows ?? []).map((r: { user_id: string }) => r.user_id))
+
+  // Members' per-studio opt-in prefs.
+  const { data: prefRows } = memberIds.size === 0 ? { data: [] } : await supabase
+    .from('user_preferences')
+    .select('user_id, notify_appointment_created')
+    .eq('studio_id', studioId)
+    .in('user_id', Array.from(memberIds))
+  const prefByUser = new Map<string, boolean>(
+    (prefRows ?? []).map((p: { user_id: string; notify_appointment_created: boolean }) =>
+      [p.user_id, p.notify_appointment_created !== false],
+    ),
+  )
+  // Missing pref → default true.
+  const optedInMembers = new Set<string>(
+    Array.from(memberIds).filter(id => prefByUser.get(id) !== false),
+  )
+
+  // All super_admins anywhere.
+  const { data: superRows } = await supabase
+    .from('studio_users')
+    .select('user_id')
+    .eq('role', 'super_admin')
+  const superIds = new Set<string>((superRows ?? []).map((r: { user_id: string }) => r.user_id))
+
+  // Union with member-opt-out precedence: a super_admin who is a member of this
+  // studio AND has pref=false stays excluded.
+  const recipients = new Set<string>(optedInMembers)
+  for (const id of superIds) {
+    if (memberIds.has(id) && !optedInMembers.has(id)) continue
+    recipients.add(id)
+  }
+
+  if (recipients.size === 0) {
+    await supabase.from('appointments').update({ notified_at: new Date().toISOString() }).eq('id', appointmentId)
+    return
+  }
+
+  const startLabel = startTime
+    ? new Date(startTime.length === 19 ? startTime + 'Z' : startTime).toLocaleString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      })
+    : null
+  const who = contactName ?? 'Someone'
+  const title = 'New appointment booked'
+  const body = startLabel ? `${who} — ${startLabel}` : who
+
+  const rows = Array.from(recipients).map(user_id => ({
+    studio_id: studioId,
+    user_id,
+    type: 'appointment_booked',
+    title,
+    body,
+    link: `/calendar?appointmentId=${appointmentId}`,
+    metadata: { appointment_id: appointmentId, contact_name: contactName, start_time: startTime },
+  }))
+
+  const { error: insertErr } = await supabase.from('notifications').insert(rows)
+  if (insertErr) throw insertErr
+
+  await supabase.from('appointments').update({ notified_at: new Date().toISOString() }).eq('id', appointmentId)
 }

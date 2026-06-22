@@ -959,11 +959,13 @@ export async function getUserPreferences(studioId: string): Promise<{
   notify_lead_created: boolean
   notify_lead_updated: boolean
   notify_lead_deleted: boolean
+  notify_appointment_created: boolean
+  notify_appointment_toast: boolean
 } | null> {
   const { client, user } = await getAuthorizedClient()
   const { data, error } = await client
     .from('user_preferences')
-    .select('col_widths, active_view_id, theme, nav_collapsed, notify_lead_created, notify_lead_updated, notify_lead_deleted')
+    .select('col_widths, active_view_id, theme, nav_collapsed, notify_lead_created, notify_lead_updated, notify_lead_deleted, notify_appointment_created, notify_appointment_toast')
     .eq('user_id', user.id)
     .eq('studio_id', studioId)
     .maybeSingle()
@@ -977,6 +979,8 @@ export async function getUserPreferences(studioId: string): Promise<{
     notify_lead_created: data.notify_lead_created !== false,
     notify_lead_updated: data.notify_lead_updated !== false,
     notify_lead_deleted: data.notify_lead_deleted !== false,
+    notify_appointment_created: data.notify_appointment_created !== false,
+    notify_appointment_toast: data.notify_appointment_toast !== false,
   }
 }
 
@@ -1245,11 +1249,13 @@ export async function saveNavCollapsed(collapsed: boolean): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
-export async function saveNotificationPreferences(
-  notifyCreated: boolean,
-  notifyUpdated: boolean,
-  notifyDeleted: boolean,
-): Promise<void> {
+export async function saveNotificationPreferences(prefs: {
+  notify_lead_created?: boolean
+  notify_lead_updated?: boolean
+  notify_lead_deleted?: boolean
+  notify_appointment_created?: boolean
+  notify_appointment_toast?: boolean
+}): Promise<void> {
   const { client, user } = await getAuthorizedClient()
   const cookieStore = await cookies()
   let studioId = cookieStore.get('selected_studio_id')?.value
@@ -1270,13 +1276,67 @@ export async function saveNotificationPreferences(
       {
         user_id: user.id,
         studio_id: studioId,
-        notify_lead_created: notifyCreated,
-        notify_lead_updated: notifyUpdated,
-        notify_lead_deleted: notifyDeleted,
+        ...prefs,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id,studio_id' }
     )
+  if (error) throw new Error(error.message)
+}
+
+// ---------------------------------------------------------------------------
+// Notifications inbox (bell + popover in the top header).
+// ---------------------------------------------------------------------------
+
+export async function getNotifications(
+  studioId: string,
+  opts: { limit?: number; unreadOnly?: boolean } = {},
+): Promise<import('@/lib/types').Notification[]> {
+  const { client, user } = await getAuthorizedClient()
+  let q = client
+    .from('notifications')
+    .select('*')
+    .eq('user_id', user.id)
+    .eq('studio_id', studioId)
+    .order('created_at', { ascending: false })
+    .limit(opts.limit ?? 30)
+  if (opts.unreadOnly) q = q.is('read_at', null)
+  const { data, error } = await q
+  if (error) throw new Error(error.message)
+  return (data ?? []) as import('@/lib/types').Notification[]
+}
+
+export async function getUnreadNotificationCount(studioId: string): Promise<number> {
+  const { client, user } = await getAuthorizedClient()
+  const { count, error } = await client
+    .from('notifications')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('studio_id', studioId)
+    .is('read_at', null)
+  if (error) throw new Error(error.message)
+  return count ?? 0
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  const { client, user } = await getAuthorizedClient()
+  const { error } = await client
+    .from('notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('user_id', user.id)
+    .is('read_at', null)
+  if (error) throw new Error(error.message)
+}
+
+export async function markAllNotificationsRead(studioId: string): Promise<void> {
+  const { client, user } = await getAuthorizedClient()
+  const { error } = await client
+    .from('notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('user_id', user.id)
+    .eq('studio_id', studioId)
+    .is('read_at', null)
   if (error) throw new Error(error.message)
 }
 

@@ -143,6 +143,17 @@ Every table has a `studio_id` column — **RLS enforced at DB level**.
 
 Full schema with all columns → see `implementation_plan.md`.
 
+### Date columns stored as `text` (by design)
+
+Two `leads` columns hold ISO-8601 dates but are typed `text`, not `timestamptz`:
+
+- `leads.last_contacted`
+- `leads.first_lesson`
+
+This is intentional, not a leftover. The original schema declared both as `timestamptz`; a later (out-of-repo) ALTER moved them to `text`. The reason — documented in `supabase/migrations/035_calls_set_last_contacted.sql` — is **round-trip stability with Notion**. Studio-local-midnight ISOs (e.g. `2026-06-06T00:00:00-05:00`) survive a Postgres `timestamptz` round-trip as normalized UTC (`2026-06-06T05:00:00Z`), which loses the original string Notion expects. Storing as `text` preserves whatever the app or sync helper wrote.
+
+Contract: writers must produce **valid ISO-8601 strings** (the format `new Date(...).toISOString()` produces is canonical). Readers can `value::timestamptz` when comparing timestamps in SQL. The app does formatting and timezone conversion via `lib/notion.ts` and `lib/date-utils.ts` — never lean on Postgres's auto-coercion of these columns.
+
 ---
 
 ## Environment Variables

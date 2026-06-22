@@ -164,7 +164,7 @@ Skeleton components live in `components/skeletons.tsx`. Each page has a dedicate
 All table-based pages (Leads, Call History, etc.) must follow these patterns exactly.
 
 ### Page Layout
-- Page heading: `text-2xl font-semibold flex-shrink-0 px-5 pt-10 pb-3` with `color: var(--color-text-primary)`
+- Page heading: `text-2xl font-semibold flex-shrink-0 px-5 pt-5 pb-3` with `color: var(--color-text-primary)`. The 48px sticky top header (`app-shell.tsx`) provides chrome separation, so the heading itself needs only modest top padding.
 - Content wrapper: `flex flex-col flex-1 min-h-0` (constrains table height so pagination stays pinned)
 - Shell root: `relative flex flex-col h-full px-5 pb-4 gap-3 [font-family:var(--font-inter,Inter,sans-serif)]`
 - `<main>` in `app/(app)/layout.tsx` must be `flex-1 flex flex-col overflow-hidden` for height chain to work
@@ -251,7 +251,7 @@ All mobile changes are conditional on `useIsMobile()` hook or Tailwind `md:` bre
 | Tailwind `md:` prefix | Server components, loading skeletons | Use when hooks aren't available |
 
 ### Page Layout (mobile)
-- Page heading top padding: `pt-5 md:pt-10`
+- Page heading top padding: `pt-5` (same on mobile and desktop — sticky top header sits above)
 - Sidebar converts to slide-out drawer with backdrop
 - Pagination stacks vertically: `flex-col md:flex-row`
 - Tabs scroll horizontally: `overflow-x-auto` + `whitespace-nowrap`
@@ -329,7 +329,7 @@ All interactive elements must be >= 44px tap area on mobile:
 ### Patterns Reference
 | Pattern | Usage |
 |---------|-------|
-| `pt-5 md:pt-10` | Page heading top padding |
+| `pt-5` | Page heading top padding (header chrome handles the rest) |
 | `flex-col md:flex-row` | Stack layouts vertically on mobile |
 | `overflow-x-auto` + `whitespace-nowrap` | Horizontal tab/pill scrolling |
 | `w-full md:flex-1 md:max-w-[...]` | Full-width inputs on mobile |

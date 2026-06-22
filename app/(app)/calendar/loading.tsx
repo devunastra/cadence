@@ -2,7 +2,7 @@ import { SkeletonTabs, SkeletonBar } from '@/components/skeletons'
 
 export default function CalendarLoading() {
   return (
-    <div className="flex flex-col flex-1 min-h-0 px-5 pt-5 md:pt-10 pb-4 gap-3">
+    <div className="flex flex-col flex-1 min-h-0 px-5 pt-5 pb-4 gap-3">
       {/* Page heading */}
       <h1
         className="text-2xl font-semibold flex-shrink-0"

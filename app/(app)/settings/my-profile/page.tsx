@@ -36,6 +36,8 @@ export default async function MyProfilePage() {
         notifyCreated={prefs?.notify_lead_created ?? true}
         notifyUpdated={prefs?.notify_lead_updated ?? true}
         notifyDeleted={prefs?.notify_lead_deleted ?? true}
+        notifyAppointmentCreated={prefs?.notify_appointment_created ?? true}
+        notifyAppointmentToast={prefs?.notify_appointment_toast ?? true}
       />
     </div>
   )

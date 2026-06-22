@@ -32,7 +32,7 @@ export default function ConversationsLoading() {
     >
       {/* Header */}
       <div
-        className="px-5 pt-5 md:pt-10 pb-5 flex-shrink-0"
+        className="px-5 pt-5 pb-5 flex-shrink-0"
         style={{ borderBottom: '1px solid var(--color-border)' }}
       >
         <h1
