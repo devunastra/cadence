@@ -119,7 +119,7 @@ const BULK_UPDATABLE_LEAD_FIELDS = new Set([
   'showed', 'bought', 'old', 'comments', 'available', 'texted',
 ])
 
-export async function bulkUpdateLeads(ids: string[], field: string, value: string | null) {
+export async function bulkUpdateLeads(ids: string[], field: string, value: string | boolean | null) {
   if (ids.length === 0) return
   if (!BULK_UPDATABLE_LEAD_FIELDS.has(field)) throw new Error('Invalid field')
   const { client, user } = await getAuthorizedClient()
