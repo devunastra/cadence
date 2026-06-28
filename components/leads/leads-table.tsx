@@ -219,11 +219,12 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
   const mounted = useMounted()
   const [showNewLead, setShowNewLead] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [deleting, setDeleting] = useState(false)
   const [showConfirmDelete, setShowConfirmDelete] = useState(false)
   const [bulkField, setBulkField] = useState<string | null>(null)
   const [bulkEditAnchor, setBulkEditAnchor] = useState<DOMRect | null>(null)
-  const { showSuccess, showError } = useToast()
+  const { showSuccess, showError, showAction } = useToast()
+  const pendingDeletes = useRef<Map<string, { ids: string[]; rows: Lead[]; deletedNames: string[]; timeoutId: ReturnType<typeof setTimeout> }>>(new Map())
+  const pendingDeleteCounter = useRef(0)
   const [colWidths, setColWidths] = useState<Record<string, number>>({})
   const resizeRef = useRef<{ field: string; startX: number; startWidth: number; minWidth: number } | null>(null)
   const prefSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -404,34 +405,76 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
       })
   }
 
-  async function handleDeleteSelected() {
+  // Deferred-commit delete: rows leave the UI immediately, but the server-side
+  // deleteLeads (GHL + Notion + DB + activity log) doesn't fire until a 5s
+  // window passes. Clicking Undo before then cancels the timer and restores the
+  // rows. If the component unmounts in that window, the delete is dropped.
+  function handleDeleteSelected() {
     if (selectedIds.size === 0) return
-    setDeleting(true)
     const ids = Array.from(selectedIds)
-    // Capture names before the rows disappear from state
-    const deletedNames = leads.filter(l => selectedIds.has(l.id)).map(l => l.name || 'Unknown')
-    // Mark as locally deleted so the postgres_changes DELETE echo is ignored
-    ids.forEach(id => localDeleteIds.current.add(id))
-    try {
-      await deleteLeads(ids)
-      setLeads(prev => prev.filter(l => !selectedIds.has(l.id)))
-      setTotal(prev => prev - selectedIds.size)
-      setSelectedIds(new Set())
-      // Broadcast to other sessions so they can show the banner with email
-      realtimeChannelRef.current?.send({
-        type: 'broadcast',
-        event: 'leads_deleted',
-        payload: { names: deletedNames, deletedBy: currentUserEmailRef.current },
-      })
-    } catch (err) {
-      // Delete failed — remove from local tracking so Realtime isn't suppressed
-      ids.forEach(id => localDeleteIds.current.delete(id))
-      throw err
-    } finally {
-      setDeleting(false)
-      setShowConfirmDelete(false)
-    }
+    const rows = leads.filter(l => selectedIds.has(l.id))
+    const deletedNames = rows.map(l => l.name || 'Unknown')
+
+    // Optimistic UI: remove rows, decrement total, clear selection, close modal
+    setLeads(prev => prev.filter(l => !selectedIds.has(l.id)))
+    setTotal(prev => prev - ids.length)
+    setSelectedIds(new Set())
+    setShowConfirmDelete(false)
+
+    const batchId = String(++pendingDeleteCounter.current)
+    const timeoutId = setTimeout(() => commitPendingDelete(batchId), 5000)
+    pendingDeletes.current.set(batchId, { ids, rows, deletedNames, timeoutId })
+
+    showAction(
+      'success',
+      `${ids.length} ${ids.length === 1 ? 'lead' : 'leads'} deleted`,
+      { label: 'Undo', onClick: () => undoPendingDelete(batchId) },
+    )
   }
+
+  function commitPendingDelete(batchId: string) {
+    const pending = pendingDeletes.current.get(batchId)
+    if (!pending) return
+    pendingDeletes.current.delete(batchId)
+    // Suppress own Realtime DELETE echoes
+    pending.ids.forEach(id => localDeleteIds.current.add(id))
+    deleteLeads(pending.ids)
+      .then(() => {
+        realtimeChannelRef.current?.send({
+          type: 'broadcast',
+          event: 'leads_deleted',
+          payload: { names: pending.deletedNames, deletedBy: currentUserEmailRef.current },
+        })
+      })
+      .catch(() => {
+        // Server delete failed — drop suppression and restore rows
+        pending.ids.forEach(id => localDeleteIds.current.delete(id))
+        setLeads(prev => [...prev, ...pending.rows])
+        setTotal(prev => prev + pending.ids.length)
+        showError(`Failed to delete ${pending.ids.length === 1 ? 'lead' : 'leads'}`)
+      })
+  }
+
+  function undoPendingDelete(batchId: string) {
+    const pending = pendingDeletes.current.get(batchId)
+    if (!pending) return
+    clearTimeout(pending.timeoutId)
+    pendingDeletes.current.delete(batchId)
+    setLeads(prev => [...prev, ...pending.rows])
+    setTotal(prev => prev + pending.ids.length)
+    setSelectedIds(new Set(pending.ids))
+  }
+
+  // On unmount or studio change: drop any in-flight pending deletes (timers
+  // never commit). Matches the documented "close-tab during 5s undo window
+  // drops the delete" behavior — leads come back on next page load.
+  useEffect(() => {
+    const map = pendingDeletes.current
+    return () => {
+      map.forEach(p => clearTimeout(p.timeoutId))
+      map.clear()
+    }
+  }, [studioId])
 
   function broadcastLeadUpdated(leads: { id: string; name: string }[]) {
     realtimeChannelRef.current?.send({
@@ -926,8 +969,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
     {showConfirmDelete && (
       <ConfirmDeleteModal
         title={`Delete ${selectedIds.size} lead${selectedIds.size !== 1 ? 's' : ''}?`}
-        message={`Are you sure you want to delete ${selectedIds.size} lead${selectedIds.size !== 1 ? 's' : ''}? This action cannot be undone.`}
-        isDeleting={deleting}
+        message={`Are you sure you want to delete ${selectedIds.size} lead${selectedIds.size !== 1 ? 's' : ''}? This is permanent — you'll have 5 seconds to undo.`}
         onConfirm={handleDeleteSelected}
         onCancel={() => setShowConfirmDelete(false)}
       />
