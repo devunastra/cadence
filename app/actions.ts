@@ -11,6 +11,7 @@ import type { Lead, ScheduledCallback, StudioSlotConfig, OnboardingStudioInput }
 import type { FieldOption } from '@/lib/field-options'
 import { reconcileSourceDetail } from '@/lib/source-kinds'
 import type { SourceDetail } from '@/lib/source-kinds'
+import { NOTION_COLORS } from '@/lib/constants'
 
 // Converts a naive studio-local ISO string ("2026-05-08T17:00:00") to a UTC ISO string
 // by formatting that naive moment in the studio's timezone and computing the offset.
@@ -1811,6 +1812,106 @@ export async function fetchCallsAnalytics(
     successRate, pickupRate,
     sentimentCounts, disconnectCounts, outcomeCounts,
   }
+}
+
+// Lead funnel + source breakdown for a studio in a date range. Powers the "Leads"
+// section on the Call Analytics tab. Scoped to leads.created_at, not the lead's
+// current state — a lead that was created outside the range but is currently
+// active does not show up here.
+export type LeadFunnelAnalyticsData = {
+  funnel: { created: number; booked: number; showed: number; bought: number }
+  bySource: Array<{ source: string; count: number; color: string }>
+}
+
+export async function fetchLeadFunnelAnalytics(
+  studioId: string,
+  from: string,
+  to: string,
+): Promise<LeadFunnelAnalyticsData> {
+  const { client } = await getAuthorizedClient()
+  const [leadsRes, sourcesRes] = await Promise.all([
+    client
+      .from('leads')
+      .select('first_lesson, showed, bought, source:studio_field_options!leads_source_fkey(id, value, text)')
+      .eq('studio_id', studioId)
+      .gte('created_at', from)
+      .lte('created_at', to),
+    client
+      .from('studio_field_options')
+      .select('value, text')
+      .eq('studio_id', studioId)
+      .eq('field', 'source'),
+  ])
+  if (leadsRes.error) throw new Error(leadsRes.error.message)
+
+  type Row = {
+    first_lesson: string | null
+    showed: boolean | null
+    bought: boolean | null
+    source: { id: string; value: string; text: string | null } | null
+  }
+  const rows = (leadsRes.data ?? []) as unknown as Row[]
+  const allSources = (sourcesRes.data ?? []) as Array<{ value: string; text: string | null }>
+
+  const funnel = {
+    created: rows.length,
+    booked:  rows.filter(r => r.first_lesson).length,
+    showed:  rows.filter(r => r.showed).length,
+    bought:  rows.filter(r => r.bought).length,
+  }
+
+  // Resolve a stored `status-text-<color>` class into a NOTION_COLORS hex value
+  // so the chart component can use it directly (matches the pattern in the
+  // existing donut charts).
+  const paletteKeys: Array<keyof typeof NOTION_COLORS> = ['green', 'yellow', 'red', 'blue', 'purple', 'pink', 'gray', 'orange', 'brown', 'teal']
+  const grayHex = NOTION_COLORS.gray.text
+  // Palette used when a source has no stored color (or its stored color is gray) —
+  // most studios leave source options at the default gray, which would make every
+  // slice of the donut look identical. Rotate through non-gray palette entries in
+  // count order so the largest slice gets the strongest color.
+  const fallbackPalette: string[] = [
+    NOTION_COLORS.blue.text,
+    NOTION_COLORS.green.text,
+    NOTION_COLORS.yellow.text,
+    NOTION_COLORS.purple.text,
+    NOTION_COLORS.orange.text,
+    NOTION_COLORS.pink.text,
+    NOTION_COLORS.red.text,
+    NOTION_COLORS.brown.text,
+    NOTION_COLORS.teal.text,
+  ]
+  function resolveStoredHex(text: string | null | undefined): string | null {
+    if (!text) return null
+    const match = paletteKeys.find(k => text.endsWith(`-${k}`))
+    return match ? NOTION_COLORS[match].text : null
+  }
+
+  // Seed with every configured source for the studio so the donut shows the
+  // full source landscape (including sources with 0 leads in the range), then
+  // add 'Unknown' if there are leads with a null source in the range.
+  const sourceMap = new Map<string, { count: number; storedColor: string | null }>()
+  for (const s of allSources) {
+    sourceMap.set(s.value, { count: 0, storedColor: resolveStoredHex(s.text) })
+  }
+  for (const r of rows) {
+    const name = r.source?.value ?? 'Unknown'
+    const storedColor = r.source ? resolveStoredHex(r.source.text) : null
+    const cur = sourceMap.get(name)
+    if (cur) { cur.count++ }
+    else { sourceMap.set(name, { count: 1, storedColor }) }
+  }
+  const sorted = Array.from(sourceMap.entries())
+    .map(([source, { count, storedColor }]) => ({ source, count, storedColor }))
+    .sort((a, b) => b.count - a.count)
+  let paletteIdx = 0
+  const bySource = sorted.map(({ source, count, storedColor }) => {
+    const color = storedColor && storedColor !== grayHex
+      ? storedColor
+      : fallbackPalette[paletteIdx++ % fallbackPalette.length]
+    return { source, count, color }
+  })
+
+  return { funnel, bySource }
 }
 
 export type TranscriptCallRow = Pick<Call,
