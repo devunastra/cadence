@@ -49,27 +49,6 @@ async function getAuthorizedClient() {
   return { client: isSuper ? createServiceClient() : supabase, user }
 }
 
-// Field-option mutations are studio-owner-only (or super_admin). studio_staff
-// must not add/rename/recolor/reorder/delete enum options even for their own
-// studio. Callers that receive an `optionId` should resolve `studio_id` from
-// the option row first (via the service client) before calling this.
-async function requireFieldOptionEditor(studioId: string): Promise<{
-  client: SupabaseClient
-  isSuper: boolean
-}> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
-  const { data: memberships } = await supabase
-    .from('studio_users')
-    .select('role, studio_id')
-    .eq('user_id', user.id)
-  const isSuper = memberships?.some(m => m.role === 'super_admin') ?? false
-  const isOwnerHere = memberships?.some(m => m.studio_id === studioId && m.role === 'studio_owner') ?? false
-  if (!isSuper && !isOwnerHere) throw new Error('Forbidden')
-  return { client: isSuper ? createServiceClient() : supabase, isSuper }
-}
-
 // Resolve a raw lead-update map into Notion-ready fields: keep only synced fields, and
 // convert enum FK UUIDs (status/level/action/source/reason/partnership) into their option labels.
 async function resolveNotionFields(
@@ -1086,14 +1065,7 @@ export async function getStudioFieldOptions(studioId: string): Promise<Record<st
 
 // Update the color for a single studio-level field option
 export async function updateStudioFieldOptionColor(optionId: string, bg: string, text: string): Promise<void> {
-  const serviceClient = createServiceClient()
-  const { data: option } = await serviceClient
-    .from('studio_field_options')
-    .select('studio_id')
-    .eq('id', optionId)
-    .single()
-  if (!option) throw new Error('Not found')
-  const { client } = await requireFieldOptionEditor(option.studio_id)
+  const { client } = await getAuthorizedClient()
   const { error } = await client
     .from('studio_field_options')
     .update({ bg, text })
@@ -1103,19 +1075,7 @@ export async function updateStudioFieldOptionColor(optionId: string, bg: string,
 
 // Persist a new sort order for a field's options (called after drag-and-drop reorder)
 export async function updateStudioFieldOptionOrder(updates: Array<{ id: string; sortOrder: number }>): Promise<void> {
-  if (updates.length === 0) return
-  const serviceClient = createServiceClient()
-  const { data: rows } = await serviceClient
-    .from('studio_field_options')
-    .select('studio_id')
-    .in('id', updates.map(u => u.id))
-  const studioIds = new Set((rows ?? []).map(r => r.studio_id))
-  // All options being reordered must belong to the same studio — the drag-and-drop
-  // UI is per-field within a single studio, so mixed studios means someone is
-  // fabricating a payload.
-  if (studioIds.size !== 1) throw new Error('Forbidden')
-  const [studioId] = Array.from(studioIds) as [string]
-  const { client } = await requireFieldOptionEditor(studioId)
+  const { client } = await getAuthorizedClient()
   await Promise.all(
     updates.map(({ id, sortOrder }) =>
       client.from('studio_field_options').update({ sort_order: sortOrder }).eq('id', id)
@@ -1235,7 +1195,7 @@ export async function fetchStudioFieldOptions(studioId: string): Promise<
 
 // Add a new option — returns the new row with its ID
 export async function addStudioFieldOption(studioId: string, field: string, value: string): Promise<{ id: string; value: string }> {
-  const { client } = await requireFieldOptionEditor(studioId)
+  const { client } = await getAuthorizedClient()
   const { data: existing } = await client
     .from('studio_field_options')
     .select('id, value')
@@ -1256,7 +1216,7 @@ export async function addStudioFieldOption(studioId: string, field: string, valu
 // Rename an option — updates 1 row by (studioId, field, oldValue), all leads referencing
 // this ID instantly see the new name without any lead row updates
 export async function renameStudioFieldOption(studioId: string, field: string, oldValue: string, newValue: string): Promise<void> {
-  const { client } = await requireFieldOptionEditor(studioId)
+  const { client } = await getAuthorizedClient()
   const { error } = await client
     .from('studio_field_options')
     .update({ value: newValue })
@@ -1268,14 +1228,7 @@ export async function renameStudioFieldOption(studioId: string, field: string, o
 
 // Delete an option — leads with this option will have the field set to NULL (via ON DELETE SET NULL)
 export async function deleteStudioFieldOption(optionId: string): Promise<void> {
-  const serviceClient = createServiceClient()
-  const { data: option } = await serviceClient
-    .from('studio_field_options')
-    .select('studio_id')
-    .eq('id', optionId)
-    .single()
-  if (!option) throw new Error('Not found')
-  const { client } = await requireFieldOptionEditor(option.studio_id)
+  const { client } = await getAuthorizedClient()
   const { error } = await client
     .from('studio_field_options')
     .delete()
