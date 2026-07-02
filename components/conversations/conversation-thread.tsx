@@ -269,6 +269,10 @@ function VoicemailPlayer({ src }: { src: string }) {
 function VoicemailCard({ msg, isOutbound }: { msg: GHLMessage; isOutbound: boolean }) {
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // Tracked in a ref so cleanup reads the CURRENT blob URL, not whatever
+  // `recordingUrl` was when the effect body captured its closure (null on the
+  // first run) — otherwise the blob is created but never revoked on unmount.
+  const blobUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -280,7 +284,11 @@ function VoicemailCard({ msg, isOutbound }: { msg: GHLMessage; isOutbound: boole
         const contentType = res.headers.get('content-type') ?? ''
         if (contentType.startsWith('audio/') || contentType.includes('octet-stream')) {
           const blob = await res.blob()
-          if (!cancelled) setRecordingUrl(URL.createObjectURL(blob))
+          if (!cancelled) {
+            const url = URL.createObjectURL(blob)
+            blobUrlRef.current = url
+            setRecordingUrl(url)
+          }
         } else {
           const data = await res.json().catch(() => null)
           if (!cancelled) setRecordingUrl(data?.recordingUrl ?? null)
@@ -289,8 +297,13 @@ function VoicemailCard({ msg, isOutbound }: { msg: GHLMessage; isOutbound: boole
       finally { if (!cancelled) setLoading(false) }
     }
     fetchRecording()
-    return () => { cancelled = true; if (recordingUrl?.startsWith('blob:')) URL.revokeObjectURL(recordingUrl) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
+        blobUrlRef.current = null
+      }
+    }
   }, [msg.id])
 
   return (

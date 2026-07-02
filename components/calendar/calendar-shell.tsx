@@ -93,7 +93,12 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile])
 
-  // Fetch appointments on mount
+  // Fetch appointments on mount and whenever the active studio changes. With `[]`
+  // deps, switching studios kept the previous studio's appointments on screen
+  // until the 30s poll (line 212) corrected it — this loads the right studio's
+  // data immediately. `weekStart` / `tz` are intentionally left out: week
+  // navigation calls fetchAppointments directly (line 220), and tz changes ride
+  // in on studioId via useCurrentStudio.
   useEffect(() => {
     let cancelled = false
     const supabase = createClient()
@@ -112,7 +117,13 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
         if (data) setAppointments(data as Appointment[])
       })
     return () => { cancelled = true }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [studioId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear cached lead lookups when the active studio changes so a slow
+  // still-in-flight lead fetch from the previous studio can't briefly write
+  // its map after the new studio's appointments have loaded — during that
+  // window the UI would match new appointments against old lead data.
+  useEffect(() => { setContactLeadMap({}) }, [studioId])
 
   useEffect(() => {
     const ids = buildContactMap(appointments)
