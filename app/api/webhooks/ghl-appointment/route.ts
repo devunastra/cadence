@@ -100,7 +100,16 @@ export async function POST(req: Request) {
 
   // Partial update — update start_time + recalculate end_time (from n8n reschedule workflow)
   if (payload.type === 'AppointmentReschedule') {
-    const newStartTime = payload.start_time ?? null
+    // Match the resolution order the create branch uses so a workflow that sends
+    // the time under a different field name (camelCase, or nested under
+    // customData/triggerData) doesn't silently fail against the 400 guard below.
+    const newStartTime =
+      payload.start_time
+      ?? payload.startTime
+      ?? custom.appointment_start_time
+      ?? trigger.start_time
+      ?? trigger.startTime
+      ?? null
     const contactId = payload.contact_id ?? null
     const contactName = payload.full_name ?? payload.contact_full_name ?? null
     if (!newStartTime) {
