@@ -951,6 +951,9 @@ export async function fetchLeadsPage({
   sortField?: string
   sortAscending?: boolean
 }): Promise<{ leads: Lead[]; total: number }> {
+  // Without a studio scope, a super_admin call would return leads across every
+  // studio (service client bypasses RLS) and pagination counts become meaningless.
+  if (!studioId) return { leads: [], total: 0 }
   const { client } = await getAuthorizedClient()
   const from = page * pageSize
   const to = from + pageSize - 1
