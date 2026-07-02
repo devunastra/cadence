@@ -103,7 +103,15 @@ export async function POST(req: Request) {
     const newStartTime = payload.start_time ?? null
     const contactId = payload.contact_id ?? null
     const contactName = payload.full_name ?? payload.contact_full_name ?? null
-    if (newStartTime) {
+    if (!newStartTime) {
+      // Returning 200 would silently drop the reschedule and GHL would never retry —
+      // the appointment would stay at its old time with no error surfaced.
+      console.error('[ghl-appointment] AppointmentReschedule missing start_time', {
+        id, contactId, payloadKeys: Object.keys(payload),
+      })
+      return NextResponse.json({ error: 'Missing start_time on AppointmentReschedule' }, { status: 400 })
+    }
+    {
       const newEndTime = new Date(new Date(newStartTime + 'Z').getTime() + 45 * 60 * 1000)
         .toISOString()
         .substring(0, 19)
