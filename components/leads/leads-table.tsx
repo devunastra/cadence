@@ -11,7 +11,9 @@ import { NewLeadModal } from './new-lead-modal'
 import { LeadsFilterBar } from './leads-filter-bar'
 import { ViewsSelector } from './views-selector'
 import { Checkbox } from './checkbox'
+import { BulkEditPopover } from './bulk-edit-popover'
 import { ConfirmDeleteModal } from '@/components/confirm-delete-modal'
+import { useToast } from '@/components/ui/toast-provider'
 import { useCurrentStudio } from '@/components/studio-context'
 import { ALL_LEAD_ENUM_FIELDS, STATUS_COLORS } from '@/lib/constants'
 import { buildDefaultOptions } from '@/lib/field-options'
@@ -51,6 +53,11 @@ function formatDateTime(iso: string | null, tz: string): string {
 const ENUM_FIELDS = Object.keys(ALL_LEAD_ENUM_FIELDS) as (keyof typeof ALL_LEAD_ENUM_FIELDS)[]
 const BOOLEAN_FIELDS: (keyof Lead)[] = ['showed', 'bought', 'old']
 const DATE_FIELDS: (keyof Lead)[] = ['last_contacted', 'first_lesson']
+const FIELD_LABELS: Record<string, string> = {
+  status: 'Status', level: 'Level', action: 'Action', source: 'Source',
+  reason: 'Reason', partnership: 'Partnership',
+  showed: 'Showed', bought: 'Bought', old: 'Old',
+}
 
 // Token-driven styling for inline cell edit inputs — keeps them consistent
 // with the design system and correct in dark mode (no hardcoded grays).
@@ -212,9 +219,12 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
   const mounted = useMounted()
   const [showNewLead, setShowNewLead] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [deleting, setDeleting] = useState(false)
   const [showConfirmDelete, setShowConfirmDelete] = useState(false)
   const [bulkField, setBulkField] = useState<string | null>(null)
+  const [bulkEditAnchor, setBulkEditAnchor] = useState<DOMRect | null>(null)
+  const { showSuccess, showError, showAction } = useToast()
+  const pendingDeletes = useRef<Map<string, { ids: string[]; rows: Lead[]; deletedNames: string[]; timeoutId: ReturnType<typeof setTimeout> }>>(new Map())
+  const pendingDeleteCounter = useRef(0)
   const [colWidths, setColWidths] = useState<Record<string, number>>({})
   const resizeRef = useRef<{ field: string; startX: number; startWidth: number; minWidth: number } | null>(null)
   const prefSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -360,22 +370,30 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
     }
   }, [studioId, mounted])
 
-  async function handleBulkUpdate(field: string, value: string | null) {
+  async function handleBulkUpdate(field: string, value: string | boolean | null) {
     const ids = Array.from(selectedIds)
-    const displayValue = value === '' || value === null ? null : value
-    // Look up option ID for DB storage
-    const optionId = displayValue !== null
-      ? (fieldOptions[field] ?? []).find(o => o.value === displayValue)?.id ?? null
-      : null
+    const isBooleanField = BOOLEAN_FIELDS.includes(field as keyof Lead)
+    // For enums: look up option ID for DB storage and label for local row state.
+    // For booleans: pass through; null clears the cell.
+    const localValue: string | boolean | null = isBooleanField
+      ? value
+      : (value === '' || value === null ? null : (value as string))
+    const dbValue: string | boolean | null = isBooleanField
+      ? value
+      : (localValue !== null ? (fieldOptions[field] ?? []).find(o => o.value === localValue)?.id ?? null : null)
     const prevValues = new Map(leads.filter(l => selectedIds.has(l.id)).map(l => [l.id, l[field as keyof Lead]]))
     const updatedLeadEntries = leads.filter(l => selectedIds.has(l.id)).map(l => ({ id: l.id, name: l.name || 'Unknown' }))
     // Register each ID so Realtime echoes from our own bulk write are suppressed
     ids.forEach(id => localUpdateCounts.current.set(id, (localUpdateCounts.current.get(id) ?? 0) + 1))
-    setLeads(prev => prev.map(l => selectedIds.has(l.id) ? { ...l, [field]: displayValue } : l))
+    setLeads(prev => prev.map(l => selectedIds.has(l.id) ? { ...l, [field]: localValue } : l))
     setBulkField(null)
+    setBulkEditAnchor(null)
     // Selection is intentionally kept so the user can continue editing other fields on the same rows
-    bulkUpdateLeads(ids, field, optionId)
-      .then(() => broadcastLeadUpdated(updatedLeadEntries))
+    bulkUpdateLeads(ids, field, dbValue)
+      .then(() => {
+        broadcastLeadUpdated(updatedLeadEntries)
+        showSuccess(`Updated ${FIELD_LABELS[field] ?? field} on ${ids.length} ${ids.length === 1 ? 'lead' : 'leads'}`)
+      })
       .catch(() => {
         ids.forEach(id => {
           const c = localUpdateCounts.current.get(id) ?? 0
@@ -383,37 +401,80 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
           else localUpdateCounts.current.set(id, c - 1)
         })
         setLeads(prev => prev.map(l => prevValues.has(l.id) ? { ...l, [field]: prevValues.get(l.id) } : l))
+        showError(`Failed to update ${FIELD_LABELS[field] ?? field}`)
       })
   }
 
-  async function handleDeleteSelected() {
+  // Deferred-commit delete: rows leave the UI immediately, but the server-side
+  // deleteLeads (GHL + Notion + DB + activity log) doesn't fire until a 5s
+  // window passes. Clicking Undo before then cancels the timer and restores the
+  // rows. If the component unmounts in that window, the delete is dropped.
+  function handleDeleteSelected() {
     if (selectedIds.size === 0) return
-    setDeleting(true)
     const ids = Array.from(selectedIds)
-    // Capture names before the rows disappear from state
-    const deletedNames = leads.filter(l => selectedIds.has(l.id)).map(l => l.name || 'Unknown')
-    // Mark as locally deleted so the postgres_changes DELETE echo is ignored
-    ids.forEach(id => localDeleteIds.current.add(id))
-    try {
-      await deleteLeads(ids)
-      setLeads(prev => prev.filter(l => !selectedIds.has(l.id)))
-      setTotal(prev => prev - selectedIds.size)
-      setSelectedIds(new Set())
-      // Broadcast to other sessions so they can show the banner with email
-      realtimeChannelRef.current?.send({
-        type: 'broadcast',
-        event: 'leads_deleted',
-        payload: { names: deletedNames, deletedBy: currentUserEmailRef.current },
-      })
-    } catch (err) {
-      // Delete failed — remove from local tracking so Realtime isn't suppressed
-      ids.forEach(id => localDeleteIds.current.delete(id))
-      throw err
-    } finally {
-      setDeleting(false)
-      setShowConfirmDelete(false)
-    }
+    const rows = leads.filter(l => selectedIds.has(l.id))
+    const deletedNames = rows.map(l => l.name || 'Unknown')
+
+    // Optimistic UI: remove rows, decrement total, clear selection, close modal
+    setLeads(prev => prev.filter(l => !selectedIds.has(l.id)))
+    setTotal(prev => prev - ids.length)
+    setSelectedIds(new Set())
+    setShowConfirmDelete(false)
+
+    const batchId = String(++pendingDeleteCounter.current)
+    const timeoutId = setTimeout(() => commitPendingDelete(batchId), 5000)
+    pendingDeletes.current.set(batchId, { ids, rows, deletedNames, timeoutId })
+
+    showAction(
+      'success',
+      `${ids.length} ${ids.length === 1 ? 'lead' : 'leads'} deleted`,
+      { label: 'Undo', onClick: () => undoPendingDelete(batchId) },
+    )
   }
+
+  function commitPendingDelete(batchId: string) {
+    const pending = pendingDeletes.current.get(batchId)
+    if (!pending) return
+    pendingDeletes.current.delete(batchId)
+    // Suppress own Realtime DELETE echoes
+    pending.ids.forEach(id => localDeleteIds.current.add(id))
+    deleteLeads(pending.ids)
+      .then(() => {
+        realtimeChannelRef.current?.send({
+          type: 'broadcast',
+          event: 'leads_deleted',
+          payload: { names: pending.deletedNames, deletedBy: currentUserEmailRef.current },
+        })
+      })
+      .catch(() => {
+        // Server delete failed — drop suppression and restore rows
+        pending.ids.forEach(id => localDeleteIds.current.delete(id))
+        setLeads(prev => [...prev, ...pending.rows])
+        setTotal(prev => prev + pending.ids.length)
+        showError(`Failed to delete ${pending.ids.length === 1 ? 'lead' : 'leads'}`)
+      })
+  }
+
+  function undoPendingDelete(batchId: string) {
+    const pending = pendingDeletes.current.get(batchId)
+    if (!pending) return
+    clearTimeout(pending.timeoutId)
+    pendingDeletes.current.delete(batchId)
+    setLeads(prev => [...prev, ...pending.rows])
+    setTotal(prev => prev + pending.ids.length)
+    setSelectedIds(new Set(pending.ids))
+  }
+
+  // On unmount or studio change: drop any in-flight pending deletes (timers
+  // never commit). Matches the documented "close-tab during 5s undo window
+  // drops the delete" behavior — leads come back on next page load.
+  useEffect(() => {
+    const map = pendingDeletes.current
+    return () => {
+      map.forEach(p => clearTimeout(p.timeoutId))
+      map.clear()
+    }
+  }, [studioId])
 
   function broadcastLeadUpdated(leads: { id: string; name: string }[]) {
     realtimeChannelRef.current?.send({
@@ -908,8 +969,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
     {showConfirmDelete && (
       <ConfirmDeleteModal
         title={`Delete ${selectedIds.size} lead${selectedIds.size !== 1 ? 's' : ''}?`}
-        message={`Are you sure you want to delete ${selectedIds.size} lead${selectedIds.size !== 1 ? 's' : ''}? This action cannot be undone.`}
-        isDeleting={deleting}
+        message={`Are you sure you want to delete ${selectedIds.size} lead${selectedIds.size !== 1 ? 's' : ''}? This is permanent — you'll have 5 seconds to undo.`}
         onConfirm={handleDeleteSelected}
         onCancel={() => setShowConfirmDelete(false)}
       />
@@ -948,6 +1008,19 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
                   {selectedIds.size} selected
                 </span>
                 <button
+                  onClick={e => setBulkEditAnchor((e.currentTarget as HTMLElement).getBoundingClientRect())}
+                  className="px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
+                  style={{
+                    backgroundColor: 'var(--color-bg)',
+                    border: '1px solid var(--color-border)',
+                    color: 'var(--color-text-primary)',
+                  }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)'}
+                >
+                  Edit
+                </button>
+                <button
                   onClick={() => setShowConfirmDelete(true)}
                   className="px-3 py-1.5 text-sm font-medium text-white rounded-lg bg-red-600 hover:bg-red-700 transition-colors"
                 >
@@ -977,6 +1050,17 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
               <span className="text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
                 {selectedIds.size} selected
               </span>
+              <button
+                onClick={e => setBulkEditAnchor((e.currentTarget as HTMLElement).getBoundingClientRect())}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg"
+                style={{
+                  backgroundColor: 'var(--color-bg)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text-primary)',
+                }}
+              >
+                Edit
+              </button>
               <button
                 onClick={() => setShowConfirmDelete(true)}
                 className="px-3 py-1.5 text-sm font-medium text-white rounded-lg bg-red-600 hover:bg-red-700 transition-colors"
@@ -1371,6 +1455,17 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
           onOptionRenamed={(oldValue, newValue) => handleOptionRenamed(String(dropdown.field), oldValue, newValue)}
           onOptionDeleted={id => handleOptionDeleted(String(dropdown.field), id)}
           onClose={() => setDropdown(null)}
+        />
+      )}
+
+      {/* Bulk edit popover */}
+      {bulkEditAnchor && selectedIds.size > 0 && (
+        <BulkEditPopover
+          anchorRect={bulkEditAnchor}
+          selectedCount={selectedIds.size}
+          fieldOptions={fieldOptions}
+          onApply={(field, value) => handleBulkUpdate(field, value)}
+          onClose={() => setBulkEditAnchor(null)}
         />
       )}
     </div>

@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { ghlFetch } from '@/lib/ghl'
 import { checkRateLimit, GENERAL_LIMIT } from '@/lib/rate-limit'
-import { getSelectedStudioId } from '@/lib/data-cache'
+import { getValidatedSelectedStudioId } from '@/lib/data-cache'
 
 async function getStudio(userId: string) {
   const serviceClient = createServiceClient()
-  const selectedStudioId = await getSelectedStudioId()
+  const selectedStudioId = await getValidatedSelectedStudioId(userId)
 
   let studioQuery = serviceClient.from('studios').select('id, ghl_account_id, ghl_api_key, voice_agent_enabled')
 

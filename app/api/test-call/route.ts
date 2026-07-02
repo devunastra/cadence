@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import { getSelectedStudioId } from '@/lib/data-cache'
+import { getValidatedSelectedStudioId } from '@/lib/data-cache'
 import { getStudioTestAgents } from '@/lib/test-agents'
 
 // Normalize the form's "reason" value to what the agent's prompts expect.
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 
   // Get studio for Retell credentials (fallback path)
   const serviceClient = createServiceClient()
-  const selectedStudioId = await getSelectedStudioId()
+  const selectedStudioId = await getValidatedSelectedStudioId(session.user.id)
 
   let studioQuery = serviceClient
     .from('studios')

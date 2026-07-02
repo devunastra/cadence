@@ -119,7 +119,7 @@ const BULK_UPDATABLE_LEAD_FIELDS = new Set([
   'showed', 'bought', 'old', 'comments', 'available', 'texted',
 ])
 
-export async function bulkUpdateLeads(ids: string[], field: string, value: string | null) {
+export async function bulkUpdateLeads(ids: string[], field: string, value: string | boolean | null) {
   if (ids.length === 0) return
   if (!BULK_UPDATABLE_LEAD_FIELDS.has(field)) throw new Error('Invalid field')
   const { client, user } = await getAuthorizedClient()
@@ -930,6 +930,9 @@ export async function fetchLeadsPage({
   sortField?: string
   sortAscending?: boolean
 }): Promise<{ leads: Lead[]; total: number }> {
+  // Without a studio scope, a super_admin call would return leads across every
+  // studio (service client bypasses RLS) and pagination counts become meaningless.
+  if (!studioId) return { leads: [], total: 0 }
   const { client } = await getAuthorizedClient()
   const from = page * pageSize
   const to = from + pageSize - 1
@@ -2354,7 +2357,7 @@ export async function rescheduleAppointment(
   // Fetch full appointment so we can preserve all fields in the GHL PUT
   const { data: appt } = await supabase
     .from('appointments')
-    .select('calendar_id, studio_id, title, contact_id, contact_name, status, assigned_user_id, notes, address')
+    .select('calendar_id, studio_id, title, contact_id, contact_name, status, assigned_user_id, notes, address, start_time')
     .eq('id', appointmentId)
     .single()
 
@@ -2432,7 +2435,7 @@ export async function rescheduleAppointment(
     actor_email: user.email ?? null,
     event_type:  'appointment_rescheduled',
     source:      'app',
-    changes:     [{ field: 'start_time', old_value: null, new_value: newStartTime }],
+    changes:     [{ field: 'start_time', old_value: (appt as Record<string, unknown>).start_time ?? null, new_value: newStartTime }],
   }).then(() => {}, () => {})
 
   return { newId: ghlNewId }
@@ -2504,8 +2507,8 @@ export async function deleteAppointment(appointmentId: string): Promise<{ error?
 
 /** Returns "HH:MM" start times of non-cancelled appointments on the given date for a studio. */
 export async function fetchBookedSlotsForDate(studioId: string, date: string): Promise<string[]> {
-  const supabase = await createClient()
-  const { data } = await supabase
+  const { client } = await getAuthorizedClient()
+  const { data } = await client
     .from('appointments')
     .select('start_time')
     .eq('studio_id', studioId)
@@ -2528,7 +2531,7 @@ export async function updateAppointmentDetails(
 
   const { data: appt } = await supabase
     .from('appointments')
-    .select('calendar_id, studio_id, contact_id, contact_name')
+    .select('calendar_id, studio_id, contact_id, contact_name, title, notes')
     .eq('id', appointmentId)
     .single()
 
@@ -2566,8 +2569,8 @@ export async function updateAppointmentDetails(
   })
 
   const detailChanges = [
-    ...(updates.title !== undefined ? [{ field: 'title', old_value: null, new_value: updates.title ?? null }] : []),
-    ...(updates.notes !== undefined ? [{ field: 'notes', old_value: null, new_value: updates.notes ?? null }] : []),
+    ...(updates.title !== undefined ? [{ field: 'title', old_value: (appt as Record<string, unknown>).title ?? null, new_value: updates.title ?? null }] : []),
+    ...(updates.notes !== undefined ? [{ field: 'notes', old_value: (appt as Record<string, unknown>).notes ?? null, new_value: updates.notes ?? null }] : []),
   ]
   supabase.from('activity_logs').insert({
     studio_id:   appt.studio_id,
@@ -2827,7 +2830,7 @@ export async function updateAppointmentStatus(
 
   const { data: appt } = await supabase
     .from('appointments')
-    .select('calendar_id, studio_id, contact_id, contact_name')
+    .select('calendar_id, studio_id, contact_id, contact_name, status')
     .eq('id', appointmentId)
     .single()
 
@@ -2874,7 +2877,7 @@ export async function updateAppointmentStatus(
     actor_email: user.email ?? null,
     event_type:  'appointment_updated',
     source:      'app',
-    changes:     [{ field: 'status', old_value: null, new_value: status }],
+    changes:     [{ field: 'status', old_value: (appt as Record<string, unknown>).status ?? null, new_value: status }],
   }).then(() => {}, () => {})
 
   return {}

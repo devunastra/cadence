@@ -6,10 +6,16 @@ import { AlertCircle, AlertTriangle, CheckCircle2, X } from 'lucide-react'
 
 type ToastVariant = 'error' | 'success' | 'warning'
 
+interface ToastAction {
+  label: string
+  onClick: () => void
+}
+
 interface Toast {
   id: string
   message: string
   variant: ToastVariant
+  action?: ToastAction
 }
 
 interface ToastContextValue {
@@ -23,6 +29,12 @@ interface ToastContextValue {
    * `sessionStorage` and replayed on mount.
    */
   showDeferred: (variant: ToastVariant, message: string) => void
+  /**
+   * Show a toast with a single action button (e.g. Undo). The toast
+   * auto-dismisses at the standard duration; clicking the action fires
+   * onAction and dismisses immediately.
+   */
+  showAction: (variant: ToastVariant, message: string, action: ToastAction) => void
 }
 
 const ToastContext = createContext<ToastContextValue>({
@@ -30,6 +42,7 @@ const ToastContext = createContext<ToastContextValue>({
   showSuccess: () => {},
   showWarning: () => {},
   showDeferred: () => {},
+  showAction: () => {},
 })
 
 const DEFERRED_STORAGE_KEY = 'cadence_deferred_toasts'
@@ -68,6 +81,15 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
     >
       <Icon size={16} color={color} className="flex-shrink-0 mt-0.5" />
       <span className="flex-1 leading-snug">{toast.message}</span>
+      {toast.action && (
+        <button
+          onClick={() => { toast.action!.onClick(); onDismiss(toast.id) }}
+          className="flex-shrink-0 text-sm font-semibold transition-opacity hover:opacity-80"
+          style={{ color }}
+        >
+          {toast.action.label}
+        </button>
+      )}
       <button
         onClick={() => onDismiss(toast.id)}
         className="flex-shrink-0 transition-opacity hover:opacity-60"
@@ -80,9 +102,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
 }
 
 function ToastStack({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: string) => void }) {
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
-  if (!mounted || toasts.length === 0) return null
+  if (typeof document === 'undefined' || toasts.length === 0) return null
 
   return createPortal(
     <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-2" style={{ pointerEvents: 'none' }}>
@@ -104,10 +124,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToasts(prev => prev.filter(t => t.id !== id))
   }, [])
 
-  const push = useCallback((variant: ToastVariant, message: string) => {
+  const push = useCallback((variant: ToastVariant, message: string, action?: ToastAction) => {
     const id = String(++counterRef.current)
     setToasts(prev => {
-      const next = [...prev, { id, message, variant }]
+      const next = [...prev, { id, message, variant, action }]
       return next.length > MAX_TOASTS ? next.slice(next.length - MAX_TOASTS) : next
     })
   }, [])
@@ -115,6 +135,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const showError = useCallback((message: string) => push('error', message), [push])
   const showSuccess = useCallback((message: string) => push('success', message), [push])
   const showWarning = useCallback((message: string) => push('warning', message), [push])
+  const showAction = useCallback((variant: ToastVariant, message: string, action: ToastAction) => push(variant, message, action), [push])
 
   // showDeferred queues a toast for the *next* page load. Stash it in
   // sessionStorage now; the mount-time effect below replays it via push().
@@ -154,7 +175,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, [push])
 
   return (
-    <ToastContext.Provider value={{ showError, showSuccess, showWarning, showDeferred }}>
+    <ToastContext.Provider value={{ showError, showSuccess, showWarning, showDeferred, showAction }}>
       {children}
       <ToastStack toasts={toasts} onDismiss={dismiss} />
     </ToastContext.Provider>

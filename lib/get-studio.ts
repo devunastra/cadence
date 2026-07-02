@@ -1,10 +1,10 @@
 import { createServiceClient } from '@/lib/supabase/server'
-import { getSelectedStudioId } from '@/lib/data-cache'
+import { getValidatedSelectedStudioId } from '@/lib/data-cache'
 
 /** Resolve the active studio's GHL credentials for the given user. Server-side only. */
 export async function getStudio(userId: string) {
   const serviceClient = createServiceClient()
-  const selectedStudioId = await getSelectedStudioId()
+  const selectedStudioId = await getValidatedSelectedStudioId(userId)
 
   let studioQuery = serviceClient.from('studios').select('id, ghl_account_id, ghl_api_key')
 
