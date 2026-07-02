@@ -902,8 +902,7 @@ export default function ConversationsPage() {
     useEffect(() => {
         if (!studioId) return;
         const supabase = createClient();
-        console.log("[realtime] Subscribing to conversations for studio:", studioId);
-        
+
         const channel = supabase
             .channel("conversations-realtime")
             .on(
@@ -915,7 +914,6 @@ export default function ConversationsPage() {
                     filter: `studio_id=eq.${studioId}`,
                 },
                 (payload) => {
-                    console.log("[realtime] Conversation event:", payload.eventType, payload.new);
                     if (payload.eventType === "DELETE") return;
                     
                     const row = payload.new as Record<string, any>;
@@ -950,10 +948,8 @@ export default function ConversationsPage() {
                     });
                 },
             )
-            .subscribe((status) => {
-                console.log("[realtime] Conversations subscription status:", status);
-            });
-            
+            .subscribe();
+
         return () => {
             supabase.removeChannel(channel);
         };
@@ -963,8 +959,7 @@ export default function ConversationsPage() {
     useEffect(() => {
         if (!selectedId) return;
         const supabase = createClient();
-        console.log("[realtime] Subscribing to messages for conversation:", selectedId);
-        
+
         const channel = supabase
             .channel(`messages-realtime-${selectedId}`)
             .on(
@@ -975,14 +970,11 @@ export default function ConversationsPage() {
                     table: "messages",
                     filter: `conversation_id=eq.${selectedId}`,
                 },
-                (payload) => {
-                    console.log("[realtime] New message detected:", payload.new.id);
+                () => {
                     fetchMessages(selectedId);
                 },
             )
-            .subscribe((status) => {
-                console.log("[realtime] Messages subscription status:", status);
-            });
+            .subscribe();
             
         return () => {
             supabase.removeChannel(channel);

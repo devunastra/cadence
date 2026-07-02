@@ -119,6 +119,12 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
     return () => { cancelled = true }
   }, [studioId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Clear cached lead lookups when the active studio changes so a slow
+  // still-in-flight lead fetch from the previous studio can't briefly write
+  // its map after the new studio's appointments have loaded — during that
+  // window the UI would match new appointments against old lead data.
+  useEffect(() => { setContactLeadMap({}) }, [studioId])
+
   useEffect(() => {
     const ids = buildContactMap(appointments)
     if (!ids.length) return
