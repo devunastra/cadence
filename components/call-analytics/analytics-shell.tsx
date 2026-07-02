@@ -3,7 +3,8 @@
 import { useState, useTransition, useRef, useEffect } from 'react'
 import { useMounted, useIsMobile } from '@/lib/hooks'
 import { Spinner } from '@/components/spinner'
-import { fetchCallsAnalytics, saveAnalyticsPreferences, savePageFilters } from '@/app/actions'
+import { fetchCallsAnalytics, fetchLeadFunnelAnalytics, saveAnalyticsPreferences, savePageFilters } from '@/app/actions'
+import type { LeadFunnelAnalyticsData } from '@/app/actions'
 import { createClient } from '@/lib/supabase/client'
 import { groupCallsByDay } from '@/lib/date-utils'
 import { useCurrentStudio } from '@/components/studio-context'
@@ -19,6 +20,8 @@ import { VolumeChart } from './charts/volume-chart'
 import { DisconnectChart } from './charts/disconnect-chart'
 import { SuccessChart } from './charts/success-chart'
 import { SentimentChart } from './charts/sentiment-chart'
+import { FunnelChart } from './charts/funnel-chart'
+import { LeadSourceChart } from './charts/lead-source-chart'
 import { TranscriptsPanel } from './transcripts-panel'
 import { DateRangePickerPopup } from './date-range-picker-popup'
 import { TranscriptsFilterBar, TranscriptFilters, DEFAULT_FILTERS } from './transcripts-filter-bar'
@@ -35,6 +38,11 @@ const EMPTY_ANALYTICS: CallAnalyticsData = {
   sentimentCounts: {},
   disconnectCounts: {},
   outcomeCounts: {},
+}
+
+const EMPTY_LEAD_FUNNEL: LeadFunnelAnalyticsData = {
+  funnel: { created: 0, booked: 0, showed: 0, bought: 0 },
+  bySource: [],
 }
 
 interface AnalyticsShellProps {
@@ -72,6 +80,7 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
     return { from, to, preset: '7d' as DatePreset }
   })()
   const [data,       setData]      = useState<CallAnalyticsData>(EMPTY_ANALYTICS)
+  const [leadFunnel, setLeadFunnel] = useState<LeadFunnelAnalyticsData>(EMPTY_LEAD_FUNNEL)
   const [range,      setRange]     = useState<DateRange>(defaultRange)
   const [initialLoading, setInitialLoading] = useState(true)
   const [filters,    setFilters]   = useState<TranscriptFilters>({ ...DEFAULT_FILTERS })
@@ -92,6 +101,11 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
   // Fetch initial data on mount
   useEffect(() => {
     let cancelled = false
+    // Lead funnel runs in parallel with the call query; it's a small server-action
+    // roundtrip. Failure is non-fatal — the section just stays empty.
+    fetchLeadFunnelAnalytics(studioId, defaultRange.from.toISOString(), defaultRange.to.toISOString())
+      .then(result => { if (!cancelled) setLeadFunnel(result) })
+      .catch(() => {})
     const supabase = createClient()
     supabase
       .from('calls')
@@ -157,8 +171,12 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
     setRange(newRange)
     saveAnalyticsPreferences(studioId, filters.direction, preset).catch(() => {})
     startTransition(async () => {
-      const result = await fetchCallsAnalytics(studioId, from.toISOString(), to.toISOString())
-      setData(result)
+      const [callResult, leadResult] = await Promise.all([
+        fetchCallsAnalytics(studioId, from.toISOString(), to.toISOString()),
+        fetchLeadFunnelAnalytics(studioId, from.toISOString(), to.toISOString()).catch(() => EMPTY_LEAD_FUNNEL),
+      ])
+      setData(callResult)
+      setLeadFunnel(leadResult)
       setChartKey(k => k + 1)
     })
   }
@@ -171,8 +189,12 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
       return
     }
     startTransition(async () => {
-      const result = await fetchCallsAnalytics(studioId, range.from.toISOString(), range.to.toISOString())
-      setData(result)
+      const [callResult, leadResult] = await Promise.all([
+        fetchCallsAnalytics(studioId, range.from.toISOString(), range.to.toISOString()),
+        fetchLeadFunnelAnalytics(studioId, range.from.toISOString(), range.to.toISOString()).catch(() => EMPTY_LEAD_FUNNEL),
+      ])
+      setData(callResult)
+      setLeadFunnel(leadResult)
       setChartKey(k => k + 1)
     })
   }
@@ -394,6 +416,55 @@ export function AnalyticsShell({ studioId, initialTab }: AnalyticsShellProps) {
             >
               {() => <SentimentChart counts={sentimentCounts} />}
             </KpiCard>
+          </div>
+
+          {/* Leads section — lead-side counterpart to the call-side charts above.
+              Scoped to leads.created_at within the same date range. */}
+          <div className="pt-1">
+            <h2 className="text-sm font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+              Leads
+            </h2>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <KpiCard
+                title="Conversion Funnel"
+                description="How new leads moved through Created → Booked (first_lesson set) → Showed → Bought within the selected range. Percentages show conversion from the previous stage."
+                value={leadFunnel.funnel.created === 0
+                  ? '—'
+                  : `${Math.round((leadFunnel.funnel.bought / leadFunnel.funnel.created) * 100)}% created → bought`}
+                summary={<>
+                  <p><span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{leadFunnel.funnel.created}</span> new leads created</p>
+                  <p><span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{leadFunnel.funnel.booked}</span> booked a first lesson</p>
+                  <p><span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{leadFunnel.funnel.showed}</span> showed up</p>
+                  <p><span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{leadFunnel.funnel.bought}</span> bought</p>
+                </>}
+                availableChartTypes={['bar']}
+                defaultChartType="bar"
+              >
+                {() => <FunnelChart funnel={leadFunnel.funnel} />}
+              </KpiCard>
+
+              <KpiCard
+                title="Leads by Source"
+                description="Where new leads in the selected range came from. Sources use their configured color; sources left at the default gray fall back to a rotating palette so slices stay distinguishable."
+                value={`${leadFunnel.funnel.created} leads`}
+                summary={<>
+                  {leadFunnel.bySource.slice(0, 6).map(s => {
+                    const total = leadFunnel.funnel.created
+                    return (
+                      <p key={s.source}>
+                        <span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{s.count}</span>{' '}
+                        {s.source} {total ? `(${Math.round((s.count / total) * 100)}%)` : ''}
+                      </p>
+                    )
+                  })}
+                  {leadFunnel.bySource.length === 0 && <p>No leads in range.</p>}
+                </>}
+                availableChartTypes={['donut']}
+                defaultChartType="donut"
+              >
+                {() => <LeadSourceChart bySource={leadFunnel.bySource} />}
+              </KpiCard>
+            </div>
           </div>
               </div>
             </div>
