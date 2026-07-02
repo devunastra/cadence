@@ -404,6 +404,12 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
   const debouncedSearch = useRef(search)
   // Cache tab results to avoid re-fetching on tab switch
   const tabCache = useRef<Record<string, { calls: CallHistoryRow[]; total: number }>>({})
+  // Mirror the state the Realtime handler needs, so we can subscribe once per
+  // studio instead of tearing down + re-subscribing on every tab / page / filter
+  // change. Without this, the handler closed over stale values between deps
+  // update and effect re-run and could either prepend a call to the wrong tab or
+  // drop one on the current tab.
+  const realtimeStateRef = useRef({ tab: 'all' as Tab, page: 1, pageSize: 50, filters: DEFAULT_FILTERS })
 
   function cacheKey(t: Tab, s: string, f: CallHistoryFilters, srt: { field: string; ascending: boolean }, p: number, ps: number) {
     return JSON.stringify({ t, s, f, srt, p, ps })
@@ -456,7 +462,14 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
     return () => clearTimeout(t)
   }, [mounted, studioId, filters, sort]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Realtime subscription for new calls
+  // Keep the Realtime-state ref in sync with React state.
+  useEffect(() => {
+    realtimeStateRef.current = { tab, page, pageSize, filters }
+  }, [tab, page, pageSize, filters])
+
+  // Realtime subscription for new calls — subscribes once per studio; the handler
+  // reads current tab / page / pageSize / filters via the ref above, so it stays
+  // correct across state changes without needing to re-subscribe.
   useEffect(() => {
     const supabase = createClient()
     const channel = supabase
@@ -469,17 +482,18 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
       }, (payload) => {
         // Invalidate tab cache when new data arrives
         tabCache.current = {}
+        const { tab: curTab, page: curPage, pageSize: curPageSize, filters: curFilters } = realtimeStateRef.current
         // Only prepend if on page 1 of All Calls tab with no active search
-        if (tab === 'all' && page === 1 && !debouncedSearch.current && activeFilterCount(filters) === 0) {
+        if (curTab === 'all' && curPage === 1 && !debouncedSearch.current && activeFilterCount(curFilters) === 0) {
           const newCall = payload.new as CallHistoryRow
-          setCalls(prev => [{ ...newCall, lead_name: null, lead_phone: null }, ...prev].slice(0, pageSize))
+          setCalls(prev => [{ ...newCall, lead_name: null, lead_phone: null }, ...prev].slice(0, curPageSize))
           setTotal(prev => prev + 1)
         }
       })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [studioId, tab, page, pageSize, filters]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [studioId])
 
   // Realtime subscription on call_reviews — flips Result label live when a review arrives.
   useEffect(() => {
