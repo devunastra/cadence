@@ -2354,7 +2354,7 @@ export async function rescheduleAppointment(
   // Fetch full appointment so we can preserve all fields in the GHL PUT
   const { data: appt } = await supabase
     .from('appointments')
-    .select('calendar_id, studio_id, title, contact_id, contact_name, status, assigned_user_id, notes, address')
+    .select('calendar_id, studio_id, title, contact_id, contact_name, status, assigned_user_id, notes, address, start_time')
     .eq('id', appointmentId)
     .single()
 
@@ -2432,7 +2432,7 @@ export async function rescheduleAppointment(
     actor_email: user.email ?? null,
     event_type:  'appointment_rescheduled',
     source:      'app',
-    changes:     [{ field: 'start_time', old_value: null, new_value: newStartTime }],
+    changes:     [{ field: 'start_time', old_value: (appt as Record<string, unknown>).start_time ?? null, new_value: newStartTime }],
   }).then(() => {}, () => {})
 
   return { newId: ghlNewId }
@@ -2528,7 +2528,7 @@ export async function updateAppointmentDetails(
 
   const { data: appt } = await supabase
     .from('appointments')
-    .select('calendar_id, studio_id, contact_id, contact_name')
+    .select('calendar_id, studio_id, contact_id, contact_name, title, notes')
     .eq('id', appointmentId)
     .single()
 
@@ -2566,8 +2566,8 @@ export async function updateAppointmentDetails(
   })
 
   const detailChanges = [
-    ...(updates.title !== undefined ? [{ field: 'title', old_value: null, new_value: updates.title ?? null }] : []),
-    ...(updates.notes !== undefined ? [{ field: 'notes', old_value: null, new_value: updates.notes ?? null }] : []),
+    ...(updates.title !== undefined ? [{ field: 'title', old_value: (appt as Record<string, unknown>).title ?? null, new_value: updates.title ?? null }] : []),
+    ...(updates.notes !== undefined ? [{ field: 'notes', old_value: (appt as Record<string, unknown>).notes ?? null, new_value: updates.notes ?? null }] : []),
   ]
   supabase.from('activity_logs').insert({
     studio_id:   appt.studio_id,
@@ -2827,7 +2827,7 @@ export async function updateAppointmentStatus(
 
   const { data: appt } = await supabase
     .from('appointments')
-    .select('calendar_id, studio_id, contact_id, contact_name')
+    .select('calendar_id, studio_id, contact_id, contact_name, status')
     .eq('id', appointmentId)
     .single()
 
@@ -2874,7 +2874,7 @@ export async function updateAppointmentStatus(
     actor_email: user.email ?? null,
     event_type:  'appointment_updated',
     source:      'app',
-    changes:     [{ field: 'status', old_value: null, new_value: status }],
+    changes:     [{ field: 'status', old_value: (appt as Record<string, unknown>).status ?? null, new_value: status }],
   }).then(() => {}, () => {})
 
   return {}

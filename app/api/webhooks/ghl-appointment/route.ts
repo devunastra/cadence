@@ -88,6 +88,13 @@ export async function POST(req: Request) {
         source:      'ghl',
       }),
     ])
+    // Recompute first_lesson — if the deleted appointment was the earliest,
+    // fall back to the next-earliest (or null).
+    try {
+      await syncAppointmentFirstLesson(supabase, { studioId: studio.id, contactId })
+    } catch (err) {
+      console.error('[ghl-appointment] first_lesson sync (delete) failed', err)
+    }
     return NextResponse.json({ ok: true })
   }
 
