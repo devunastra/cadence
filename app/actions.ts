@@ -2554,8 +2554,8 @@ export async function deleteAppointment(appointmentId: string): Promise<{ error?
 
 /** Returns "HH:MM" start times of non-cancelled appointments on the given date for a studio. */
 export async function fetchBookedSlotsForDate(studioId: string, date: string): Promise<string[]> {
-  const supabase = await createClient()
-  const { data } = await supabase
+  const { client } = await getAuthorizedClient()
+  const { data } = await client
     .from('appointments')
     .select('start_time')
     .eq('studio_id', studioId)
