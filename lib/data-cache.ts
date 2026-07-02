@@ -27,6 +27,25 @@ export const getSelectedStudioId = cache(async () => {
   return cookieStore.get('selected_studio_id')?.value ?? null
 })
 
+// The cookie above is user-controlled. Any code path that uses the selected
+// studio to pick which studio's credentials/keys to load (GHL, Retell, etc.)
+// MUST validate membership first — otherwise an authenticated user can set the
+// cookie to any studio UUID and proxy calls as another studio. Returns null
+// when the cookie's studio isn't in the user's memberships and they aren't
+// super_admin, so callers fall back to their first membership.
+export const getValidatedSelectedStudioId = cache(async (userId: string): Promise<string | null> => {
+  const cookieValue = await getSelectedStudioId()
+  if (!cookieValue) return null
+  const serviceClient = createServiceClient()
+  const { data: memberships } = await serviceClient
+    .from('studio_users')
+    .select('studio_id, role')
+    .eq('user_id', userId)
+  const isSuper = memberships?.some((m) => m.role === 'super_admin') ?? false
+  const isMember = memberships?.some((m) => m.studio_id === cookieValue) ?? false
+  return isSuper || isMember ? cookieValue : null
+})
+
 export const getStudios = cache(async (isSuper: boolean, studioIds: string[]) => {
   if (isSuper) {
     const serviceClient = createServiceClient()

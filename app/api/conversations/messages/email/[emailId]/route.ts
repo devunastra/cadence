@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { ghlFetch } from '@/lib/ghl'
-import { getSelectedStudioId } from '@/lib/data-cache'
+import { getValidatedSelectedStudioId } from '@/lib/data-cache'
 
 async function getApiKey(userId: string) {
   const serviceClient = createServiceClient()
-  const selectedStudioId = await getSelectedStudioId()
+  const selectedStudioId = await getValidatedSelectedStudioId(userId)
 
   let query = serviceClient.from('studios').select('ghl_api_key')
   if (selectedStudioId) {

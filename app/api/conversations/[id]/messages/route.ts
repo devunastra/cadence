@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { ghlFetch } from '@/lib/ghl'
 import { checkRateLimit, MESSAGE_LIMIT } from '@/lib/rate-limit'
-import { getSelectedStudioId } from '@/lib/data-cache'
+import { getValidatedSelectedStudioId } from '@/lib/data-cache'
 
 async function validateUserAndGetApiKey() {
   const supabase = await createClient()
@@ -11,7 +11,7 @@ async function validateUserAndGetApiKey() {
   const user = session.user
 
   const serviceClient = createServiceClient()
-  const selectedStudioId = await getSelectedStudioId()
+  const selectedStudioId = await getValidatedSelectedStudioId(user.id)
 
   let studioQuery = serviceClient.from('studios').select('id, ghl_api_key, timezone')
 
