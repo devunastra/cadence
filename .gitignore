@@ -39,3 +39,6 @@ deno.lock
 
 # Notion reconciliation audit output (contains lead PII)
 .notion-audit/
+
+# Retell flow audit dumps (contain live tool auth tokens)
+.audit-*.json
