@@ -228,6 +228,21 @@ export async function POST(req: Request) {
     }
   }
 
+  // Action → "Scheduled" — a successful booking flips the lead's Action so the
+  // dash and Notion both show it without manual edits. Creation only: status
+  // updates and reschedules must not re-assert it (a later cancellation flow
+  // may want to set something else entirely).
+  if (verb === 'Created' && row.contact_id) {
+    try {
+      await syncLeadActionScheduled(supabase, {
+        studioId: studio.id,
+        contactId: row.contact_id,
+      })
+    } catch (err) {
+      console.error('[ghl-appointment] action=Scheduled sync failed', err)
+    }
+  }
+
   // first_lesson → Notion sync — runs on Created and on any Update that may have
   // changed the time (AppointmentUpdate covers reschedules sent without the
   // explicit AppointmentReschedule type). Skipped for status-only updates.
@@ -362,6 +377,68 @@ async function syncAppointmentFirstLesson(
     studioId,
     notionPageId: lead.notion_page_id,
     fields: { first_lesson: newFirstLesson },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Action → "Scheduled" on booking.
+//
+// leads.action stores studio_field_options UUIDs, so the studio's "Scheduled"
+// option is resolved first; a studio without that exact option is skipped.
+// Unlike the first_lesson sync above, the Supabase write is NOT gated by
+// studios.notion_sync_appointments — the dash must be correct even for studios
+// with no Notion board. Only the Notion push shares that gate. Idempotent:
+// a GHL retry finds action already set and exits before touching Notion.
+// ---------------------------------------------------------------------------
+async function syncLeadActionScheduled(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  args: { studioId: string; contactId: string },
+): Promise<void> {
+  const { studioId, contactId } = args
+
+  const { data: lead } = await supabase
+    .from('leads')
+    .select('id, action, notion_page_id')
+    .eq('studio_id', studioId)
+    .eq('ghl_contact_id', contactId)
+    .limit(1)
+    .maybeSingle()
+  if (!lead) return
+
+  const { data: option } = await supabase
+    .from('studio_field_options')
+    .select('id, value')
+    .eq('studio_id', studioId)
+    .eq('field', 'action')
+    .eq('value', 'Scheduled')
+    .limit(1)
+    .maybeSingle()
+  if (!option) {
+    console.warn(`[ghl-appointment] studio ${studioId} has no "Scheduled" action option — skipped`)
+    return
+  }
+
+  if (lead.action === option.id) return
+
+  const { error: updateErr } = await supabase
+    .from('leads')
+    .update({ action: option.id })
+    .eq('id', lead.id)
+  if (updateErr) throw updateErr
+
+  const { data: studioRow } = await supabase
+    .from('studios')
+    .select('notion_sync_appointments')
+    .eq('id', studioId)
+    .single()
+  if (!studioRow?.notion_sync_appointments) return
+
+  await syncLeadUpdateToNotion(supabase, {
+    leadId: lead.id,
+    studioId,
+    notionPageId: lead.notion_page_id,
+    fields: { action: option.value },
   })
 }
 

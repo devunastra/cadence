@@ -133,3 +133,27 @@ No schema changes to `leads`, `appointments`, or `user_preferences`.
 3. **Timezone is handled by existing helpers.** `syncLeadUpdateToNotion` fetches `studios.timezone` and passes it to `buildNotionProperties`. For a `first_lesson` ISO with time, `notionDateValue` converts to studio-local wall-clock and emits `{ start, time_zone }` so Notion shows the correct local time. The webhook helper writes a canonical UTC ISO via `new Date(start_time).toISOString()`.
 4. **`leads.first_lesson` is `text` by design.** See `rules/architecture.md` § "Date columns stored as `text`". The helper produces canonical ISO strings to match the existing contract.
 5. **n8n is not in the loop for this feature.** The webhook consumes existing GHL appointment events. The n8n reschedule relay (line 94 comment) already sends `AppointmentReschedule` for the existing chip feature; no new n8n work required.
+
+---
+
+## Addendum (2026-07-03): Action → "Scheduled" on booking
+
+Client-reported gap (2026-07-01 booking): when the AI booked, the lead's **Action** stayed "AI Called" on the dash and in Notion — the client had to set "Scheduled" manually in Notion. Root cause: no system wrote Action on booking. n8n sets "AI Called" at dial time and "Did Not Answer" post-call, but the booking path (n8n `Update Dashboard` → this webhook) never touched Action.
+
+**Fix** — `syncLeadActionScheduled` in the same webhook, called on `verb === 'Created'` only (not reschedules, not status updates, not deletes):
+
+```
+1. Look up lead by (studio_id, ghl_contact_id). No lead → skip.
+2. Resolve the studio's studio_field_options row (field='action', value='Scheduled').
+   Missing option → skip with console.warn (leads.action stores option UUIDs, not labels).
+3. lead.action already that id → exit (GHL-retry no-op).
+4. UPDATE leads SET action = <option id>  — NOT gated by notion_sync_appointments;
+   the dash must be right even for studios with no Notion board.
+5. Notion push via syncLeadUpdateToNotion({ action: 'Scheduled' }) — label per the
+   NOTION_ENUM_FIELDS contract — gated by studios.notion_sync_appointments,
+   same as the first_lesson sync.
+```
+
+Covers every booking source that reaches this webhook: AI bookings (n8n `Update Dashboard` sends no `type` → verb `Created`), in-app calendar bookings (GHL fires the webhook back), native GHL bookings.
+
+**Open product questions (deliberately not built):** cancellation does not revert Action; booking overwrites any prior Action value (including "DO NOT CALL") — flagged to client, awaiting their call.
