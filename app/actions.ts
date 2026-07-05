@@ -2992,6 +2992,17 @@ export async function updateAppointmentStatus(
     .eq('id', appt.studio_id)
     .single()
 
+  // Verify user has membership for this studio
+  const { data: membership } = await authClient
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('studio_id', appt.studio_id)
+    .maybeSingle()
+  const { data: allMemberships } = await authClient.from('studio_users').select('role').eq('user_id', user.id)
+  const isSuperAdmin = allMemberships?.some(m => m.role === 'super_admin') ?? false
+  if (!membership && !isSuperAdmin) return { error: 'Unauthorized' }
+
   try {
     await patchGHLAppointmentDetails(appointmentId, appt.calendar_id, { appointmentStatus: status }, studio?.ghl_api_key ?? undefined)
   } catch {
