@@ -1685,7 +1685,9 @@ export async function syncRetellCallsNow(studioId: string): Promise<{ synced: nu
     ? new Date(latest.created_at).getTime() - 60_000
     : Date.now() - 7 * 24 * 60 * 60 * 1000
 
-  const res = await fetch('https://api.retellai.com/v2/list-calls', {
+  // v3 list-calls (v2 deprecated by Retell, June 2026). Request body is unchanged from v2;
+  // the response moved from a bare array to { items, pagination_key, has_more }.
+  const res = await fetch('https://api.retellai.com/v3/list-calls', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1698,15 +1700,62 @@ export async function syncRetellCallsNow(studioId: string): Promise<{ synced: nu
   if (!res.ok) return { synced: 0, error: `Retell API error: ${res.status}` }
 
   const data = await res.json()
-  const calls: unknown[] = Array.isArray(data) ? data : (data.calls ?? [])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const calls: any[] = Array.isArray(data) ? data : (data.items ?? data.calls ?? [])
   if (!calls.length) return { synced: 0 }
 
-  const rows = calls.map(c => mapRetellCallSync(studioId, c))
-  const { error } = await supabase.from('calls').upsert(rows, { onConflict: 'retell_call_id' })
-  if (error) return { synced: 0, error: error.message }
+  // v3 list items no longer carry transcript or metadata (v2 items did). Calls we don't
+  // yet have a full record for (new rows, or rows stored mid-call with no transcript /
+  // duration) need a get-call detail fetch; the rest get a stats-only refresh that must
+  // never overwrite transcript or lead_id.
+  const listedIds = calls.map(c => c.call_id).filter(Boolean)
+  const { data: existingRows } = await supabase
+    .from('calls')
+    .select('retell_call_id, transcript, duration_seconds')
+    .in('retell_call_id', listedIds)
+  const statsOnly = new Set(
+    (existingRows ?? [])
+      .filter(r => r.transcript != null && r.duration_seconds != null)
+      .map(r => r.retell_call_id)
+  )
+
+  const fullRows: ReturnType<typeof mapRetellCallSync>[] = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const statRows: any[] = []
+  for (const c of calls) {
+    if (statsOnly.has(c.call_id)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const stats: any = { ...mapRetellCallSync(studioId, c) }
+      delete stats.transcript
+      delete stats.lead_id
+      statRows.push(stats)
+    } else {
+      try {
+        const detailRes = await fetch(`https://api.retellai.com/v2/get-call/${c.call_id}`, {
+          headers: { 'Authorization': `Bearer ${apiKey}` },
+        })
+        if (!detailRes.ok) continue
+        fullRows.push(mapRetellCallSync(studioId, await detailRes.json()))
+      } catch {
+        // Non-fatal — the call stays unsynced and is retried on the next sync
+      }
+    }
+  }
+
+  if (fullRows.length > 0) {
+    const { error } = await supabase.from('calls').upsert(fullRows, { onConflict: 'retell_call_id' })
+    if (error) return { synced: 0, error: error.message }
+  }
+  if (statRows.length > 0) {
+    const { error } = await supabase.from('calls').upsert(statRows, { onConflict: 'retell_call_id' })
+    if (error) return { synced: fullRows.length, error: error.message }
+  }
 
   // Link unlinked calls to leads via Retell dynamic variables (email / phone)
-  const retellIds = rows.filter(r => !r.lead_id).map(r => r.retell_call_id)
+  const retellIds = [
+    ...fullRows.filter(r => !r.lead_id).map(r => r.retell_call_id),
+    ...statRows.map(r => r.retell_call_id),
+  ]
   if (retellIds.length > 0) {
     const { data: unlinked } = await supabase
       .from('calls')
@@ -1759,7 +1808,7 @@ export async function syncRetellCallsNow(studioId: string): Promise<{ synced: nu
     }
   }
 
-  return { synced: rows.length }
+  return { synced: fullRows.length + statRows.length }
 }
 
 // ── Call Analytics ─────────────────────────────────────────────────────────────
