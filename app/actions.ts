@@ -12,23 +12,23 @@ import type { FieldOption } from '@/lib/field-options'
 import { reconcileSourceDetail } from '@/lib/source-kinds'
 import type { SourceDetail } from '@/lib/source-kinds'
 import { NOTION_COLORS } from '@/lib/constants'
+import { naiveTzPartsToUtcIso } from '@/lib/date-utils'
 
-// Converts a naive studio-local ISO string ("2026-05-08T17:00:00") to a UTC ISO string
-// by formatting that naive moment in the studio's timezone and computing the offset.
+// Converts a naive studio-local ISO string ("2026-05-08T17:00:00") to a UTC ISO
+// string. Delegates to naiveTzPartsToUtcIso which handles DST cutover correctly
+// with a two-pass self-correction.
 function naiveStudioLocalToUtcIso(naiveLocal: string, tz: string): string {
-  const dt = new Date(naiveLocal + 'Z') // treat as UTC first to get a Date object
-  // Find the UTC offset that `tz` has at that moment by formatting the UTC date in tz
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  }).formatToParts(dt)
-  const p = Object.fromEntries(fmt.map(({ type, value }) => [type, value]))
-  const localIso = `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`
-  const utcMs = dt.getTime()
-  const localAsUtcMs = new Date(localIso + 'Z').getTime()
-  const offsetMs = localAsUtcMs - utcMs
-  return new Date(new Date(naiveLocal + 'Z').getTime() - offsetMs).toISOString()
+  const m = naiveLocal.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
+  if (!m) throw new Error(`Invalid naive ISO string: ${naiveLocal}`)
+  const [, y, mo, d, h, mi] = m
+  return naiveTzPartsToUtcIso(
+    parseInt(y, 10),
+    parseInt(mo, 10) - 1, // naiveTzPartsToUtcIso expects 0-based month
+    parseInt(d, 10),
+    parseInt(h, 10),
+    parseInt(mi, 10),
+    tz,
+  )
 }
 
 export async function setSelectedStudio(studioId: string) {
@@ -3114,7 +3114,18 @@ export async function triggerCallAnalysis(
     .in('role', ['super_admin', 'studio_owner'])
     .maybeSingle()
 
-  if (!membership) throw new Error('Access denied')
+  // Super_admins are not required to have a studio_users row for every studio —
+  // the membership query returns null in that case. Fall back to a global check
+  // so cross-studio super_admin actions don't false-deny. Same pattern as
+  // syncRetellCallsNow and updateStudio.
+  const authClient = await createClient()
+  const { data: allMemberships } = await authClient
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+  const isSuperAdmin = allMemberships?.some(m => m.role === 'super_admin') ?? false
+
+  if (!membership && !isSuperAdmin) throw new Error('Access denied')
 
   // Use a regular user client for session — service client won't have one
   const userClient = await createClient()
