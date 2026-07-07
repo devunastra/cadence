@@ -162,7 +162,7 @@ Deno.serve(async (req) => {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-          model: "gpt-5.5",
+          model: "gpt-4o",
           temperature: 1,
           max_completion_tokens: 1500,
           response_format: { type: "json_object" },
@@ -224,7 +224,7 @@ Deno.serve(async (req) => {
         follow_up_reason: parsed.follow_up_reason ?? null,
         topics_discussed: parsed.topics_discussed ?? [],
         raw_ai_response: parsed,
-        model_used: "gpt-5.5",
+        model_used: "gpt-4o",
         trigger_type: "realtime",
       },
       { onConflict: "call_id" },
