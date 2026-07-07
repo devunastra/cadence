@@ -461,8 +461,8 @@ export async function createStudio({
     .select('role')
     .eq('user_id', user.id)
 
-  const isOwnerOrAbove = memberships?.some(m => m.role === 'super_admin' || m.role === 'studio_owner') ?? false
-  if (!isOwnerOrAbove) throw new Error('Forbidden')
+  const isSuperAdmin = memberships?.some(m => m.role === 'super_admin') ?? false
+  if (!isSuperAdmin) throw new Error('Forbidden')
 
   const location = [city, state].filter(Boolean).join(', ')
   const serviceClient = createServiceClient()
@@ -488,12 +488,6 @@ export async function createStudio({
     .single()
 
   if (error) throw new Error(error.message)
-
-  // Add the creator as studio_owner if they are not a super_admin
-  const isSuperAdmin = memberships?.some(m => m.role === 'super_admin') ?? false
-  if (!isSuperAdmin && studio) {
-    await serviceClient.from('studio_users').insert({ studio_id: studio.id, user_id: user.id, role: 'studio_owner' })
-  }
 
   // Seed default enum options (status / level / action / source / reason /
   // partnership) so the leads form has dropdown values to pick from on day one.
@@ -1612,7 +1606,7 @@ function mapRetellCallSync(studioId: string, call: any) {
   return {
     studio_id:           studioId,
     retell_call_id:      call.call_id,
-    created_at:          new Date(call.start_timestamp).toISOString(),
+    created_at:          call.start_timestamp ? new Date(call.start_timestamp).toISOString() : null,
     duration_seconds:    durationSeconds,
     sentiment,
     outcome:             call.call_analysis?.call_successful === true ? 'successful'
@@ -1725,6 +1719,10 @@ export async function syncRetellCallsNow(studioId: string): Promise<{ synced: nu
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const statRows: any[] = []
   for (const c of calls) {
+    // Skip calls that haven't started yet — Retell omits start_timestamp for
+    // `registered` calls, and calls.created_at is NOT NULL. They'll get picked
+    // up on the next sync once the call actually connects.
+    if (!c.start_timestamp) continue
     if (statsOnly.has(c.call_id)) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const stats: any = { ...mapRetellCallSync(studioId, c) }
