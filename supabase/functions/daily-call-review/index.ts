@@ -291,7 +291,7 @@ async function analyzeCall(
           Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-          model: "gpt-4o",
+          model: "gpt-5.5",
           temperature: 1,
           max_completion_tokens: 1500,
           response_format: { type: "json_object" },
@@ -349,7 +349,7 @@ async function analyzeCall(
         follow_up_reason: parsed.follow_up_reason ?? null,
         topics_discussed: parsed.topics_discussed ?? [],
         raw_ai_response: parsed,
-        model_used: "gpt-4o",
+        model_used: "gpt-5.5",
         trigger_type: triggerType,
       },
       { onConflict: "call_id" }
