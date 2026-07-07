@@ -1077,11 +1077,13 @@ export async function updateStudioFieldOptionColor(optionId: string, bg: string,
 // Persist a new sort order for a field's options (called after drag-and-drop reorder)
 export async function updateStudioFieldOptionOrder(updates: Array<{ id: string; sortOrder: number }>): Promise<void> {
   const { client } = await getAuthorizedClient()
-  await Promise.all(
+  const results = await Promise.all(
     updates.map(({ id, sortOrder }) =>
       client.from('studio_field_options').update({ sort_order: sortOrder }).eq('id', id)
     )
   )
+  const firstError = results.find(r => r.error)?.error
+  if (firstError) throw new Error(firstError.message)
 }
 
 /**
