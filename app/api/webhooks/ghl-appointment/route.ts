@@ -399,7 +399,7 @@ async function syncLeadActionScheduled(
 
   const { data: lead } = await supabase
     .from('leads')
-    .select('id, action, notion_page_id')
+    .select('id, name, action, notion_page_id')
     .eq('studio_id', studioId)
     .eq('ghl_contact_id', contactId)
     .limit(1)
@@ -426,6 +426,23 @@ async function syncLeadActionScheduled(
     .update({ action: option.id })
     .eq('id', lead.id)
   if (updateErr) throw updateErr
+
+  // Audit the automated flip in Settings → Activity Log (source 'ghl' renders as
+  // "via GHL / AI"). Awaited — fire-and-forget inserts get dropped on serverless freeze.
+  const { data: oldOption } = lead.action
+    ? await supabase.from('studio_field_options').select('value').eq('id', lead.action).maybeSingle()
+    : { data: null }
+  try {
+    await supabase.from('activity_logs').insert({
+      studio_id:   studioId,
+      lead_id:     lead.id,
+      lead_name:   lead.name ?? null,
+      actor_email: null,
+      event_type:  'update',
+      changes:     [{ field: 'action', old_value: oldOption?.value ?? null, new_value: option.value }],
+      source:      'ghl',
+    })
+  } catch { /* logging is best-effort */ }
 
   const { data: studioRow } = await supabase
     .from('studios')

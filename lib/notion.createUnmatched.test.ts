@@ -8,7 +8,7 @@ const STUDIO = 'aeefb977-5d03-4e40-994a-327cb51b7918'
 // `leads`:
 //   .select('phone,email').eq().range()  → existing-lead contacts (dedup load), one page only
 //   .insert(row).select('id')            → records the insert + returns a fake id
-// `notion_sync_log`: .insert() resolves OK (best-effort logging).
+// `notion_sync_log` / `activity_logs`: .insert() resolves OK (best-effort logging).
 type ExistingLead = { phone: string | null; email: string | null }
 function makeClient(existing: ExistingLead[]) {
   const inserts: Array<Record<string, unknown>> = []
@@ -31,13 +31,15 @@ function makeClient(existing: ExistingLead[]) {
   }
 
   const logInsert = vi.fn(async () => ({ data: null, error: null }))
+  const activityInsert = vi.fn(async () => ({ data: null, error: null }))
   const client = {
     from: vi.fn((table: string) => {
       if (table === 'notion_sync_log') return { insert: logInsert }
+      if (table === 'activity_logs') return { insert: activityInsert }
       return leadsBuilder()
     }),
   }
-  return { client: client as unknown as SupabaseClient, inserts, logInsert }
+  return { client: client as unknown as SupabaseClient, inserts, logInsert, activityInsert }
 }
 
 // Minimal Notion page fixtures consistent with the contact/prop shapes lib/notion.ts reads.
@@ -111,11 +113,16 @@ describe('createUnmatchedLeads', () => {
 
   it('creates a clean brand-new page in live mode (row mirrors the importer)', async () => {
     const labelToId = new Map<string, string>([['status:Inquiry', 'opt-inquiry']])
-    const { client, inserts } = makeClient([])
+    const { client, inserts, activityInsert } = makeClient([])
     const pages = [page({ id: 'p5', name: 'New Lead', phone: '(224) 555-3333', email: 'New@Example.com', status: 'Inquiry' })]
     const r = await createUnmatchedLeads(client, STUDIO, pages, new Set(), TZ, labelToId)
     expect(r.created).toBe(1)
     expect(inserts).toHaveLength(1)
+    // Audited in Settings → Activity Log as a Notion-sourced create.
+    expect(activityInsert).toHaveBeenCalledTimes(1)
+    expect(activityInsert).toHaveBeenCalledWith(expect.objectContaining({
+      studio_id: STUDIO, lead_id: 'lead-1', lead_name: 'New Lead', event_type: 'create', source: 'notion',
+    }))
     const row = inserts[0]
     expect(row.studio_id).toBe(STUDIO)
     expect(row.name).toBe('New Lead')
@@ -132,11 +139,12 @@ describe('createUnmatchedLeads', () => {
 
   it('creates nothing (only logs) in log mode', async () => {
     vi.stubEnv('NOTION_SYNC_MODE', 'log')
-    const { client, inserts, logInsert } = makeClient([])
+    const { client, inserts, logInsert, activityInsert } = makeClient([])
     const pages = [page({ id: 'p6', name: 'Would Create', phone: '224-555-4444' })]
     const r = await createUnmatchedLeads(client, STUDIO, pages, new Set(), TZ, emptyLabelToId)
     expect(r.created).toBe(1)        // counted as would-create
     expect(inserts).toHaveLength(0)  // nothing inserted into leads
     expect(logInsert).toHaveBeenCalled() // logged the would-create
+    expect(activityInsert).not.toHaveBeenCalled() // dry-run never writes the audit log
   })
 })

@@ -319,7 +319,7 @@ export function ActivityLogTable({ initialLogs, studioId, role }: ActivityLogTab
           <tbody>
             {pagedLogs.map(log => {
               const activity = formatActivity(log, tz)
-              const actorLabel = log.actor_email ?? (log.source === 'ghl' ? 'via GHL / AI' : '—')
+              const actorLabel = log.actor_email ?? (log.source === 'ghl' ? 'via GHL / AI' : log.source === 'notion' ? 'via Notion' : '—')
               return (
                 <tr
                   key={log.id}
