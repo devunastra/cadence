@@ -2,17 +2,19 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { RefreshCw, AlertCircle, X } from 'lucide-react'
-import { fetchAllStudioHealth, type StudioHealthEntry } from '@/app/actions'
+import { fetchAllStudioHealth, fetchMyStudiosHealth, type StudioHealthEntry } from '@/app/actions'
 import type { HealthStatus, HealthResult, IntegrationKind } from '@/lib/integration-health'
+
+export type HealthScope = 'all' | 'own'
 
 // Map HealthStatus onto the existing status-bg-* / status-text-* classes documented
 // in rules/ui-styling.md, so the page inherits light/dark colours for free.
-const STATUS_CLASSES: Record<HealthStatus, { bg: string; text: string; label: string }> = {
-  ok:             { bg: 'status-bg-green',  text: 'status-text-green',  label: 'OK' },
-  warn:           { bg: 'status-bg-yellow', text: 'status-text-yellow', label: 'Warn' },
-  error:          { bg: 'status-bg-red',    text: 'status-text-red',    label: 'Error' },
-  unknown:        { bg: 'status-bg-blue',   text: 'status-text-blue',   label: 'Unknown' },
-  not_configured: { bg: 'status-bg-gray',   text: 'status-text-gray',   label: 'Not set' },
+const STATUS_CLASSES: Record<HealthStatus, { bg: string; text: string; label: string; help: string }> = {
+  ok:             { bg: 'status-bg-green',  text: 'status-text-green',  label: 'OK',       help: 'Probe succeeded' },
+  warn:           { bg: 'status-bg-yellow', text: 'status-text-yellow', label: 'Warn',     help: 'Probe OK but activity is stale' },
+  error:          { bg: 'status-bg-red',    text: 'status-text-red',    label: 'Error',    help: 'Probe failed — needs attention' },
+  unknown:        { bg: 'status-bg-blue',   text: 'status-text-blue',   label: 'Unknown',  help: 'Timed out or rate-limited — retry' },
+  not_configured: { bg: 'status-bg-gray',   text: 'status-text-gray',   label: 'Not set',  help: 'No credentials configured' },
 }
 
 const INTEGRATIONS: Array<{ key: IntegrationKind; label: string }> = [
@@ -30,13 +32,34 @@ function StatusPill({ status }: { status: HealthStatus }) {
   )
 }
 
+function Legend() {
+  return (
+    <div
+      className="flex items-center gap-2 flex-wrap text-xs rounded-lg px-3 py-2"
+      style={{
+        backgroundColor: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        color: 'var(--color-text-secondary)',
+      }}
+    >
+      <span style={{ color: 'var(--color-text-muted)' }}>Legend:</span>
+      {(Object.keys(STATUS_CLASSES) as HealthStatus[]).map(s => (
+        <span key={s} className="inline-flex items-center gap-1.5">
+          <StatusPill status={s} />
+          <span>{STATUS_CLASSES[s].help}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 interface DrawerData {
   studioName: string
   integration: string
   result: HealthResult
 }
 
-export function IntegrationsHealthShell() {
+export function IntegrationsHealthShell({ scope = 'all' }: { scope?: HealthScope }) {
   const [entries, setEntries] = useState<StudioHealthEntry[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -47,7 +70,7 @@ export function IntegrationsHealthShell() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetchAllStudioHealth()
+      const res = scope === 'own' ? await fetchMyStudiosHealth() : await fetchAllStudioHealth()
       setEntries(res.entries)
       setLastProbedAt(new Date().toISOString())
     } catch (e) {
@@ -55,7 +78,7 @@ export function IntegrationsHealthShell() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [scope])
 
   useEffect(() => { void runProbes() }, [runProbes])
 
@@ -65,7 +88,9 @@ export function IntegrationsHealthShell() {
         <div>
           <h2 className="text-xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>Integration Health</h2>
           <p className="text-base mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-            Live probe of GHL, Retell, and n8n callbacks across every studio. Read-only.
+            {scope === 'own'
+              ? 'Live probe of GHL, Retell, and n8n callbacks for your studios. Read-only.'
+              : 'Live probe of GHL, Retell, and n8n callbacks across every studio. Read-only.'}
           </p>
         </div>
         <button
@@ -89,6 +114,8 @@ export function IntegrationsHealthShell() {
           Last probed {new Date(lastProbedAt).toLocaleString()}
         </p>
       )}
+
+      <Legend />
 
       {error && (
         <div className="flex items-start gap-2 p-3 rounded-lg" style={{

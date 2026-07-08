@@ -3908,3 +3908,62 @@ export async function fetchAllStudioHealth(): Promise<{ entries: StudioHealthEnt
 
   return { entries }
 }
+
+/**
+ * Same shape as fetchAllStudioHealth, but scoped to the caller's memberships.
+ * Used by the studio_owner-facing /settings/integrations page (super_admin has
+ * a separate /settings/admin/integrations view). studio_staff get an empty
+ * result — they don't see this surface in the nav either.
+ */
+export async function fetchMyStudiosHealth(): Promise<{ entries: StudioHealthEntry[] }> {
+  const authSupabase = await createClient()
+  const { data: { user } } = await authSupabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  const { data: memberships } = await authSupabase
+    .from('studio_users')
+    .select('studio_id, role')
+    .eq('user_id', user.id)
+  const rows = memberships ?? []
+  const isSuperAdmin = rows.some(m => m.role === 'super_admin')
+  const ownerStudioIds = rows.filter(m => m.role === 'studio_owner').map(m => m.studio_id)
+
+  // super_admin here just means "logged in as super_admin"; they should be
+  // pointed at /settings/admin/integrations, not this scoped view. Fall back
+  // to owner scope so the nav-item-mis-click still shows something sensible.
+  if (!isSuperAdmin && ownerStudioIds.length === 0) return { entries: [] }
+
+  const service = createServiceClient()
+  const query = service
+    .from('studios')
+    .select('id, name, ghl_account_id, ghl_api_key, retell_api_key, retell_agent_id')
+    .is('deleted_at', null)
+    .order('name')
+  const scoped = isSuperAdmin ? query : query.in('id', ownerStudioIds)
+  const { data: studios } = await scoped
+
+  const list = (studios ?? []) as Array<{
+    id: string
+    name: string
+    ghl_account_id: string | null
+    ghl_api_key: string | null
+    retell_api_key: string | null
+    retell_agent_id: string | null
+  }>
+
+  const CHUNK = 5
+  const entries: StudioHealthEntry[] = []
+  for (let i = 0; i < list.length; i += CHUNK) {
+    const batch = list.slice(i, i + CHUNK)
+    const snapshots = await Promise.all(batch.map(s => checkStudioHealth(s)))
+    for (let j = 0; j < batch.length; j++) {
+      entries.push({
+        studio_id: batch[j].id,
+        studio_name: batch[j].name,
+        snapshot: snapshots[j],
+        overall: summarizeStudioHealth(snapshots[j]),
+      })
+    }
+  }
+  return { entries }
+}

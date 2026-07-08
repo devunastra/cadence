@@ -10,5 +10,5 @@ export default async function AdminIntegrationsPage() {
   const isSuper = memberships.some(m => m.role === 'super_admin')
   if (!isSuper) redirect('/settings/my-profile')
 
-  return <IntegrationsHealthShell />
+  return <IntegrationsHealthShell scope="all" />
 }

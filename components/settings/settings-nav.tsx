@@ -26,7 +26,12 @@ export function SettingsNav({ role }: SettingsNavProps) {
     ...(isOwner ? [{ href: '/settings/my-staff', label: 'My Staff', mobileLabel: 'Staff', Icon: Users }] : []),
     ...(isOwner ? [{ href: '/settings/studios', label: 'Studios', mobileLabel: 'Studios', Icon: LayoutGrid }] : []),
     ...(isOwner ? [{ href: '/settings/activity-log', label: 'Activity Log', mobileLabel: 'Activity', Icon: ScrollText }] : []),
-    ...(isSuperAdmin ? [{ href: '/settings/admin/integrations', label: 'Integration Health', mobileLabel: 'Health', Icon: Activity }] : []),
+    // Integration Health: super_admin gets the cross-studio view, studio_owner sees only their own
+    ...(isSuperAdmin
+      ? [{ href: '/settings/admin/integrations', label: 'Integration Health', mobileLabel: 'Health', Icon: Activity }]
+      : isOwner
+        ? [{ href: '/settings/integrations', label: 'Integrations', mobileLabel: 'Health', Icon: Activity }]
+        : []),
   ]
 
   async function handleSignOut() {
