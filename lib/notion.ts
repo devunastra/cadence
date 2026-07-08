@@ -244,6 +244,29 @@ function buildLeadUpdateFromPage(
   return { update, detail }
 }
 
+// Mirror an applied Notion→app update into activity_logs so board edits are auditable in
+// Settings → Activity Log next to in-app edits. Same row shape app/actions.ts writes:
+// enum UUIDs resolved to option labels, actor_email null, source 'notion' (rendered as
+// "via Notion" by the UI). `lead` is the pre-update row, `update` the applied raw values.
+function buildNotionActivityRow(
+  studioId: string, lead: any, update: Record<string, string | boolean | null>, idToLabel: Map<string, string>,
+): Record<string, unknown> | null {
+  const resolve = (v: unknown) => (typeof v === 'string' && idToLabel.has(v)) ? idToLabel.get(v)! : v ?? null
+  const changes = Object.entries(update).map(([field, nv]) => ({
+    field, old_value: resolve(lead[field]), new_value: resolve(nv),
+  }))
+  if (changes.length === 0) return null
+  return {
+    studio_id: studioId,
+    lead_id: lead.id,
+    lead_name: (lead.name as string | null) ?? null,
+    actor_email: null,
+    event_type: 'update',
+    changes,
+    source: 'notion',
+  }
+}
+
 const LEAD_SYNC_COLS = 'id,studio_id,notion_page_id,name,phone,email,comments,available,status,level,action,source,reason,partnership,showed,bought,old,texted,last_contacted'
 
 /**
@@ -264,7 +287,11 @@ export async function syncOneNotionPageToSupabase(client: SupabaseClient, pageId
     client.from('studios').select('timezone').eq('id', studioId).single(),
   ])
   const labelToId = new Map<string, string>()
-  for (const o of (opts ?? []) as { id: string; field: string; value: string }[]) labelToId.set(`${o.field}:${o.value}`, o.id)
+  const idToLabel = new Map<string, string>()
+  for (const o of (opts ?? []) as { id: string; field: string; value: string }[]) {
+    labelToId.set(`${o.field}:${o.value}`, o.id)
+    idToLabel.set(o.id, o.value)
+  }
   const tz = (studioRow as { timezone?: string } | null)?.timezone ?? 'UTC'
 
   const res = await notionFetch(`/pages/${pageId}`, { method: 'GET' })
@@ -282,6 +309,10 @@ export async function syncOneNotionPageToSupabase(client: SupabaseClient, pageId
   const { error } = await client.from('leads').update(update).eq('id', (lead as any).id).eq('studio_id', studioId)
   if (error) { await logSync(client, { studio_id: studioId, lead_id: (lead as any).id, notion_page_id: pageId, action: 'error', detail: { op: 'pull_one', message: error.message } }, 'notion_to_app'); return { status: 'error' } }
   await logSync(client, { studio_id: studioId, lead_id: (lead as any).id, notion_page_id: pageId, action: 'update', detail: { updated: detail } }, 'notion_to_app')
+  // Awaited, not fire-and-forget — detached inserts get dropped when the serverless
+  // invocation freezes after the webhook response.
+  const activityRow = buildNotionActivityRow(studioId, lead, update, idToLabel)
+  if (activityRow) { try { await client.from('activity_logs').insert(activityRow) } catch { /* logging is best-effort */ } }
   return { status: 'updated', detail }
 }
 
@@ -560,7 +591,14 @@ export async function createUnmatchedLeads(
       // Pre-register this contact so a duplicate Notion page later in the same run is skipped.
       if (mPhone) existingPhones.add(mPhone)
       if (mEmail) existingEmails.add(mEmail)
-      await logSync(client, { studio_id: studioId, lead_id: (ins?.[0] as { id?: string } | undefined)?.id ?? null, notion_page_id: page.id, action: 'create', detail: { op: 'create', name } }, 'notion_to_app')
+      const newLeadId = (ins?.[0] as { id?: string } | undefined)?.id ?? null
+      await logSync(client, { studio_id: studioId, lead_id: newLeadId, notion_page_id: page.id, action: 'create', detail: { op: 'create', name } }, 'notion_to_app')
+      try {
+        await client.from('activity_logs').insert({
+          studio_id: studioId, lead_id: newLeadId, lead_name: name,
+          actor_email: null, event_type: 'create', source: 'notion',
+        })
+      } catch { /* logging is best-effort */ }
     } catch (e) {
       result.errors++
       await logSync(client, { studio_id: studioId, lead_id: null, notion_page_id: page.id, action: 'error', detail: { op: 'create', message: String(e) } }, 'notion_to_app')
@@ -592,7 +630,11 @@ export async function syncNotionToSupabase(client: SupabaseClient, studioId: str
 
   const { data: opts } = await client.from('studio_field_options').select('id,field,value').eq('studio_id', studioId)
   const labelToId = new Map<string, string>()
-  for (const o of (opts ?? []) as { id: string; field: string; value: string }[]) labelToId.set(`${o.field}:${o.value}`, o.id)
+  const idToLabel = new Map<string, string>()
+  for (const o of (opts ?? []) as { id: string; field: string; value: string }[]) {
+    labelToId.set(`${o.field}:${o.value}`, o.id)
+    idToLabel.set(o.id, o.value)
+  }
 
   const cols = 'id,notion_page_id,name,phone,email,comments,available,status,level,action,source,reason,partnership,showed,bought,old,texted,last_contacted'
   const leadByPage = new Map<string, any>()
@@ -631,6 +673,7 @@ export async function syncNotionToSupabase(client: SupabaseClient, studioId: str
 
   const unmatched = new Set<string>()
   const logRows: Array<Record<string, unknown>> = []
+  const activityRows: Array<Record<string, unknown>> = []
   const pushLog = (lead_id: string, notion_page_id: string, action: SyncAction, detail: unknown) =>
     logRows.push({ studio_id: studioId, lead_id, notion_page_id, direction: 'notion_to_app', action, detail })
   let checked = 0, changed = 0, skipped = 0
@@ -652,13 +695,18 @@ export async function syncNotionToSupabase(client: SupabaseClient, studioId: str
     } else {
       await client.from('leads').update({ notion_last_edited_time: page.last_edited_time, notion_last_synced_at: new Date().toISOString() }).eq('id', lead.id)
       pushLog(lead.id, page.id, 'update', { updated: detail })
+      const activityRow = buildNotionActivityRow(studioId, lead, update, idToLabel)
+      if (activityRow) activityRows.push(activityRow)
       changed++
     }
   }
 
-  // Batch-insert the sync log (best-effort).
+  // Batch-insert the sync log + activity log (best-effort).
   for (let i = 0; i < logRows.length; i += 500) {
     try { await client.from('notion_sync_log').insert(logRows.slice(i, i + 500)) } catch { /* non-fatal */ }
+  }
+  for (let i = 0; i < activityRows.length; i += 500) {
+    try { await client.from('activity_logs').insert(activityRows.slice(i, i + 500)) } catch { /* non-fatal */ }
   }
   return {
     checked, changed, skipped, unmatched_selects: [...unmatched],
