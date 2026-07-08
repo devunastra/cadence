@@ -66,11 +66,13 @@ export function IntegrationsHealthShell({ scope = 'all' }: { scope?: HealthScope
   const [drawer, setDrawer] = useState<DrawerData | null>(null)
   const [lastProbedAt, setLastProbedAt] = useState<string | null>(null)
 
-  const runProbes = useCallback(async () => {
+  const runProbes = useCallback(async (mode: 'cache' | 'live') => {
     setLoading(true)
     setError(null)
     try {
-      const res = scope === 'own' ? await fetchMyStudiosHealth() : await fetchAllStudioHealth()
+      const res = scope === 'own'
+        ? await fetchMyStudiosHealth({ mode })
+        : await fetchAllStudioHealth({ mode })
       setEntries(res.entries)
       setLastProbedAt(new Date().toISOString())
     } catch (e) {
@@ -80,7 +82,7 @@ export function IntegrationsHealthShell({ scope = 'all' }: { scope?: HealthScope
     }
   }, [scope])
 
-  useEffect(() => { void runProbes() }, [runProbes])
+  useEffect(() => { void runProbes('cache') }, [runProbes])
 
   return (
     <div className="space-y-4">
@@ -94,7 +96,7 @@ export function IntegrationsHealthShell({ scope = 'all' }: { scope?: HealthScope
           </p>
         </div>
         <button
-          onClick={() => void runProbes()}
+          onClick={() => void runProbes('live')}
           disabled={loading}
           className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
           style={{
@@ -105,7 +107,7 @@ export function IntegrationsHealthShell({ scope = 'all' }: { scope?: HealthScope
           }}
         >
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-          {loading ? 'Probing…' : 'Refresh'}
+          {loading ? 'Probing…' : 'Test all'}
         </button>
       </header>
 

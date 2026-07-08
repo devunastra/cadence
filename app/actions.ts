@@ -3845,6 +3845,8 @@ import {
   summarizeStudioHealth,
   type StudioHealthSnapshot,
   type HealthStatus,
+  type HealthResult,
+  type IntegrationKind,
 } from '@/lib/integration-health'
 
 export interface StudioHealthEntry {
@@ -3854,16 +3856,146 @@ export interface StudioHealthEntry {
   overall: HealthStatus
 }
 
+export type HealthFetchMode = 'cache' | 'live'
+
+interface ProbeableStudio {
+  id: string
+  name: string
+  ghl_account_id: string | null
+  ghl_api_key: string | null
+  retell_api_key: string | null
+  retell_agent_id: string | null
+}
+
+const REQUIRED_INTEGRATIONS: IntegrationKind[] = ['ghl', 'retell', 'n8n_callbacks']
+const PROBE_CHUNK = 5
+
 /**
- * Probes every non-deleted studio's integrations (GHL, Retell, n8n callbacks)
- * in parallel batches. Super_admin only. Uses the service client so RLS
- * doesn't hide studios the super_admin isn't a member of.
- *
- * Probes are chunked (5 studios at a time = up to 15 concurrent vendor calls)
- * to avoid burst-hammering GHL/Retell when the agency scales past a handful of
- * clients. Each probe has its own 5s AbortController timeout.
+ * Probes a batch of studios (chunked so we don't burst-hammer vendors), then
+ * upserts every probe result into studio_integration_health. Shared between
+ * fetchAllStudioHealth and fetchMyStudiosHealth so the caching behaviour is
+ * identical from both surfaces.
  */
-export async function fetchAllStudioHealth(): Promise<{ entries: StudioHealthEntry[] }> {
+async function probeAndCacheStudios(
+  service: SupabaseClient,
+  studios: ProbeableStudio[],
+): Promise<StudioHealthEntry[]> {
+  const entries: StudioHealthEntry[] = []
+  const cacheRows: Array<{
+    studio_id: string
+    integration: IntegrationKind
+    status: HealthStatus
+    message: string | null
+    checked_at: string
+    latency_ms: number | null
+  }> = []
+
+  for (let i = 0; i < studios.length; i += PROBE_CHUNK) {
+    const batch = studios.slice(i, i + PROBE_CHUNK)
+    const snapshots = await Promise.all(batch.map(s => checkStudioHealth(s)))
+    for (let j = 0; j < batch.length; j++) {
+      const snapshot = snapshots[j]
+      entries.push({
+        studio_id: batch[j].id,
+        studio_name: batch[j].name,
+        snapshot,
+        overall: summarizeStudioHealth(snapshot),
+      })
+      for (const key of REQUIRED_INTEGRATIONS) {
+        const r = snapshot.results[key]
+        cacheRows.push({
+          studio_id:  batch[j].id,
+          integration: key,
+          status:     r.status,
+          message:    r.message ?? null,
+          checked_at: r.checkedAt,
+          latency_ms: r.latencyMs ?? null,
+        })
+      }
+    }
+  }
+
+  if (cacheRows.length > 0) {
+    await service
+      .from('studio_integration_health')
+      .upsert(cacheRows, { onConflict: 'studio_id,integration' })
+  }
+
+  return entries
+}
+
+/**
+ * Reads cached probe results for the given studios. Returns entries with
+ * complete cache coverage and the ids of studios missing at least one
+ * integration row (they'll need a live probe to complete the view).
+ */
+async function readCachedEntries(
+  service: SupabaseClient,
+  studios: Array<{ id: string; name: string }>,
+): Promise<{ entries: StudioHealthEntry[]; missing: Set<string> }> {
+  if (studios.length === 0) return { entries: [], missing: new Set() }
+  const studioIds = studios.map(s => s.id)
+  const { data: rows } = await service
+    .from('studio_integration_health')
+    .select('studio_id, integration, status, message, checked_at, latency_ms')
+    .in('studio_id', studioIds)
+
+  const byStudio = new Map<string, Partial<Record<IntegrationKind, HealthResult>>>()
+  for (const r of (rows ?? []) as Array<{
+    studio_id: string
+    integration: IntegrationKind
+    status: HealthStatus
+    message: string | null
+    checked_at: string
+    latency_ms: number | null
+  }>) {
+    if (!byStudio.has(r.studio_id)) byStudio.set(r.studio_id, {})
+    byStudio.get(r.studio_id)![r.integration] = {
+      status: r.status,
+      message: r.message ?? undefined,
+      checkedAt: r.checked_at,
+      latencyMs: r.latency_ms ?? undefined,
+    }
+  }
+
+  const entries: StudioHealthEntry[] = []
+  const missing = new Set<string>()
+  for (const s of studios) {
+    const results = byStudio.get(s.id) ?? {}
+    const complete = REQUIRED_INTEGRATIONS.every(k => results[k])
+    if (!complete) {
+      missing.add(s.id)
+      continue
+    }
+    // Ordering: worst-status-wins summarizer works on full snapshot;
+    // probedAt reflects the latest cached row so "Last probed" is meaningful.
+    const full = results as Record<IntegrationKind, HealthResult>
+    const probedAt = REQUIRED_INTEGRATIONS
+      .map(k => full[k].checkedAt)
+      .sort()
+      .slice(-1)[0]
+    const snapshot: StudioHealthSnapshot = { studio_id: s.id, results: full, probedAt }
+    entries.push({
+      studio_id: s.id,
+      studio_name: s.name,
+      snapshot,
+      overall: summarizeStudioHealth(snapshot),
+    })
+  }
+  return { entries, missing }
+}
+
+/**
+ * Cache-first read of every non-deleted studio's health. First visit — or any
+ * newly-added studio — falls through to a live probe for just the missing
+ * studios, which is then upserted into the cache. Subsequent visits are
+ * instant. Pass `{ mode: 'live' }` from a "Refresh" button to force a full
+ * re-probe of every studio. Super_admin only; uses service client so RLS
+ * doesn't hide studios the caller isn't a member of.
+ */
+export async function fetchAllStudioHealth(
+  opts?: { mode?: HealthFetchMode },
+): Promise<{ entries: StudioHealthEntry[] }> {
   const authSupabase = await createClient()
   const { data: { user } } = await authSupabase.auth.getUser()
   if (!user) throw new Error('Unauthorized')
@@ -3882,31 +4014,8 @@ export async function fetchAllStudioHealth(): Promise<{ entries: StudioHealthEnt
     .is('deleted_at', null)
     .order('name')
 
-  const list = (studios ?? []) as Array<{
-    id: string
-    name: string
-    ghl_account_id: string | null
-    ghl_api_key: string | null
-    retell_api_key: string | null
-    retell_agent_id: string | null
-  }>
-
-  const CHUNK = 5
-  const entries: StudioHealthEntry[] = []
-  for (let i = 0; i < list.length; i += CHUNK) {
-    const batch = list.slice(i, i + CHUNK)
-    const snapshots = await Promise.all(batch.map(s => checkStudioHealth(s)))
-    for (let j = 0; j < batch.length; j++) {
-      entries.push({
-        studio_id: batch[j].id,
-        studio_name: batch[j].name,
-        snapshot: snapshots[j],
-        overall: summarizeStudioHealth(snapshots[j]),
-      })
-    }
-  }
-
-  return { entries }
+  const list = (studios ?? []) as ProbeableStudio[]
+  return { entries: await resolveEntries(service, list, opts?.mode ?? 'cache') }
 }
 
 /**
@@ -3915,7 +4024,9 @@ export async function fetchAllStudioHealth(): Promise<{ entries: StudioHealthEnt
  * a separate /settings/admin/integrations view). studio_staff get an empty
  * result — they don't see this surface in the nav either.
  */
-export async function fetchMyStudiosHealth(): Promise<{ entries: StudioHealthEntry[] }> {
+export async function fetchMyStudiosHealth(
+  opts?: { mode?: HealthFetchMode },
+): Promise<{ entries: StudioHealthEntry[] }> {
   const authSupabase = await createClient()
   const { data: { user } } = await authSupabase.auth.getUser()
   if (!user) throw new Error('Unauthorized')
@@ -3928,9 +4039,6 @@ export async function fetchMyStudiosHealth(): Promise<{ entries: StudioHealthEnt
   const isSuperAdmin = rows.some(m => m.role === 'super_admin')
   const ownerStudioIds = rows.filter(m => m.role === 'studio_owner').map(m => m.studio_id)
 
-  // super_admin here just means "logged in as super_admin"; they should be
-  // pointed at /settings/admin/integrations, not this scoped view. Fall back
-  // to owner scope so the nav-item-mis-click still shows something sensible.
   if (!isSuperAdmin && ownerStudioIds.length === 0) return { entries: [] }
 
   const service = createServiceClient()
@@ -3942,28 +4050,35 @@ export async function fetchMyStudiosHealth(): Promise<{ entries: StudioHealthEnt
   const scoped = isSuperAdmin ? query : query.in('id', ownerStudioIds)
   const { data: studios } = await scoped
 
-  const list = (studios ?? []) as Array<{
-    id: string
-    name: string
-    ghl_account_id: string | null
-    ghl_api_key: string | null
-    retell_api_key: string | null
-    retell_agent_id: string | null
-  }>
+  const list = (studios ?? []) as ProbeableStudio[]
+  return { entries: await resolveEntries(service, list, opts?.mode ?? 'cache') }
+}
 
-  const CHUNK = 5
-  const entries: StudioHealthEntry[] = []
-  for (let i = 0; i < list.length; i += CHUNK) {
-    const batch = list.slice(i, i + CHUNK)
-    const snapshots = await Promise.all(batch.map(s => checkStudioHealth(s)))
-    for (let j = 0; j < batch.length; j++) {
-      entries.push({
-        studio_id: batch[j].id,
-        studio_name: batch[j].name,
-        snapshot: snapshots[j],
-        overall: summarizeStudioHealth(snapshots[j]),
-      })
-    }
+/**
+ * Cache-first when mode==='cache': read the cache, live-probe any studios
+ * missing a full set of integration rows, upsert those. Always live-probe when
+ * mode==='live'. Sort by studio_name for stable rendering regardless of path.
+ */
+async function resolveEntries(
+  service: SupabaseClient,
+  list: ProbeableStudio[],
+  mode: HealthFetchMode,
+): Promise<StudioHealthEntry[]> {
+  if (list.length === 0) return []
+  if (mode === 'live') {
+    const entries = await probeAndCacheStudios(service, list)
+    return sortByStudioName(entries)
   }
-  return { entries }
+  const { entries: cached, missing } = await readCachedEntries(
+    service,
+    list.map(s => ({ id: s.id, name: s.name })),
+  )
+  if (missing.size === 0) return sortByStudioName(cached)
+  const toProbe = list.filter(s => missing.has(s.id))
+  const probed = await probeAndCacheStudios(service, toProbe)
+  return sortByStudioName([...cached, ...probed])
+}
+
+function sortByStudioName(entries: StudioHealthEntry[]): StudioHealthEntry[] {
+  return [...entries].sort((a, b) => a.studio_name.localeCompare(b.studio_name))
 }
