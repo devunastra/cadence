@@ -8,7 +8,9 @@ import {
   summarizeStudioHealth,
   type HealthCheckStudio,
   type StudioHealthSnapshot,
+  type HealthResult,
 } from '@/lib/integration-health'
+import { applyStaleness } from '@/lib/integration-health-writer'
 
 // ── fetch mock helpers ─────────────────────────────────────────────────────────
 
@@ -253,6 +255,46 @@ describe('checkStudioHealth', () => {
     expect(snap.results.ghl.status).toBe('ok')
     expect(snap.results.retell.status).toBe('error')
     expect(snap.results.n8n_callbacks.status).toBe('ok')
+  })
+})
+
+// ── applyStaleness ─────────────────────────────────────────────────────────────
+
+describe('applyStaleness', () => {
+  const okResult: HealthResult = { status: 'ok', checkedAt: '2026-07-09T00:00:00.000Z', latencyMs: 42 }
+  const now = Date.now()
+  const daysAgo = (n: number) => new Date(now - n * 24 * 60 * 60 * 1000).toISOString()
+
+  it('leaves non-ok statuses alone', () => {
+    const err: HealthResult = { status: 'error', message: 'boom', checkedAt: '' }
+    expect(applyStaleness(err, daysAgo(30), 14, 'leads')).toBe(err)
+  })
+
+  it('skips downgrade when there is no activity ever', () => {
+    expect(applyStaleness(okResult, null, 14, 'leads')).toBe(okResult)
+  })
+
+  it('leaves ok alone when activity is within threshold', () => {
+    const result = applyStaleness(okResult, daysAgo(3), 14, 'leads')
+    expect(result.status).toBe('ok')
+  })
+
+  it('downgrades ok to warn when activity is older than the threshold', () => {
+    const result = applyStaleness(okResult, daysAgo(30), 14, 'leads')
+    expect(result.status).toBe('warn')
+    expect(result.message).toMatch(/no new leads in \d+ days/)
+  })
+
+  it('includes the latest-activity date in the warn message', () => {
+    const latest = daysAgo(30)
+    const result = applyStaleness(okResult, latest, 14, 'leads')
+    expect(result.message).toContain(latest.slice(0, 10))
+  })
+
+  it('never mutates the input HealthResult', () => {
+    const snapshot = { ...okResult }
+    applyStaleness(okResult, daysAgo(30), 14, 'leads')
+    expect(okResult).toEqual(snapshot)
   })
 })
 
