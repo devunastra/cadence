@@ -3837,3 +3837,74 @@ export async function completeStudioOnboarding(
   revalidatePath('/', 'layout')
   return { studioIds: createdIds }
 }
+
+// ── Integration Health ──────────────────────────────────────────────────────────
+
+import {
+  checkStudioHealth,
+  summarizeStudioHealth,
+  type StudioHealthSnapshot,
+  type HealthStatus,
+} from '@/lib/integration-health'
+
+export interface StudioHealthEntry {
+  studio_id: string
+  studio_name: string
+  snapshot: StudioHealthSnapshot
+  overall: HealthStatus
+}
+
+/**
+ * Probes every non-deleted studio's integrations (GHL, Retell, n8n callbacks)
+ * in parallel batches. Super_admin only. Uses the service client so RLS
+ * doesn't hide studios the super_admin isn't a member of.
+ *
+ * Probes are chunked (5 studios at a time = up to 15 concurrent vendor calls)
+ * to avoid burst-hammering GHL/Retell when the agency scales past a handful of
+ * clients. Each probe has its own 5s AbortController timeout.
+ */
+export async function fetchAllStudioHealth(): Promise<{ entries: StudioHealthEntry[] }> {
+  const authSupabase = await createClient()
+  const { data: { user } } = await authSupabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  const { data: memberships } = await authSupabase
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+  const isSuperAdmin = memberships?.some(m => m.role === 'super_admin') ?? false
+  if (!isSuperAdmin) throw new Error('Forbidden')
+
+  const service = createServiceClient()
+  const { data: studios } = await service
+    .from('studios')
+    .select('id, name, ghl_account_id, ghl_api_key, retell_api_key, retell_agent_id')
+    .is('deleted_at', null)
+    .order('name')
+
+  const list = (studios ?? []) as Array<{
+    id: string
+    name: string
+    ghl_account_id: string | null
+    ghl_api_key: string | null
+    retell_api_key: string | null
+    retell_agent_id: string | null
+  }>
+
+  const CHUNK = 5
+  const entries: StudioHealthEntry[] = []
+  for (let i = 0; i < list.length; i += CHUNK) {
+    const batch = list.slice(i, i + CHUNK)
+    const snapshots = await Promise.all(batch.map(s => checkStudioHealth(s)))
+    for (let j = 0; j < batch.length; j++) {
+      entries.push({
+        studio_id: batch[j].id,
+        studio_name: batch[j].name,
+        snapshot: snapshots[j],
+        overall: summarizeStudioHealth(snapshots[j]),
+      })
+    }
+  }
+
+  return { entries }
+}
