@@ -74,7 +74,12 @@ export function IntegrationsHealthShell({ scope = 'all' }: { scope?: HealthScope
         ? await fetchMyStudiosHealth({ mode })
         : await fetchAllStudioHealth({ mode })
       setEntries(res.entries)
-      setLastProbedAt(new Date().toISOString())
+      // Oldest snapshot timestamp = honest freshness. On cache hits this shows
+      // when the probes actually ran, not when the page loaded.
+      const oldest = res.entries
+        .map(e => e.snapshot.probedAt)
+        .sort()[0] ?? null
+      setLastProbedAt(oldest)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -113,7 +118,7 @@ export function IntegrationsHealthShell({ scope = 'all' }: { scope?: HealthScope
 
       {lastProbedAt && (
         <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-          Last probed {new Date(lastProbedAt).toLocaleString()}
+          Oldest reading {new Date(lastProbedAt).toLocaleString()} — use Test all for a live re-probe
         </p>
       )}
 
