@@ -3837,3 +3837,114 @@ export async function completeStudioOnboarding(
   revalidatePath('/', 'layout')
   return { studioIds: createdIds }
 }
+
+// ── Integration Health ──────────────────────────────────────────────────────────
+
+import {
+  probeAndCacheStudios,
+  readCachedEntries,
+  type ProbeableStudio,
+  type StudioHealthEntry,
+} from '@/lib/integration-health-writer'
+
+export type { StudioHealthEntry } from '@/lib/integration-health-writer'
+
+export type HealthFetchMode = 'cache' | 'live'
+
+/**
+ * Cache-first read of every non-deleted studio's health. First visit — or any
+ * newly-added studio — falls through to a live probe for just the missing
+ * studios, which is then upserted into the cache. Subsequent visits are
+ * instant. Pass `{ mode: 'live' }` from a "Refresh" button to force a full
+ * re-probe of every studio. Super_admin only; uses service client so RLS
+ * doesn't hide studios the caller isn't a member of.
+ */
+export async function fetchAllStudioHealth(
+  opts?: { mode?: HealthFetchMode },
+): Promise<{ entries: StudioHealthEntry[] }> {
+  const authSupabase = await createClient()
+  const { data: { user } } = await authSupabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  const { data: memberships } = await authSupabase
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+  const isSuperAdmin = memberships?.some(m => m.role === 'super_admin') ?? false
+  if (!isSuperAdmin) throw new Error('Forbidden')
+
+  const service = createServiceClient()
+  const { data: studios } = await service
+    .from('studios')
+    .select('id, name, ghl_account_id, ghl_api_key, retell_api_key, retell_agent_id')
+    .is('deleted_at', null)
+    .order('name')
+
+  const list = (studios ?? []) as ProbeableStudio[]
+  return { entries: await resolveEntries(service, list, opts?.mode ?? 'cache') }
+}
+
+/**
+ * Same shape as fetchAllStudioHealth, but scoped to the caller's memberships.
+ * Used by the studio_owner-facing /settings/integrations page (super_admin has
+ * a separate /settings/admin/integrations view). studio_staff get an empty
+ * result — they don't see this surface in the nav either.
+ */
+export async function fetchMyStudiosHealth(
+  opts?: { mode?: HealthFetchMode },
+): Promise<{ entries: StudioHealthEntry[] }> {
+  const authSupabase = await createClient()
+  const { data: { user } } = await authSupabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  const { data: memberships } = await authSupabase
+    .from('studio_users')
+    .select('studio_id, role')
+    .eq('user_id', user.id)
+  const rows = memberships ?? []
+  const isSuperAdmin = rows.some(m => m.role === 'super_admin')
+  const ownerStudioIds = rows.filter(m => m.role === 'studio_owner').map(m => m.studio_id)
+
+  if (!isSuperAdmin && ownerStudioIds.length === 0) return { entries: [] }
+
+  const service = createServiceClient()
+  const query = service
+    .from('studios')
+    .select('id, name, ghl_account_id, ghl_api_key, retell_api_key, retell_agent_id')
+    .is('deleted_at', null)
+    .order('name')
+  const scoped = isSuperAdmin ? query : query.in('id', ownerStudioIds)
+  const { data: studios } = await scoped
+
+  const list = (studios ?? []) as ProbeableStudio[]
+  return { entries: await resolveEntries(service, list, opts?.mode ?? 'cache') }
+}
+
+/**
+ * Cache-first when mode==='cache': read the cache, live-probe any studios
+ * missing a full set of integration rows, upsert those. Always live-probe when
+ * mode==='live'. Sort by studio_name for stable rendering regardless of path.
+ */
+async function resolveEntries(
+  service: SupabaseClient,
+  list: ProbeableStudio[],
+  mode: HealthFetchMode,
+): Promise<StudioHealthEntry[]> {
+  if (list.length === 0) return []
+  if (mode === 'live') {
+    const entries = await probeAndCacheStudios(service, list)
+    return sortByStudioName(entries)
+  }
+  const { entries: cached, missing } = await readCachedEntries(
+    service,
+    list.map(s => ({ id: s.id, name: s.name })),
+  )
+  if (missing.size === 0) return sortByStudioName(cached)
+  const toProbe = list.filter(s => missing.has(s.id))
+  const probed = await probeAndCacheStudios(service, toProbe)
+  return sortByStudioName([...cached, ...probed])
+}
+
+function sortByStudioName(entries: StudioHealthEntry[]): StudioHealthEntry[] {
+  return [...entries].sort((a, b) => a.studio_name.localeCompare(b.studio_name))
+}

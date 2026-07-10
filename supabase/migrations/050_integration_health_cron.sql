@@ -1,0 +1,44 @@
+-- Migration 050: Supabase pg_cron schedule for the Integration Health probe.
+--
+-- This migration is DOCUMENTATION ONLY. The actual `cron.schedule(...)` call
+-- must be run manually via the Supabase Dashboard SQL editor AFTER the two
+-- Vault secrets below have been set. Applying the migration is a no-op — same
+-- pattern as 030_call_reviews.sql, where the cron block is commented so
+-- migrations remain idempotent and don't fail on projects with different
+-- Vault state.
+--
+-- Prerequisites (set once via Dashboard → Project Settings → Vault):
+--   integration_health_probe_url  → e.g. https://app.example.com/api/cron/probe-integrations
+--   cron_secret                    → already set for the analyze-single-call function; reuse it
+--
+-- Prerequisite env var on the Next.js host (Vercel/Netlify Env vars UI):
+--   CRON_SECRET → same value as the `cron_secret` Vault entry
+--
+-- After Vault is populated, run this in the SQL editor as the postgres role:
+--
+--   SELECT cron.schedule(
+--     'probe-integration-health',
+--     '*/15 * * * *',
+--     $$
+--     SELECT net.http_post(
+--       url     := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'integration_health_probe_url' LIMIT 1),
+--       headers := jsonb_build_object(
+--         'Content-Type',   'application/json',
+--         'x-cron-secret',  (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret' LIMIT 1)
+--       ),
+--       body    := '{}'::jsonb,
+--       timeout_milliseconds := 60000
+--     );
+--     $$
+--   );
+--
+-- To pause temporarily:
+--   SELECT cron.unschedule('probe-integration-health');
+--
+-- Job visibility:
+--   SELECT jobid, jobname, schedule, active FROM cron.job WHERE jobname = 'probe-integration-health';
+--   SELECT * FROM cron.job_run_details WHERE jobid = <id> ORDER BY start_time DESC LIMIT 20;
+
+-- Intentionally empty runtime block. This file exists so the schedule and
+-- prerequisites are versioned; the ops step is a one-time manual run.
+SELECT 1;

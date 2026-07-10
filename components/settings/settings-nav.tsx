@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { Building2, User, Users, LayoutGrid, LogOut, ScrollText } from 'lucide-react'
+import { Building2, User, Users, LayoutGrid, LogOut, ScrollText, Activity } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useIsMobile, useMounted } from '@/lib/hooks'
 import type { Role } from '@/lib/types'
@@ -26,6 +26,12 @@ export function SettingsNav({ role }: SettingsNavProps) {
     ...(isOwner ? [{ href: '/settings/my-staff', label: 'My Staff', mobileLabel: 'Staff', Icon: Users }] : []),
     ...(isOwner ? [{ href: '/settings/studios', label: 'Studios', mobileLabel: 'Studios', Icon: LayoutGrid }] : []),
     ...(isOwner ? [{ href: '/settings/activity-log', label: 'Activity Log', mobileLabel: 'Activity', Icon: ScrollText }] : []),
+    // Integration Health: super_admin gets the cross-studio view, studio_owner sees only their own
+    ...(isSuperAdmin
+      ? [{ href: '/settings/admin/integrations', label: 'Integration Health', mobileLabel: 'Health', Icon: Activity }]
+      : isOwner
+        ? [{ href: '/settings/integrations', label: 'Integrations', mobileLabel: 'Health', Icon: Activity }]
+        : []),
   ]
 
   async function handleSignOut() {
