@@ -73,6 +73,17 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
   const [listDateTo,        setListDateTo]        = useState('')
   const [listSortField,     setListSortField]     = useState<'start_time' | 'title' | 'status'>('start_time')
   const [listSortAscending, setListSortAscending] = useState(true)
+
+  // Click a sortable list-view column header: toggle direction if already sorted
+  // by it, otherwise sort by that column descending first.
+  function handleListSortChange(field: 'start_time' | 'title' | 'status') {
+    if (listSortField === field) {
+      setListSortAscending(a => !a)
+    } else {
+      setListSortField(field)
+      setListSortAscending(false)
+    }
+  }
   const listFilterSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [listRefreshKey,    setListRefreshKey]    = useState(0)
   const [showCreate, setShowCreate]          = useState(false)
@@ -310,12 +321,6 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
               onDateFromChange={setListDateFrom}
               dateTo={listDateTo}
               onDateToChange={setListDateTo}
-              sortField={listSortField}
-              sortAscending={listSortAscending}
-              onSortChange={(field, ascending) => {
-                setListSortField(field as 'start_time' | 'title' | 'status')
-                setListSortAscending(ascending)
-              }}
               onRefresh={() => setListRefreshKey(k => k + 1)}
             />
           ) : (
@@ -480,6 +485,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
           dateTo={listDateTo}
           sortField={listSortField}
           sortAscending={listSortAscending}
+          onSortChange={handleListSortChange}
           onSelectionChange={(count, onDelete) => {
             setListSelectedCount(count)
             listOnDeleteRef.current = onDelete

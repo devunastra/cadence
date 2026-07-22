@@ -4,7 +4,7 @@ import { useState, useTransition, useEffect, useCallback, useRef } from 'react'
 import { useMounted } from '@/lib/hooks'
 import { displayTzForLeadField } from '@/lib/date-utils'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, PanelRightOpen, Clock, User, CircleDot, Trophy, Zap, Phone, Calendar, GraduationCap, MessageSquare, Globe, Mail, Tag, AlarmClock, Users, CheckSquare, Copy, Check, Trash2, ChevronDown, X, type LucideIcon } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronUp, PanelRightOpen, Clock, User, CircleDot, Trophy, Zap, Phone, Calendar, GraduationCap, MessageSquare, Globe, Mail, Tag, AlarmClock, Users, CheckSquare, Copy, Check, Trash2, ChevronDown, X, type LucideIcon } from 'lucide-react'
 import { EnumDropdown } from './enum-dropdown'
 import { DatePickerPopup } from './date-picker-popup'
 import { NewLeadModal } from './new-lead-modal'
@@ -186,6 +186,9 @@ const ALL_COLUMNS: { key: keyof Lead; label: string; icon?: LucideIcon }[] = [
   { key: 'partnership',    label: 'Partnership',    icon: Users },
   { key: 'old',            label: 'OLD',            icon: CheckSquare },
 ]
+
+// Columns that support click-to-sort in the table header
+const SORTABLE_LEAD_FIELDS = new Set(['created_at', 'name', 'last_contacted', 'first_lesson', 'phone'])
 
 export function LeadsTable({ studioId }: LeadsTableProps) {
   const router = useRouter()
@@ -956,6 +959,18 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
   }
 
   const activeView = views.find(v => v.id === activeViewId) ?? views[0]
+  // Click a sortable column header: toggle direction if already sorted by it,
+  // otherwise sort by that column descending first (matches Call History).
+  function handleHeaderSort(field: string) {
+    if (sortField === field) {
+      setSortAscending(a => !a)
+    } else {
+      setSortField(field)
+      setSortAscending(false)
+    }
+    setPage(0)
+  }
+
   const COLUMNS = ALL_COLUMNS.filter(col => activeView.columns.includes(String(col.key)))
   const dropdownLead = dropdown ? leads.find(l => l.id === dropdown.leadId) ?? null : null
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -993,9 +1008,6 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
               reasonFilter={reasonFilter}
               onReasonFilterChange={handleReasonFilterChange}
               fieldOptions={fieldOptions}
-              sortField={sortField}
-              sortAscending={sortAscending}
-              onSortChange={(field, ascending) => { setSortField(field); setSortAscending(ascending); setPage(0) }}
               onRefresh={() => setRefreshKey(k => k + 1)}
             />
           </div>
@@ -1227,9 +1239,21 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
                   style={{ width: colWidths[col.key] ?? DEFAULT_COL_WIDTHS[col.key] ?? 120 }}
                   className="relative text-left text-sm font-normal text-[rgba(55,53,47,0.95)] dark:text-[rgba(255,255,255,0.8)] pl-3 pr-4 py-3 border-b border-r border-[#e9e9e7] dark:border-[rgba(255,255,255,0.06)] overflow-hidden [font-family:var(--font-inter,Inter,sans-serif)]"
                 >
-                  <span className="flex items-center gap-1 overflow-hidden whitespace-nowrap">
+                  <span
+                    className={`flex items-center gap-1 overflow-hidden whitespace-nowrap ${SORTABLE_LEAD_FIELDS.has(String(col.key)) ? 'cursor-pointer select-none' : ''}`}
+                    onClick={SORTABLE_LEAD_FIELDS.has(String(col.key)) ? () => handleHeaderSort(String(col.key)) : undefined}
+                  >
                     {col.icon && <col.icon size={14} className="flex-shrink-0 opacity-60" />}
                     <span className="overflow-hidden whitespace-nowrap">{col.label}</span>
+                    {SORTABLE_LEAD_FIELDS.has(String(col.key)) && (
+                      sortField === col.key ? (
+                        sortAscending
+                          ? <ChevronUp size={14} strokeWidth={2.5} className="flex-shrink-0" style={{ color: 'var(--color-accent)' }} />
+                          : <ChevronDown size={14} strokeWidth={2.5} className="flex-shrink-0" style={{ color: 'var(--color-accent)' }} />
+                      ) : (
+                        <ChevronsUpDown size={14} className="flex-shrink-0" style={{ color: 'var(--color-text-muted)', opacity: 0.5 }} />
+                      )
+                    )}
                   </span>
                   <div
                     onMouseDown={e => startResize(e, String(col.key))}

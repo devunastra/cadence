@@ -1,19 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Filter, ArrowUpDown, Search, X, ArrowUp, ArrowDown, ChevronDown, RefreshCw, ChevronLeft, ChevronRight, Check } from 'lucide-react'
+import { Filter, Search, X, ChevronDown, RefreshCw, ChevronLeft, ChevronRight, Check } from 'lucide-react'
 import { DateFieldPicker } from '@/components/date-field-picker'
-
-const SORT_FIELDS: { key: string; label: string }[] = [
-  { key: 'start_time', label: 'Appointment Time' },
-  { key: 'title',      label: 'Title' },
-  { key: 'status',     label: 'Status' },
-]
-
-const SORT_DIRECTIONS: { key: string; label: string }[] = [
-  { key: 'asc',  label: 'Ascending' },
-  { key: 'desc', label: 'Descending' },
-]
 
 const STATUS_OPTIONS = [
   { value: 'confirmed', label: 'Confirmed' },
@@ -32,9 +21,6 @@ export interface AppointmentListFilterBarProps {
   onDateFromChange: (v: string) => void
   dateTo: string
   onDateToChange: (v: string) => void
-  sortField: 'start_time' | 'title' | 'status'
-  sortAscending: boolean
-  onSortChange: (field: string, ascending: boolean) => void
   onRefresh: () => void
 }
 
@@ -203,83 +189,6 @@ function MultiSelect({
 
 // ── Simple date field → opens calendar panel on click ────────────────────────
 
-
-// ── Sort select (internal) ────────────────────────────────────────────────────
-
-function SortSelect({
-  value, onChange, options,
-}: {
-  value: string
-  onChange: (v: string) => void
-  options: { key: string; label: string }[]
-}) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  const selected = options.find(o => o.key === value)
-
-  useEffect(() => {
-    if (!open) return
-    function h(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
-  }, [open])
-
-  return (
-    <div ref={ref} className="relative flex-1 md:flex-none">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm rounded-lg w-full md:w-auto"
-        style={{
-          minWidth: 130,
-          border: '1px solid var(--color-border)',
-          boxShadow: open ? '0 0 0 2px var(--color-accent)' : 'none',
-          backgroundColor: 'var(--color-surface)',
-          color: 'var(--color-text-primary)',
-          fontWeight: 500,
-          transition: 'background var(--transition-fast)',
-        }}
-        onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)'}
-        onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'}
-      >
-        <span className="truncate">{selected?.label ?? value}</span>
-        <ChevronDown size={13} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
-      </button>
-
-      {open && (
-        <div
-          className="absolute top-full left-0 mt-1 z-50 rounded-xl py-1 overflow-hidden"
-          style={{
-            minWidth: '100%',
-            backgroundColor: 'var(--color-bg)',
-            border: '1px solid var(--color-border)',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.10)',
-          }}
-        >
-          {options.map(opt => (
-            <button
-              key={opt.key}
-              onClick={() => { onChange(opt.key); setOpen(false) }}
-              className="w-full text-left px-3 py-2 text-sm whitespace-nowrap"
-              style={{
-                backgroundColor: value === opt.key ? 'var(--color-accent)' : 'transparent',
-                color: value === opt.key ? '#ffffff' : 'var(--color-text-primary)',
-                fontWeight: value === opt.key ? 500 : 400,
-                transition: 'none',
-              }}
-              onMouseEnter={e => { if (value !== opt.key) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface-hover)' }}
-              onMouseLeave={e => { if (value !== opt.key) (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── Main filter bar ───────────────────────────────────────────────────────────
 
 export function AppointmentListFilterBar({
@@ -287,20 +196,16 @@ export function AppointmentListFilterBar({
   statusFilters, onStatusFiltersChange,
   dateFrom, onDateFromChange,
   dateTo, onDateToChange,
-  sortField, sortAscending, onSortChange,
   onRefresh,
 }: AppointmentListFilterBarProps) {
   const [filterOpen, setFilterOpen] = useState(false)
-  const [sortOpen, setSortOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchFocused, setSearchFocused] = useState(false)
   const [spinning, setSpinning] = useState(false)
   const filterRef = useRef<HTMLDivElement>(null)
-  const sortRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   const activeFilterCount = [statusFilters.length > 0, !!dateFrom, !!dateTo].filter(Boolean).length
-  const isSortCustom = !(sortField === 'start_time' && sortAscending)
 
   useEffect(() => {
     if (!filterOpen) return
@@ -310,15 +215,6 @@ export function AppointmentListFilterBar({
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
   }, [filterOpen])
-
-  useEffect(() => {
-    if (!sortOpen) return
-    function h(e: MouseEvent) {
-      if (sortRef.current && !sortRef.current.contains(e.target as Node)) setSortOpen(false)
-    }
-    document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
-  }, [sortOpen])
 
   useEffect(() => {
     if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 20)
@@ -418,63 +314,7 @@ export function AppointmentListFilterBar({
         )}
       </div>
 
-      {/* Sort pill */}
-      <div ref={sortRef} className="relative">
-        <button
-          onClick={() => setSortOpen(o => !o)}
-          style={pillStyle(sortOpen || isSortCustom)}
-          onMouseEnter={onPillEnter}
-          onMouseLeave={e => onPillLeave(e, sortOpen || isSortCustom)}
-        >
-          <ArrowUpDown size={14} />
-          Sort
-          {sortAscending
-            ? <ArrowUp size={14} strokeWidth={2.5} style={{ color: 'var(--color-accent)' }} />
-            : <ArrowDown size={14} strokeWidth={2.5} style={{ color: 'var(--color-accent)' }} />
-          }
-        </button>
-
-        {sortOpen && (
-          <div
-            className="fixed left-5 right-5 md:absolute md:left-0 md:right-auto md:w-auto mt-2 z-40 rounded-xl overflow-visible"
-            style={{
-              backgroundColor: 'var(--color-bg)',
-              border: '1px solid var(--color-border)',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.10)',
-            }}
-          >
-            <div
-              className="flex items-center gap-2 px-3 py-2.5"
-              style={{ borderBottom: '1px solid var(--color-border)' }}
-            >
-              <SortSelect
-                value={sortField}
-                onChange={v => onSortChange(v, sortAscending)}
-                options={SORT_FIELDS}
-              />
-              <SortSelect
-                value={sortAscending ? 'asc' : 'desc'}
-                onChange={v => onSortChange(sortField, v === 'asc')}
-                options={SORT_DIRECTIONS}
-              />
-              {isSortCustom && (
-                <button
-                  onClick={() => { onSortChange('start_time', true); setSortOpen(false) }}
-                  className="p-2 md:p-1 rounded transition-colors"
-                  style={{ color: 'var(--color-text-muted)' }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-text-muted)'}
-                  title="Reset sort"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Search — first row on mobile, inline after Sort on desktop */}
+      {/* Search — first row on mobile, inline after Filter on desktop */}
       <div className="order-first md:order-none basis-full md:basis-auto md:w-60 md:shrink-0">
         {searchOpen ? (
           <div

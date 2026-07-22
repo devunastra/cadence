@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, MoreHorizontal, Calendar as CalendarIcon } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronUp, ChevronDown, MoreHorizontal, Calendar as CalendarIcon } from 'lucide-react'
 import { Checkbox } from '@/components/leads/checkbox'
 import { SimpleSelect } from '@/components/simple-select'
 import { ConfirmDeleteModal } from '@/components/confirm-delete-modal'
@@ -134,12 +134,13 @@ export interface AppointmentListPanelProps {
   dateTo: string
   sortField: 'start_time' | 'title' | 'status'
   sortAscending: boolean
+  onSortChange: (field: 'start_time' | 'title' | 'status') => void
   onSelectionChange?: (count: number, onDelete: () => void) => void
 }
 
 export function AppointmentListPanel({
   studioId, userRole, slotConfig,
-  search, statusFilters, dateFrom, dateTo, sortField, sortAscending,
+  search, statusFilters, dateFrom, dateTo, sortField, sortAscending, onSortChange,
   onSelectionChange,
 }: AppointmentListPanelProps) {
   const router = useRouter()
@@ -331,13 +332,30 @@ export function AppointmentListPanel({
                 <th className="pl-4 pr-2 py-3 w-8 text-left">
                   <Checkbox checked={allSelected} indeterminate={someSelected} onChange={toggleAll} />
                 </th>
-                {['Title', 'Contact Name', 'Status', 'Appointment Time'].map(h => (
+                {([
+                  { label: 'Title', field: 'title' as const },
+                  { label: 'Contact Name', field: null },
+                  { label: 'Status', field: 'status' as const },
+                  { label: 'Appointment Time', field: 'start_time' as const },
+                ]).map(col => (
                   <th
-                    key={h}
-                    className="px-4 py-3 text-left text-sm font-normal"
+                    key={col.label}
+                    className={`px-4 py-3 text-left text-sm font-normal ${col.field ? 'cursor-pointer select-none' : ''}`}
                     style={{ color: 'var(--color-text-secondary)' }}
+                    onClick={col.field ? () => onSortChange(col.field) : undefined}
                   >
-                    {h}
+                    <span className="inline-flex items-center gap-1">
+                      {col.label}
+                      {col.field && (
+                        sortField === col.field ? (
+                          sortAscending
+                            ? <ChevronUp size={14} strokeWidth={2.5} className="flex-shrink-0" style={{ color: 'var(--color-accent)' }} />
+                            : <ChevronDown size={14} strokeWidth={2.5} className="flex-shrink-0" style={{ color: 'var(--color-accent)' }} />
+                        ) : (
+                          <ChevronsUpDown size={14} className="flex-shrink-0" style={{ color: 'var(--color-text-muted)', opacity: 0.5 }} />
+                        )
+                      )}
+                    </span>
                   </th>
                 ))}
                 <th className="w-12 text-left" />
