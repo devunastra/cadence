@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useTransition, useCallback } from 'react'
 import { useMounted } from '@/lib/hooks'
-import { Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, ChevronDown, Check, X, RefreshCw } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronUp, Filter, ChevronDown, Check, X, RefreshCw } from 'lucide-react'
 import { fetchCallHistory, savePageFilters } from '@/app/actions'
 import type { CallHistoryRow, CallHistoryParams } from '@/app/actions'
 import { STATUS_COLORS, NOTION_COLORS } from '@/lib/constants'
@@ -625,8 +625,12 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
 
   // Sort indicator
   function SortIndicator({ field }: { field: string }) {
-    if (sort.field !== field) return null
-    return <span className="ml-1 text-xs">{sort.ascending ? '\u25B2' : '\u25BC'}</span>
+    if (sort.field !== field) {
+      return <ChevronsUpDown size={14} className="flex-shrink-0" style={{ color: 'var(--color-text-muted)', opacity: 0.5 }} />
+    }
+    return sort.ascending
+      ? <ChevronUp size={14} strokeWidth={2.5} className="flex-shrink-0" style={{ color: 'var(--color-accent)' }} />
+      : <ChevronDown size={14} strokeWidth={2.5} className="flex-shrink-0" style={{ color: 'var(--color-accent)' }} />
   }
 
   return (
@@ -795,8 +799,10 @@ export function CallHistoryShell({ studioId }: CallHistoryShellProps) {
                   style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap' }}
                   onClick={col.sortable ? () => handleSortChange(col.key) : undefined}
                 >
-                  {col.label}
-                  {col.sortable && <SortIndicator field={col.key} />}
+                  <span className="inline-flex items-center gap-1">
+                    {col.label}
+                    {col.sortable && <SortIndicator field={col.key} />}
+                  </span>
                 </th>
               ))}
             </tr>
