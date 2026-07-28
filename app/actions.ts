@@ -13,6 +13,7 @@ import { reconcileSourceDetail } from '@/lib/source-kinds'
 import type { SourceDetail } from '@/lib/source-kinds'
 import { NOTION_COLORS } from '@/lib/constants'
 import { naiveTzPartsToUtcIso } from '@/lib/date-utils'
+import { persistAppointment } from '@/lib/appointment-booking'
 
 // Converts a naive studio-local ISO string ("2026-05-08T17:00:00") to a UTC ISO
 // string. Delegates to naiveTzPartsToUtcIso which handles DST cutover correctly
@@ -2511,7 +2512,10 @@ export async function rescheduleAppointment(
     .eq('id', appointmentId)
     .single()
 
-  if (!appt?.calendar_id) return { error: 'Appointment not found' }
+  // Existence check only. This was `!appt?.calendar_id`, which conflated a
+  // missing row with a row that has no GHL calendar — locally-booked
+  // appointments have calendar_id null and were reported as "not found".
+  if (!appt) return { error: 'Appointment not found' }
 
   // Verify user has membership for this studio
   const { data: membership } = await authClient
@@ -2534,21 +2538,25 @@ export async function rescheduleAppointment(
   const locationId = studio?.ghl_account_id ?? null
 
   // GHL first — will throw if the slot is taken or any other error
-  // Pass all existing fields so GHL doesn't reset them to defaults
+  // Pass all existing fields so GHL doesn't reset them to defaults.
+  // Locally-booked appointments (calendar_id null) skip GHL entirely; the
+  // appointments row is the calendar of record for those studios.
   let ghlNewId: string | undefined
-  try {
-    const result = await updateGHLAppointment(appointmentId, appt.calendar_id, newStartTime, newEndTime, locationId, {
-      title:             appt.title,
-      contactId:         appt.contact_id,
-      appointmentStatus: appt.status,
-      assignedUserId:    appt.assigned_user_id,
-      notes:             appt.notes,
-      address:           appt.address,
-      timezone:          studio?.timezone ?? undefined,
-    }, studio?.ghl_api_key ?? undefined)
-    ghlNewId = result.newId
-  } catch (e) {
-    return { error: (e as Error).message }
+  if (appt.calendar_id) {
+    try {
+      const result = await updateGHLAppointment(appointmentId, appt.calendar_id, newStartTime, newEndTime, locationId, {
+        title:             appt.title,
+        contactId:         appt.contact_id,
+        appointmentStatus: appt.status,
+        assignedUserId:    appt.assigned_user_id,
+        notes:             appt.notes,
+        address:           appt.address,
+        timezone:          studio?.timezone ?? undefined,
+      }, studio?.ghl_api_key ?? undefined)
+      ghlNewId = result.newId
+    } catch (e) {
+      return { error: (e as Error).message }
+    }
   }
 
   // GHL succeeded — update Supabase.
@@ -2602,7 +2610,7 @@ export async function deleteAppointment(appointmentId: string): Promise<{ error?
   // Fetch studio_id, contact_id, and contact_name before deleting
   const { data: appt } = await supabase
     .from('appointments')
-    .select('studio_id, contact_id, contact_name')
+    .select('studio_id, contact_id, contact_name, calendar_id')
     .eq('id', appointmentId)
     .single()
 
@@ -2632,8 +2640,11 @@ export async function deleteAppointment(appointmentId: string): Promise<{ error?
   }).eq('id', appointmentId)
   if (error) return { error: error.message }
 
-  // Mirror deletion to GHL (non-fatal)
-  await deleteGHLAppointment(appointmentId, studio?.ghl_api_key ?? undefined)
+  // Mirror deletion to GHL (non-fatal). Locally-booked appointments have no
+  // GHL record — the soft-delete above is the whole operation for those.
+  if (appt.calendar_id) {
+    await deleteGHLAppointment(appointmentId, studio?.ghl_api_key ?? undefined)
+  }
 
   // Emit appointment event
   if (appt) {
@@ -2685,7 +2696,10 @@ export async function updateAppointmentDetails(
     .eq('id', appointmentId)
     .single()
 
-  if (!appt?.calendar_id) return { error: 'Appointment not found' }
+  // Existence check only. This was `!appt?.calendar_id`, which conflated a
+  // missing row with a row that has no GHL calendar — locally-booked
+  // appointments have calendar_id null and were reported as "not found".
+  if (!appt) return { error: 'Appointment not found' }
 
   const { data: studio } = await supabase
     .from('studios')
@@ -2693,10 +2707,13 @@ export async function updateAppointmentDetails(
     .eq('id', appt.studio_id)
     .single()
 
-  try {
-    await patchGHLAppointmentDetails(appointmentId, appt.calendar_id, updates, studio?.ghl_api_key ?? undefined)
-  } catch (e) {
-    return { error: (e as Error).message }
+  // Locally-booked appointments have no GHL record to patch.
+  if (appt.calendar_id) {
+    try {
+      await patchGHLAppointmentDetails(appointmentId, appt.calendar_id, updates, studio?.ghl_api_key ?? undefined)
+    } catch (e) {
+      return { error: (e as Error).message }
+    }
   }
 
   const { error } = await supabase
@@ -2843,81 +2860,80 @@ export async function createAppointment(opts: {
     .single()
 
   if (!studio) return { error: 'Studio not found' }
-  if (!studio.ghl_account_id) return { error: 'This studio is not connected to GHL. Set the GHL Location ID in Settings → Business Profile.' }
-  if (!studio.ghl_calendar_id) return { error: 'No GHL calendar configured for this studio. Set the GHL Calendar ID in Settings → Business Profile.' }
 
-  // Auto-create GHL contact if the lead has not been synced yet
+  // Studios with a GHL calendar keep the original path — GHL creates the
+  // appointment and owns its ID. Studios without one book locally, where the
+  // appointments table is itself the calendar of record and the
+  // appointments_local_slot_unique index (migration 051) prevents double
+  // booking. See docs/specs/local-appointment-booking.md.
+  const usesGhl = Boolean(studio.ghl_account_id && studio.ghl_calendar_id)
+
+  let appointmentId: string
   let resolvedContactId = opts.contactId
-  if (!resolvedContactId && opts.leadId) {
-    const { data: lead } = await supabase
-      .from('leads')
-      .select('name, phone, email')
-      .eq('id', opts.leadId)
-      .single()
-    if (lead) {
-      const newGhlId = await createGHLContact(
-        studio.ghl_account_id,
-        { name: lead.name, phone: lead.phone, email: lead.email },
-        studio.ghl_api_key ?? undefined,
-      )
-      if (newGhlId) {
-        resolvedContactId = newGhlId
-        await supabase.from('leads').update({ ghl_contact_id: newGhlId }).eq('id', opts.leadId)
+
+  if (usesGhl) {
+    // Auto-create GHL contact if the lead has not been synced yet
+    if (!resolvedContactId && opts.leadId) {
+      const { data: lead } = await supabase
+        .from('leads')
+        .select('name, phone, email')
+        .eq('id', opts.leadId)
+        .single()
+      if (lead) {
+        const newGhlId = await createGHLContact(
+          studio.ghl_account_id!,
+          { name: lead.name, phone: lead.phone, email: lead.email },
+          studio.ghl_api_key ?? undefined,
+        )
+        if (newGhlId) {
+          resolvedContactId = newGhlId
+          await supabase.from('leads').update({ ghl_contact_id: newGhlId }).eq('id', opts.leadId)
+        }
       }
     }
+
+    if (!resolvedContactId) {
+      return { error: 'Could not resolve GHL contact for this lead. Check that the studio has a valid GHL API key.' }
+    }
+
+    try {
+      appointmentId = await createGHLAppointment({
+        calendarId: studio.ghl_calendar_id!,
+        locationId: studio.ghl_account_id!,
+        contactId:  resolvedContactId,
+        startTime:  opts.startTime,
+        endTime:    opts.endTime,
+        title:      opts.title ?? 'Dance Appointment',
+        notes:      opts.notes,
+        timezone:   studio.timezone,
+        apiKey:     studio.ghl_api_key ?? undefined,
+      })
+    } catch (e) {
+      return { error: (e as Error).message }
+    }
+  } else {
+    // No GHL contact to resolve — the lead already exists in Supabase.
+    appointmentId = crypto.randomUUID()
   }
 
-  if (!resolvedContactId) {
-    return { error: 'Could not resolve GHL contact for this lead. Check that the studio has a valid GHL API key.' }
-  }
-
-  let ghlId: string
-  try {
-    ghlId = await createGHLAppointment({
-      calendarId: studio.ghl_calendar_id,
-      locationId: studio.ghl_account_id,
-      contactId:  resolvedContactId,
-      startTime:  opts.startTime,
-      endTime:    opts.endTime,
-      title:      opts.title ?? 'Dance Appointment',
-      notes:      opts.notes,
-      timezone:   studio.timezone,
-      apiKey:     studio.ghl_api_key ?? undefined,
-    })
-  } catch (e) {
-    return { error: (e as Error).message }
-  }
-
-  const now = new Date().toISOString()
-  const row = {
-    id:           ghlId,
-    studio_id:    opts.studioId,
-    title:        opts.title ?? 'Dance Appointment',
-    start_time:   opts.startTime,
-    end_time:     opts.endTime,
-    status:       'confirmed',
-    calendar_id:  studio.ghl_calendar_id,
-    contact_id:   resolvedContactId,
-    contact_name: opts.contactName,
-    notes:        opts.notes ?? null,
-    created_at:   now,
-    updated_at:   now,
-  }
-
-  const { data: appt, error } = await supabase
-    .from('appointments')
-    .upsert(row, { onConflict: 'id' })
-    .select()
-    .single()
-
-  if (error) return { error: error.message }
-
-  await supabase.from('appointment_events').insert({
-    studio_id:      opts.studioId,
-    appointment_id: ghlId,
-    contact_id:     resolvedContactId,
-    verb:           'Created',
+  // Row write + Created event are shared with POST /api/appointments so the
+  // dashboard and the voice agent can't drift apart.
+  const { appointment: appt, error, slotTaken } = await persistAppointment({
+    id:          appointmentId,
+    studioId:    opts.studioId,
+    title:       opts.title ?? 'Dance Appointment',
+    startLocal:  opts.startTime,
+    endLocal:    opts.endTime,
+    calendarId:  usesGhl ? studio.ghl_calendar_id : null,
+    contactId:   resolvedContactId || null,
+    contactName: opts.contactName,
+    notes:       opts.notes ?? null,
   })
+
+  if (error) {
+    if (slotTaken) return { error: 'That time was just booked by someone else. Please pick another slot.' }
+    return { error }
+  }
 
   supabase.from('activity_logs').insert({
     studio_id:   opts.studioId,
@@ -2987,7 +3003,10 @@ export async function updateAppointmentStatus(
     .eq('id', appointmentId)
     .single()
 
-  if (!appt?.calendar_id) return { error: 'Appointment not found' }
+  // Existence check only. This was `!appt?.calendar_id`, which conflated a
+  // missing row with a row that has no GHL calendar — locally-booked
+  // appointments have calendar_id null and were reported as "not found".
+  if (!appt) return { error: 'Appointment not found' }
 
   const { data: studio } = await supabase
     .from('studios')
@@ -3006,10 +3025,13 @@ export async function updateAppointmentStatus(
   const isSuperAdmin = allMemberships?.some(m => m.role === 'super_admin') ?? false
   if (!membership && !isSuperAdmin) return { error: 'Unauthorized' }
 
-  try {
-    await patchGHLAppointmentDetails(appointmentId, appt.calendar_id, { appointmentStatus: status }, studio?.ghl_api_key ?? undefined)
-  } catch {
-    // GHL sync failure is non-fatal for status updates
+  // Locally-booked appointments have no GHL record to sync the status to.
+  if (appt.calendar_id) {
+    try {
+      await patchGHLAppointmentDetails(appointmentId, appt.calendar_id, { appointmentStatus: status }, studio?.ghl_api_key ?? undefined)
+    } catch {
+      // GHL sync failure is non-fatal for status updates
+    }
   }
 
   const updates: Record<string, unknown> = { status, updated_at: new Date().toISOString() }
