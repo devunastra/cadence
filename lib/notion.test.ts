@@ -29,12 +29,10 @@ describe('buildNotionProperties', () => {
     // Manila is UTC+8. '2026-06-01T16:30:00.000Z' is 2026-06-02 00:30 Manila time.
     const props = buildNotionProperties({
       last_contacted: '2026-06-01T16:30:00.000Z',
-      first_lesson: '2026-06-01T16:00:00.000Z',   // naive wall-clock written as UTC (n8n webhook)
+      first_lesson: '2026-06-01T16:00:00.000Z',   // 2026-06-02 00:00 Manila
     }, 'Asia/Manila')
     expect(props['Last Contacted']).toEqual({ date: { start: '2026-06-02' } }) // Manila date, not UTC '2026-06-01'
-    // first_lesson: wall-clock read from the UTC components (documented n8n workaround in
-    // notionDateValue), stamped with the studio tz — NOT re-converted to Manila local time.
-    expect(props['First Lesson']).toEqual({ date: { start: '2026-06-01T16:00:00.000', time_zone: 'Asia/Manila' } })
+    expect(props['First Lesson']).toEqual({ date: { start: '2026-06-02T00:00:00.000', time_zone: 'Asia/Manila' } })
   })
 
   it('ignores unsynced fields', () => {

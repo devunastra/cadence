@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useTransition, useEffect, useRef, useCallback } from 'react'
 import { useMounted, useIsMobile } from '@/lib/hooks'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, RefreshCw, Settings, Trash2 } from 'lucide-react'
@@ -59,7 +59,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
   const isMobile = useIsMobile()
   const { currentStudio } = useCurrentStudio()
   const tz = currentStudio.timezone
-  const [tab, setTab]                        = useState<'calendar' | 'list' | 'settings'>('list')
+  const [tab, setTab]                        = useState<'calendar' | 'list' | 'settings'>('calendar')
   const [weekStart, setWeekStart]            = useState<Date>(getWeekStart(new Date(), tz))
   const [appointments, setAppointments]      = useState<Appointment[]>([])
   const [contactLeadMap, setContactLeadMap]  = useState<Record<string, Lead>>({})
@@ -72,17 +72,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
   const [listDateFrom,      setListDateFrom]      = useState('')
   const [listDateTo,        setListDateTo]        = useState('')
   const [listSortField,     setListSortField]     = useState<'start_time' | 'title' | 'status'>('start_time')
-  // Default: latest → oldest (most recent appointment date first), for both the
-  // upcoming and "show past" views. The date filter restricts the range; this
-  // controls the order independently.
-  const [listSortAscending, setListSortAscending] = useState(false)
-  // Hide appointments before today by default — the list opens on the soonest
-  // upcoming appointment. Toggled on via "Show past" in the filter bar.
-  const [listHidePast,      setListHidePast]      = useState(true)
-
-  // Studio-local start of today, as a UTC instant. Appointments starting before
-  // this are "past". Recomputed only when the studio timezone changes.
-  const pastCutoff = useMemo(() => studioStartOfDay(new Date(), tz).toISOString(), [tz])
+  const [listSortAscending, setListSortAscending] = useState(true)
 
   // Click a sortable list-view column header: toggle direction if already sorted
   // by it, otherwise sort by that column descending first.
@@ -103,6 +93,16 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
   const [datePickerOpen,   setDatePickerOpen]   = useState(false)
   const [datePickerAnchor, setDatePickerAnchor] = useState<DOMRect | null>(null)
   const mounted = useMounted()
+
+  // Default to list view on first mobile load (week grid is tight but still accessible)
+  const initialTabSet = useRef(false)
+  useEffect(() => {
+    if (isMobile && !initialTabSet.current) {
+      initialTabSet.current = true
+      setTab('list')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile])
 
   // Fetch appointments on mount and whenever the active studio changes. With `[]`
   // deps, switching studios kept the previous studio's appointments on screen
@@ -158,12 +158,11 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
           dateTo: listDateTo,
           sortField: listSortField,
           sortAscending: listSortAscending,
-          hidePast: listHidePast,
         },
       }).catch(() => {})
     }, 1000)
     return () => { if (listFilterSaveTimer.current) clearTimeout(listFilterSaveTimer.current) }
-  }, [studioId, listStatusFilter, listDateFrom, listDateTo, listSortField, listSortAscending, listHidePast]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [studioId, listStatusFilter, listDateFrom, listDateTo, listSortField, listSortAscending]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Direct Supabase client fetch — no Next.js server round-trip
   const fetchAppointments = useCallback(async (ws: Date) => {
@@ -269,7 +268,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
     <div className="flex flex-col gap-3 md:flex-1 md:min-h-0">
       {/* Row 1: Tab strip — stable, never shifts */}
       <div className="flex items-end flex-shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-        {(['list', 'calendar'] as const).map(t => (
+        {(['calendar', 'list'] as const).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -283,7 +282,7 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
             onMouseEnter={e => { if (tab !== t) (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)' }}
             onMouseLeave={e => { if (tab !== t) (e.currentTarget as HTMLElement).style.color = 'var(--color-text-secondary)' }}
           >
-            {t === 'calendar' ? 'Calendar' : 'List'}
+            {t === 'calendar' ? 'Calendar View' : 'Appointment List'}
           </button>
         ))}
         {(userRole === 'studio_owner' || userRole === 'super_admin') && (
@@ -322,8 +321,6 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
               onDateFromChange={setListDateFrom}
               dateTo={listDateTo}
               onDateToChange={setListDateTo}
-              showPast={!listHidePast}
-              onShowPastChange={v => setListHidePast(!v)}
               onRefresh={() => setListRefreshKey(k => k + 1)}
             />
           ) : (
@@ -486,7 +483,6 @@ export function CalendarShell({ studioId, calStartHour, calEndHour, slotConfig, 
           statusFilters={listStatusFilter}
           dateFrom={listDateFrom}
           dateTo={listDateTo}
-          notBefore={listHidePast ? pastCutoff : ''}
           sortField={listSortField}
           sortAscending={listSortAscending}
           onSortChange={handleListSortChange}

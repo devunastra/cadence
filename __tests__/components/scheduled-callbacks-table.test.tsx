@@ -51,12 +51,6 @@ vi.mock('@/components/call-history/call-detail-drawer', () => ({
   ),
 }))
 
-// The table reads currentStudio.timezone via useCurrentStudio(); stub the
-// context so the tests don't need a real StudioProvider wrapper.
-vi.mock('@/components/studio-context', () => ({
-  useCurrentStudio: () => ({ currentStudio: { timezone: 'America/Chicago' } }),
-}))
-
 // Import after mocks so the component picks up the stubs
 // eslint-disable-next-line import/first
 import { ScheduledCallbacksTable } from '@/components/follow-ups/scheduled-callbacks-table'

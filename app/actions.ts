@@ -1510,7 +1510,7 @@ export interface PageFilters {
   }
   appointmentList?: {
     statusFilters?: string[]; dateFrom?: string; dateTo?: string
-    sortField?: string; sortAscending?: boolean; hidePast?: boolean
+    sortField?: string; sortAscending?: boolean
   }
   callHistory?: {
     filters?: {
@@ -2937,8 +2937,6 @@ export async function fetchAppointmentList(
     statusFilters?: string[]
     dateFrom?: string
     dateTo?: string
-    /** ISO instant — exclude appointments starting before this (used to hide past appointments) */
-    notBefore?: string
   },
   sortField: 'start_time' | 'title' | 'status' = 'start_time',
   sortAscending = true,
@@ -2953,7 +2951,6 @@ export async function fetchAppointmentList(
     .eq('studio_id', studioId)
     .is('deleted_at', null)
 
-  if (filters.notBefore) query = query.gte('start_time', filters.notBefore)
   if (filters.dateFrom) query = query.gte('start_time', `${filters.dateFrom}T00:00:00`)
   if (filters.dateTo) query = query.lte('start_time', `${filters.dateTo}T23:59:59`)
   if (filters.statusFilters?.length) query = query.in('status', filters.statusFilters)

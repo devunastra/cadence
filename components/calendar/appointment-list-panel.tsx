@@ -132,8 +132,6 @@ export interface AppointmentListPanelProps {
   statusFilters: string[]
   dateFrom: string
   dateTo: string
-  /** ISO instant — hide appointments starting before this ('' = show all) */
-  notBefore?: string
   sortField: 'start_time' | 'title' | 'status'
   sortAscending: boolean
   onSortChange: (field: 'start_time' | 'title' | 'status') => void
@@ -142,7 +140,7 @@ export interface AppointmentListPanelProps {
 
 export function AppointmentListPanel({
   studioId, userRole, slotConfig,
-  search, statusFilters, dateFrom, dateTo, notBefore, sortField, sortAscending, onSortChange,
+  search, statusFilters, dateFrom, dateTo, sortField, sortAscending, onSortChange,
   onSelectionChange,
 }: AppointmentListPanelProps) {
   const router = useRouter()
@@ -181,7 +179,7 @@ export function AppointmentListPanel({
     startTransition(async () => {
       const result = await fetchAppointmentList(
         studioId,
-        { search: debouncedSearch, statusFilters, dateFrom, dateTo, notBefore: notBefore || undefined },
+        { search: debouncedSearch, statusFilters, dateFrom, dateTo },
         sortField,
         sortAscending,
         p + 1,
@@ -199,12 +197,12 @@ export function AppointmentListPanel({
         )
       }
     })
-  }, [studioId, debouncedSearch, statusFilters, dateFrom, dateTo, notBefore, sortField, sortAscending, pageSize])
+  }, [studioId, debouncedSearch, statusFilters, dateFrom, dateTo, sortField, sortAscending, pageSize])
 
   useEffect(() => {
     loadPage(0)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [studioId, debouncedSearch, statusFilters, dateFrom, dateTo, notBefore, sortField, sortAscending, pageSize])
+  }, [studioId, debouncedSearch, statusFilters, dateFrom, dateTo, sortField, sortAscending, pageSize])
 
   useEffect(() => {
     const supabase = createClient()

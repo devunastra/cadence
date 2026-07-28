@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Filter, Search, X, ChevronDown, RefreshCw, ChevronLeft, ChevronRight, Check, History } from 'lucide-react'
+import { Filter, Search, X, ChevronDown, RefreshCw, ChevronLeft, ChevronRight, Check } from 'lucide-react'
 import { DateFieldPicker } from '@/components/date-field-picker'
 
 const STATUS_OPTIONS = [
@@ -21,8 +21,6 @@ export interface AppointmentListFilterBarProps {
   onDateFromChange: (v: string) => void
   dateTo: string
   onDateToChange: (v: string) => void
-  showPast: boolean
-  onShowPastChange: (v: boolean) => void
   onRefresh: () => void
 }
 
@@ -198,7 +196,6 @@ export function AppointmentListFilterBar({
   statusFilters, onStatusFiltersChange,
   dateFrom, onDateFromChange,
   dateTo, onDateToChange,
-  showPast, onShowPastChange,
   onRefresh,
 }: AppointmentListFilterBarProps) {
   const [filterOpen, setFilterOpen] = useState(false)
@@ -316,45 +313,6 @@ export function AppointmentListFilterBar({
           </div>
         )}
       </div>
-
-      {/* Show past toggle — off by default so past appointments stay hidden.
-          Labelled pill + the app's standard switch (Settings) as the on/off indicator. */}
-      <button
-        type="button"
-        role="switch"
-        aria-checked={showPast}
-        onClick={() => onShowPastChange(!showPast)}
-        title={showPast ? 'Hide past appointments' : 'Show past appointments'}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '5px 10px',
-          fontSize: 14,
-          lineHeight: '1.25rem',
-          fontWeight: 500,
-          borderRadius: 8,
-          cursor: 'pointer',
-          whiteSpace: 'nowrap',
-          border: '1px solid var(--color-border)',
-          backgroundColor: showPast ? 'var(--color-surface)' : 'var(--color-bg)',
-          color: showPast ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-          transition: 'background var(--transition-fast), color var(--transition-fast)',
-        }}
-        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface-hover)'; (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)' }}
-        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = showPast ? 'var(--color-surface)' : 'var(--color-bg)'; (e.currentTarget as HTMLElement).style.color = showPast ? 'var(--color-text-primary)' : 'var(--color-text-secondary)' }}
-      >
-        <History size={14} style={{ flexShrink: 0 }} />
-        Show past
-        {/* Standard switch — matches Settings toggles */}
-        <span
-          aria-hidden
-          className="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
-          style={{ backgroundColor: showPast ? 'var(--color-accent)' : 'var(--color-border-strong)' }}
-        >
-          <span className={`pointer-events-none absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200 ${showPast ? 'translate-x-4' : 'translate-x-0.5'}`} />
-        </span>
-      </button>
 
       {/* Search — first row on mobile, inline after Filter on desktop */}
       <div className="order-first md:order-none basis-full md:basis-auto md:w-60 md:shrink-0">
