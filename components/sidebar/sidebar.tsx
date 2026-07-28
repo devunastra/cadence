@@ -28,7 +28,7 @@ import type { Studio } from "@/lib/types";
 const NAV_ITEMS = [
     { href: "/leads", label: "Leads", Icon: Users },
     { href: "/conversations", label: "Conversations", Icon: MessageSquare },
-    { href: "/calendar", label: "Calendar", Icon: Calendar },
+    { href: "/calendar", label: "Appointments", Icon: Calendar },
     { href: "/call-analytics", label: "Call Analytics", Icon: BarChart2 },
     { href: "/call-history", label: "Call History", Icon: Phone },
     { href: "/call-quality", label: "Quality Review", Icon: ClipboardCheck },
