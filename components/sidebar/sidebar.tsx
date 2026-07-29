@@ -17,24 +17,27 @@ import {
     ClipboardCheck,
     PhoneForwarded,
     LogOut,
+    type LucideIcon,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { StudioSwitcher } from "./studio-switcher";
 import { setSelectedStudio, saveNavCollapsed } from "@/app/actions";
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentStudio } from "@/components/studio-context";
+import { NAV_PAGES, isPageVisible } from "@/lib/nav";
 import type { Studio } from "@/lib/types";
 
-const NAV_ITEMS = [
-    { href: "/leads", label: "Leads", Icon: Users },
-    { href: "/conversations", label: "Conversations", Icon: MessageSquare },
-    { href: "/calendar", label: "Appointments", Icon: Calendar },
-    { href: "/call-analytics", label: "Call Analytics", Icon: BarChart2 },
-    { href: "/call-history", label: "Call History", Icon: Phone },
-    { href: "/call-quality", label: "Quality Review", Icon: ClipboardCheck },
-    { href: "/follow-ups", label: "Follow-ups", Icon: PhoneForwarded },
-    { href: "/test", label: "Test", Icon: FlaskConical },
-];
+// Icons live here (client-only); page metadata + visibility live in lib/nav.ts.
+const NAV_ICONS: Record<string, LucideIcon> = {
+    "/leads": Users,
+    "/conversations": MessageSquare,
+    "/calendar": Calendar,
+    "/call-analytics": BarChart2,
+    "/call-history": Phone,
+    "/call-quality": ClipboardCheck,
+    "/follow-ups": PhoneForwarded,
+    "/test": FlaskConical,
+};
 
 interface SidebarProps {
     studios: Studio[];
@@ -156,7 +159,8 @@ export function Sidebar({
 
             {/* Nav items */}
             <nav className="flex-1 px-3 pt-3 space-y-1">
-                {NAV_ITEMS.map(({ href, label, Icon }) => {
+                {NAV_PAGES.filter((p) => isPageVisible(p.href, currentStudio.nav_overrides)).map(({ href, label }) => {
+                    const Icon = NAV_ICONS[href];
                     const active = pendingHref ? pendingHref.startsWith(href) : pathname.startsWith(href);
                     return (
                         <Link
