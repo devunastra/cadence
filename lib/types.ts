@@ -34,6 +34,9 @@ export interface Studio {
   appointment_slots: Record<string, string[]>
   timezone: string
   review_enabled: boolean
+  // Per-studio sidebar tab visibility overrides (nav href -> boolean).
+  // Missing key = tab default. Super-admin managed. See lib/nav.ts.
+  nav_overrides: Record<string, boolean>
   created_at: string
 }
 
