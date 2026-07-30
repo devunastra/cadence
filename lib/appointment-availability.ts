@@ -1,5 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/server'
 import { getSlotsForDate, getMinDate } from '@/lib/appointment-slots'
+import { naiveTzPartsToUtcIso } from '@/lib/date-utils'
 import type { StudioSlotConfig } from '@/lib/types'
 
 /**
@@ -132,6 +133,60 @@ export async function getAvailabilityForDate(
     }))
 
   return { slots, closed: false, fullyBooked: slots.length === 0 }
+}
+
+/**
+ * Renders a slot as an offset ISO string, e.g. "2026-08-05T14:00:00-07:00".
+ *
+ * The voice pipeline compares slots against `preferred_time`, which Retell sends
+ * with a real UTC offset. Naive local strings would never match, so this is what
+ * the GHL-shaped response emits.
+ */
+export function toOffsetIso(dateVal: string, hhmm: string, tz: string): string {
+  const [y, mo, d] = dateVal.split('-').map(Number)
+  const [h, mi] = hhmm.split(':').map(Number)
+  const utcMs = Date.parse(naiveTzPartsToUtcIso(y, mo - 1, d, h, mi, tz))
+  const offMin = Math.round((Date.UTC(y, mo - 1, d, h, mi) - utcMs) / 60000)
+  const sign = offMin >= 0 ? '+' : '-'
+  const abs = Math.abs(offMin)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${dateVal}T${p(h)}:${p(mi)}:00${sign}${p(Math.floor(abs / 60))}:${p(abs % 60)}`
+}
+
+/**
+ * Availability across a span of days, in the shape GHL's free-slots API returns:
+ *
+ *   { "2026-08-05": { slots: ["2026-08-05T12:00:00-07:00", …] }, … }
+ *
+ * Matching GHL's shape is deliberate. The n8n voice workflow's downstream Code
+ * nodes (Check Availability, Day Summary1, Format Slots) were written against
+ * it and are well tested; emitting the same structure means swapping a URL
+ * instead of rewriting them. Closed and fully-booked days are omitted, exactly
+ * as GHL omits them.
+ */
+export async function getAvailabilityRange(
+  studioId: string,
+  startDate: string,
+  days: number,
+): Promise<Record<string, { slots: string[] }>> {
+  const supabase = createServiceClient()
+  const { data: studio } = await supabase
+    .from('studios')
+    .select('timezone')
+    .eq('id', studioId)
+    .single<{ timezone: string | null }>()
+  const tz = studio?.timezone ?? 'America/Chicago'
+
+  const out: Record<string, { slots: string[] }> = {}
+  let cursor = startDate
+  for (let i = 0; i < days; i++) {
+    const { slots } = await getAvailabilityForDate(studioId, cursor)
+    if (slots.length > 0) {
+      out[cursor] = { slots: slots.map(s => toOffsetIso(cursor, s.value, tz)) }
+    }
+    cursor = nextDay(cursor)
+  }
+  return out
 }
 
 /**

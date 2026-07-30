@@ -86,6 +86,10 @@ function formatActivity(log: LogEntry, tz: string): string {
       return 'Appointment cancelled'
     case 'appointment_updated':
       return 'Appointment updated'
+    case 'call_scheduled':
+      return 'AI call scheduled'
+    case 'call_schedule_cancelled':
+      return 'AI call cancelled'
     default:
       return event_type ?? '—'
   }

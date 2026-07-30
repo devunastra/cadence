@@ -161,7 +161,7 @@ type StudioRole = keyof typeof ROLE_TEXT
 
 interface StudioOwnerInviteOpts {
   to: string
-  inviteUrl: string // /auth/callback?token_hash=...&type=invite
+  inviteUrl: string // /accept-invite?token_hash=...&type=invite (verified on form submit)
   invitedBy: string
   /** Optional Loom walkthrough URL. Falls back to the Loom homepage as a deliberate
    * placeholder until a real walkthrough exists. */

@@ -1,5 +1,14 @@
 # Spec: Cancel Scheduled Callbacks
 
+> ⚠️ **Partly superseded (2026-07-30).** The storage layer described here — the n8n
+> "AI Callback" data tables and the `scheduled-callbacks-list` / `-cancel` webhooks —
+> was replaced by the `scheduled_calls` Postgres table in migration 053. The
+> webhook contract in §"n8n Webhooks" and the env vars are **dead**; cancel now
+> targets a single row by uuid instead of matching on phone number.
+> See [`scheduled-calls.md`](./scheduled-calls.md) for the current design and the
+> cutover runbook. The UI behaviour, role matrix, and edge-case analysis below
+> still apply.
+
 ## Summary
 
 Add a new **Scheduled Callbacks** tab to the Follow-ups page that lists every AI callback currently queued in n8n's AI Callback data table. Studio staff can cancel any pending callback to stop the AI agent from making the call — e.g., when they've already handled the lead manually.

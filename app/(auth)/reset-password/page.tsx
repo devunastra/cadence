@@ -25,7 +25,15 @@ export default function ResetPasswordPage() {
     setLoading(true)
 
     const supabase = createClient()
-    const { error } = await supabase.auth.updateUser({ password })
+    // Set the password AND clear the onboarding gate. An invited user whose
+    // invite link failed (expired / consumed by an email scanner) recovers via
+    // this reset flow — without stamping onboarding_complete they'd be bounced
+    // back to /accept-invite forever by proxy.ts. `data` shallow-merges into
+    // user_metadata, so other flags (studio_setup_complete, role_intent) are kept.
+    const { error } = await supabase.auth.updateUser({
+      password,
+      data: { onboarding_complete: true },
+    })
 
     if (error) {
       showError(error.message)
@@ -33,6 +41,10 @@ export default function ResetPasswordPage() {
       return
     }
 
+    // Force a fresh JWT so the proxy sees onboarding_complete=true on the very
+    // next navigation — otherwise the cookie still carries the stale claim and
+    // bounces them once. Mirrors completeStudioOnboarding.
+    await supabase.auth.refreshSession()
     router.push('/leads')
   }
 

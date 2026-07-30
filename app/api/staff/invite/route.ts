@@ -116,7 +116,11 @@ export async function POST(request: NextRequest) {
     if (linkError || !linkData?.properties?.hashed_token) {
       return NextResponse.json({ error: linkError?.message ?? 'Failed to create invite.' }, { status: 400 })
     }
-    const inviteUrl = `${siteUrl}/auth/callback?token_hash=${linkData.properties.hashed_token}&type=invite`
+    // Link straight to /accept-invite (not /auth/callback). The token is verified
+    // on the password-form SUBMIT, not on page load, so email link-scanners that
+    // pre-GET the URL can't consume the one-time token. `by` personalises the
+    // page copy without needing a session on mount.
+    const inviteUrl = `${siteUrl}/accept-invite?token_hash=${linkData.properties.hashed_token}&type=invite&by=${encodeURIComponent(user.email ?? '')}`
     try {
       await sendStudioOwnerInvite({
         to: email,
@@ -188,7 +192,11 @@ export async function POST(request: NextRequest) {
       if (membershipError) {
         return NextResponse.json({ error: membershipError.message }, { status: 500 })
       }
-      const inviteUrl = `${siteUrl}/auth/callback?token_hash=${linkData.properties.hashed_token}&type=invite`
+      // Link straight to /accept-invite (not /auth/callback). The token is verified
+    // on the password-form SUBMIT, not on page load, so email link-scanners that
+    // pre-GET the URL can't consume the one-time token. `by` personalises the
+    // page copy without needing a session on mount.
+    const inviteUrl = `${siteUrl}/accept-invite?token_hash=${linkData.properties.hashed_token}&type=invite&by=${encodeURIComponent(user.email ?? '')}`
       try {
         await sendCoStaffInvite({
           to: email,

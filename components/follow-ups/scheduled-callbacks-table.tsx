@@ -3,16 +3,17 @@
 import { useEffect, useState, useCallback, useTransition } from 'react'
 import { PhoneOff, X, Loader2 } from 'lucide-react'
 import {
-  fetchScheduledCallbacks,
-  cancelScheduledCallback,
+  fetchScheduledCalls,
+  cancelScheduledCall,
   fetchMostRecentCallForLead,
 } from '@/app/actions'
 import type { CallHistoryRow } from '@/app/actions'
 import { formatDateTime } from '@/lib/date-utils'
 import { useCurrentStudio } from '@/components/studio-context'
 import { useToast } from '@/components/ui/toast-provider'
+import { createClient } from '@/lib/supabase/client'
 import { CallDetailDrawer } from '@/components/call-history/call-detail-drawer'
-import type { ScheduledCallback } from '@/lib/types'
+import type { PendingScheduledCall } from '@/lib/types'
 
 function formatPhone(raw: string | null): string {
   if (!raw) return '—'
@@ -27,14 +28,29 @@ function formatName(first: string | null, last: string | null): string {
   return parts.length > 0 ? parts.join(' ') : '—'
 }
 
+const COLUMNS = ['Name', 'Phone', 'Email', 'Scheduled For', 'Source', 'Reason', 'Note', 'Dance Interest', ''] as const
+
+function SourceBadge({ source }: { source: PendingScheduledCall['source'] }) {
+  const isManual = source === 'manual'
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${
+        isManual ? 'status-bg-blue status-text-blue' : 'status-bg-gray status-text-gray'
+      }`}
+    >
+      {isManual ? 'Scheduled by staff' : 'AI agent'}
+    </span>
+  )
+}
+
 function SkeletonRow() {
   return (
     <tr>
-      {Array.from({ length: 7 }).map((_, i) => (
+      {COLUMNS.map((_, i) => (
         <td key={i} className="px-3 py-3">
           <div
             className="h-5 rounded skeleton-shimmer"
-            style={{ width: i === 0 ? '70%' : i === 6 ? '20%' : '60%' }}
+            style={{ width: i === 0 ? '70%' : i === COLUMNS.length - 1 ? '20%' : '60%' }}
           />
         </td>
       ))}
@@ -45,19 +61,19 @@ function SkeletonRow() {
 // ── Cancel confirmation modal (amber + PhoneOff variant of confirm-delete-modal) ──
 
 function CancelConfirmModal({
-  callback,
+  call,
   isPending,
   onConfirm,
   onClose,
   tz,
 }: {
-  callback: ScheduledCallback
+  call: PendingScheduledCall
   isPending: boolean
   onConfirm: () => void
   onClose: () => void
   tz: string
 }) {
-  const name = formatName(callback.first_name, callback.last_name)
+  const name = formatName(call.first_name, call.last_name)
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
@@ -67,10 +83,11 @@ function CancelConfirmModal({
       >
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 rounded-lg transition-colors"
+          className="absolute top-4 right-4 p-2.5 md:p-1.5 rounded-lg transition-colors"
           style={{ color: 'var(--color-text-muted)' }}
           onMouseEnter={e => ((e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)')}
           onMouseLeave={e => ((e.currentTarget as HTMLElement).style.backgroundColor = 'transparent')}
+          aria-label="Close"
         >
           <X size={20} />
         </button>
@@ -84,11 +101,11 @@ function CancelConfirmModal({
           </div>
 
           <p className="text-base font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>
-            Cancel scheduled callback?
+            Cancel scheduled call?
           </p>
           <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
             The AI agent will not call <span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{name}</span> at{' '}
-            {callback.callback_time ? formatDateTime(callback.callback_time, tz) : 'the scheduled time'}.
+            {call.callback_time ? formatDateTime(call.callback_time, tz) : 'the scheduled time'}.
             This cannot be undone.
           </p>
         </div>
@@ -105,7 +122,7 @@ function CancelConfirmModal({
             onMouseEnter={e => ((e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)')}
             onMouseLeave={e => ((e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg)')}
           >
-            Keep Callback
+            Keep Call
           </button>
           <button
             onClick={onConfirm}
@@ -116,7 +133,7 @@ function CancelConfirmModal({
             onMouseLeave={e => ((e.currentTarget as HTMLElement).style.backgroundColor = '#d97706')}
           >
             {isPending && <Loader2 size={14} className="animate-spin" />}
-            {isPending ? 'Cancelling…' : 'Cancel Callback'}
+            {isPending ? 'Cancelling…' : 'Cancel Call'}
           </button>
         </div>
       </div>
@@ -127,25 +144,32 @@ function CancelConfirmModal({
 // ── Main table ───────────────────────────────────────────────────────────────
 
 interface Props {
+  studioId: string
   refreshTrigger: number
 }
 
-export function ScheduledCallbacksTable({ refreshTrigger }: Props) {
+export function ScheduledCallbacksTable({ studioId, refreshTrigger }: Props) {
   const { currentStudio } = useCurrentStudio()
   const tz = currentStudio.timezone
-  const [rows, setRows] = useState<ScheduledCallback[]>([])
+  const [rows, setRows] = useState<PendingScheduledCall[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [confirmTarget, setConfirmTarget] = useState<ScheduledCallback | null>(null)
+  const [confirmTarget, setConfirmTarget] = useState<PendingScheduledCall | null>(null)
   const [selectedCall, setSelectedCall] = useState<CallHistoryRow | null>(null)
-  const [openingDetailFor, setOpeningDetailFor] = useState<number | null>(null)
+  const [openingDetailFor, setOpeningDetailFor] = useState<string | null>(null)
   const [, startTransition] = useTransition()
-  const [cancellingId, setCancellingId] = useState<number | null>(null)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
   const { showSuccess, showWarning, showError } = useToast()
 
-  async function handleRowClick(row: ScheduledCallback) {
+  async function handleRowClick(row: PendingScheduledCall) {
     if (openingDetailFor !== null) return
-    setOpeningDetailFor(row.n8n_row_id)
+    // A queued call can predate the lead record (an inbound caller who isn't a
+    // lead yet), so there may be nothing to open.
+    if (!row.lead_id) {
+      showWarning(`${formatName(row.first_name, row.last_name)} isn't linked to a lead yet`)
+      return
+    }
+    setOpeningDetailFor(row.id)
     try {
       const call = await fetchMostRecentCallForLead(row.lead_id, row.studio_id)
       if (call) {
@@ -165,25 +189,42 @@ export function ScheduledCallbacksTable({ refreshTrigger }: Props) {
     setError(null)
     startTransition(async () => {
       try {
-        const data = await fetchScheduledCallbacks()
-        setRows(data)
+        setRows(await fetchScheduledCalls(studioId))
       } catch (e) {
         const raw = e instanceof Error ? e.message : ''
         // Next.js production builds sanitize server action errors into a generic
         // "An error occurred in the Server Components render..." string. Show a
         // useful message instead of that blob.
         const isSanitized = raw.includes('Server Components render') || raw.includes('digest property')
-        setError(isSanitized ? 'Could not load scheduled callbacks. Please refresh or try again.' : raw || 'Failed to load scheduled callbacks')
+        setError(isSanitized ? 'Could not load scheduled calls. Please refresh or try again.' : raw || 'Failed to load scheduled calls')
       } finally {
         setLoading(false)
       }
     })
-  }, [])
+  }, [studioId])
 
   // Initial load + external refresh trigger
   useEffect(() => {
     load()
   }, [load, refreshTrigger])
+
+  // Realtime: the dialer settles rows out-of-band every 30 minutes, and a
+  // colleague may queue one from another session. Pre-053 this table could only
+  // learn about either by a manual refresh or a window focus.
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('scheduled-calls-realtime')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'scheduled_calls',
+        filter: `studio_id=eq.${studioId}`,
+      }, () => load())
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [studioId, load])
 
   // Auto-refresh on window focus
   useEffect(() => {
@@ -197,18 +238,18 @@ export function ScheduledCallbacksTable({ refreshTrigger }: Props) {
   async function handleConfirmCancel() {
     if (!confirmTarget) return
     const target = confirmTarget
-    setCancellingId(target.n8n_row_id)
+    setCancellingId(target.id)
     try {
-      const result = await cancelScheduledCallback(target.n8n_row_id)
-      setRows(prev => prev.filter(r => r.n8n_row_id !== target.n8n_row_id))
-      if (result.rowsUpdated > 0) {
-        showSuccess(`Callback cancelled for ${formatName(target.first_name, target.last_name)}`)
+      const { cancelled } = await cancelScheduledCall(target.id)
+      setRows(prev => prev.filter(r => r.id !== target.id))
+      if (cancelled) {
+        showSuccess(`Call cancelled for ${formatName(target.first_name, target.last_name)}`)
       } else {
-        showWarning('Callback was already made by the AI agent')
+        showWarning('That call already went out — the AI agent dialled it before this was cancelled')
       }
       setConfirmTarget(null)
     } catch (e) {
-      showError(e instanceof Error ? e.message : 'Failed to cancel callback')
+      showError(e instanceof Error ? e.message : 'Failed to cancel the call')
     } finally {
       setCancellingId(null)
     }
@@ -217,17 +258,17 @@ export function ScheduledCallbacksTable({ refreshTrigger }: Props) {
   return (
     <>
       <div
-        className="relative flex-1 min-h-0 rounded-xl overflow-hidden shadow-sm"
+        className="relative md:flex-1 md:min-h-0 rounded-xl overflow-hidden shadow-sm"
         style={{ border: '1px solid var(--color-border)' }}
       >
         <div
-          className="h-full overflow-y-auto overflow-x-auto no-theme-transition"
+          className="md:h-full overflow-x-auto md:overflow-y-auto no-theme-transition"
           style={{ backgroundColor: 'var(--color-bg)' }}
         >
           <table className="w-full text-sm border-collapse">
             <thead className="sticky top-0 z-10" style={{ backgroundColor: 'var(--color-surface)' }}>
               <tr>
-                {['Name', 'Phone', 'Email', 'Scheduled For', 'Reason', 'Dance Interest', ''].map((label, i) => (
+                {COLUMNS.map((label, i) => (
                   <th
                     key={i}
                     className="pl-3 pr-4 py-3 text-left text-xs font-medium uppercase tracking-wider"
@@ -247,7 +288,7 @@ export function ScheduledCallbacksTable({ refreshTrigger }: Props) {
                 </>
               ) : error ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                  <td colSpan={COLUMNS.length} className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>
                     <div className="flex flex-col items-center gap-2">
                       <span>{error}</span>
                       <button
@@ -268,17 +309,17 @@ export function ScheduledCallbacksTable({ refreshTrigger }: Props) {
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>
-                    No scheduled callbacks at this time.
+                  <td colSpan={COLUMNS.length} className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                    No scheduled calls at this time.
                   </td>
                 </tr>
               ) : (
                 rows.map(row => {
-                  const isCancelling = cancellingId === row.n8n_row_id
-                  const isOpeningDetail = openingDetailFor === row.n8n_row_id
+                  const isCancelling = cancellingId === row.id
+                  const isOpeningDetail = openingDetailFor === row.id
                   return (
                     <tr
-                      key={row.n8n_row_id}
+                      key={row.id}
                       className="group cursor-pointer transition-colors bg-[var(--color-bg)] hover:bg-[var(--color-surface)]"
                       style={{ borderBottom: '1px solid var(--color-border)', opacity: isOpeningDetail ? 0.6 : 1 }}
                       onClick={() => handleRowClick(row)}
@@ -295,9 +336,17 @@ export function ScheduledCallbacksTable({ refreshTrigger }: Props) {
                       <td className="px-3 py-3 align-middle whitespace-nowrap" style={{ color: 'var(--color-text-primary)' }}>
                         {row.callback_time ? formatDateTime(row.callback_time, tz) : <span style={{ color: 'var(--color-text-muted)' }}>{'—'}</span>}
                       </td>
-                      <td className="px-3 py-3 align-middle" style={{ color: 'var(--color-text-secondary)', maxWidth: 220 }}>
+                      <td className="px-3 py-3 align-middle">
+                        <SourceBadge source={row.source} />
+                      </td>
+                      <td className="px-3 py-3 align-middle" style={{ color: 'var(--color-text-secondary)', maxWidth: 180 }}>
                         <span className="line-clamp-2">
                           {row.reason ?? <span style={{ color: 'var(--color-text-muted)' }}>{'—'}</span>}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 align-middle" style={{ color: 'var(--color-text-secondary)', maxWidth: 220 }}>
+                        <span className="line-clamp-2">
+                          {row.call_note ?? <span style={{ color: 'var(--color-text-muted)' }}>{'—'}</span>}
                         </span>
                       </td>
                       <td className="px-3 py-3 align-middle" style={{ color: 'var(--color-text-secondary)', maxWidth: 220 }}>
@@ -309,9 +358,9 @@ export function ScheduledCallbacksTable({ refreshTrigger }: Props) {
                         <button
                           onClick={e => { e.stopPropagation(); setConfirmTarget(row) }}
                           disabled={isCancelling}
-                          title="Cancel scheduled callback"
-                          aria-label="Cancel scheduled callback"
-                          className="inline-flex items-center justify-center p-1.5 rounded-md transition-all"
+                          title="Cancel scheduled call"
+                          aria-label="Cancel scheduled call"
+                          className="inline-flex items-center justify-center p-2.5 md:p-1.5 rounded-md transition-all"
                           style={{
                             opacity: isCancelling ? 1 : 0.4,
                             color: 'var(--color-text-secondary)',
@@ -343,16 +392,16 @@ export function ScheduledCallbacksTable({ refreshTrigger }: Props) {
         </div>
       </div>
 
-      {/* Row count footer (no pagination for v1) */}
+      {/* Row count footer (no pagination — the queue is drained every 30 min) */}
       {!loading && !error && rows.length > 0 && (
         <div className="flex-shrink-0 flex items-center justify-end px-2 py-0.5 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-          {rows.length === 1 ? '1 scheduled callback' : `${rows.length.toLocaleString()} scheduled callbacks`}
+          {rows.length === 1 ? '1 scheduled call' : `${rows.length.toLocaleString()} scheduled calls`}
         </div>
       )}
 
       {confirmTarget && (
         <CancelConfirmModal
-          callback={confirmTarget}
+          call={confirmTarget}
           isPending={cancellingId !== null}
           tz={tz}
           onConfirm={handleConfirmCancel}

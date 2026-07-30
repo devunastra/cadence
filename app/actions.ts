@@ -7,12 +7,13 @@ import { createGHLContact, updateGHLContact, deleteGHLContact, deleteGHLAppointm
 import { getRetellPhoneNumber, updateRetellPhoneNumberInboundAgent } from '@/lib/retell'
 import { NOTION_ENUM_FIELDS, NOTION_SYNCED_FIELDS, notionSyncMode, syncLeadUpdateToNotion, syncLeadCreateToNotion, syncLeadArchiveToNotion } from '@/lib/notion'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Lead, ScheduledCallback, StudioSlotConfig, OnboardingStudioInput } from '@/lib/types'
+import type { Lead, ScheduledCall, PendingScheduledCall, StudioSlotConfig, OnboardingStudioInput } from '@/lib/types'
 import type { FieldOption } from '@/lib/field-options'
 import { reconcileSourceDetail } from '@/lib/source-kinds'
 import type { SourceDetail } from '@/lib/source-kinds'
 import { NOTION_COLORS } from '@/lib/constants'
 import { naiveTzPartsToUtcIso } from '@/lib/date-utils'
+import { persistAppointment } from '@/lib/appointment-booking'
 import { NAV_PAGES } from '@/lib/nav'
 
 // Converts a naive studio-local ISO string ("2026-05-08T17:00:00") to a UTC ISO
@@ -3545,7 +3546,16 @@ export async function fetchFollowUpKpis(studioId: string): Promise<FollowUpKpis>
   return { followUpCount, callbackCount, passRate }
 }
 
-// ── Scheduled Callbacks (n8n AI Callback queue) ──────────────────────────────
+// ── Scheduled Calls (queue of future outbound AI calls) ──────────────────────
+//
+// Backed by the `scheduled_calls` table (migration 053). Before 053 this queue
+// lived in per-studio n8n data tables that carried no studio_id, so this module
+// had to reverse-engineer tenant ownership by paginating every lead and
+// phone-matching. That is gone — rows carry studio_id and RLS enforces
+// isolation.
+//
+// n8n still owns the dialer: it reads due rows with the service role, calls
+// Retell, and stamps called_at. The app only queues and cancels.
 
 function normalizePhone(raw: string | null | undefined): string | null {
   if (!raw) return null
@@ -3556,137 +3566,177 @@ function normalizePhone(raw: string | null | undefined): string | null {
   return null
 }
 
-interface N8nCallbackRow {
-  id: number
-  first_name: string | null
-  last_name: string | null
-  phone_number: string | null
-  email: string | null
-  dance_interest: string | null
-  reason: string | null
-  callback_time: string | null
-  called_at: string | null
+// Must stay a single `as const` literal: supabase-js parses the select string at
+// the type level, so a concatenated expression degrades the row type to
+// GenericStringError.
+const SCHEDULED_CALL_COLUMNS = 'id, studio_id, lead_id, first_name, last_name, phone_number, email, dance_interest, reason, call_note, callback_time, called_at, retell_call_id, source, created_by, cancelled_at, cancelled_by, skipped_at, skip_reason, created_at, updated_at' as const
+
+/**
+ * Pending scheduled calls for ONE studio, soonest first.
+ *
+ * Scoped by argument, not by membership. The pre-053 version took no studioId and
+ * unioned every studio the caller belonged to, so a multi-studio owner saw both
+ * queues mixed together and the sidebar studio switcher had no effect on this
+ * tab. RLS still backstops the filter for non-super_admins; the explicit .eq is
+ * what scopes super_admins, whose client bypasses RLS.
+ */
+export async function fetchScheduledCalls(studioId: string): Promise<PendingScheduledCall[]> {
+  const { client } = await getAuthorizedClient()
+
+  const { data, error } = await client
+    .from('scheduled_calls')
+    .select(SCHEDULED_CALL_COLUMNS)
+    .eq('studio_id', studioId)
+    .is('called_at', null)
+    .is('cancelled_at', null)
+    // Abandoned by a voice-agent resume (migration 054). Must be excluded here and
+    // in every n8n `Get row(s)` filter, or skipped rows get re-read and dialled.
+    .is('skipped_at', null)
+    .order('callback_time', { ascending: true })
+
+  if (error) throw new Error(error.message)
+  return (data ?? []) as PendingScheduledCall[]
 }
 
-async function callN8nCallbacksWebhook<T>(
-  url: string | undefined,
-  body: object,
-  options?: { emptyBodyFallback?: T },
-): Promise<T> {
-  if (!url) throw new Error('Scheduled Callbacks webhook URL not configured')
-  const secret = process.env.N8N_SCHEDULED_CALLBACKS_SECRET
-  if (!secret) throw new Error('Scheduled Callbacks webhook secret not configured')
+export type ScheduleCallResult =
+  | { ok: true; call: ScheduledCall }
+  | {
+      ok: false
+      error: string
+      code: 'not_found' | 'no_phone' | 'past_time' | 'bad_time' | 'voice_agent_paused' | 'duplicate'
+      existing?: PendingScheduledCall
+    }
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Callbacks-Secret': secret,
-    },
-    body: JSON.stringify(body),
-    cache: 'no-store',
-  })
-
-  const raw = await res.text().catch(() => '')
-
-  if (!res.ok) {
-    throw new Error(`Scheduled Callbacks webhook ${res.status}: ${raw.slice(0, 200) || '(empty body)'}`)
-  }
-  if (!raw.trim()) {
-    // n8n's Respond to Webhook node returns an empty body when the upstream
-    // data table query yields zero rows. Callers that expect a list shape can
-    // opt into a fallback value instead of surfacing a misleading error.
-    if (options && 'emptyBodyFallback' in options) return options.emptyBodyFallback as T
-    throw new Error(
-      `Scheduled Callbacks webhook returned empty body (status ${res.status}). ` +
-      `Check that the n8n workflow is ACTIVE and the Respond to Webhook node is reached. URL: ${url}`,
-    )
-  }
-  try {
-    return JSON.parse(raw) as T
-  } catch {
-    throw new Error(`Scheduled Callbacks webhook returned non-JSON body: ${raw.slice(0, 200)}`)
-  }
-}
-
-export async function fetchScheduledCallbacks(): Promise<ScheduledCallback[]> {
+/**
+ * Queues a future outbound AI call for a lead.
+ *
+ * `callbackTime` must be an absolute ISO instant — the caller converts the
+ * studio-local date/time the user picked via naiveTzPartsToUtcIso(), so DST is
+ * handled once, in one place. Never accept a naive local string here.
+ *
+ * Validation failures are RETURNED, not thrown: Next.js masks server-action
+ * throws into a generic "An error occurred in the Server Components render"
+ * string in production, which would strand the user with no idea what to fix.
+ * Same convention as completeStudioOnboarding. Genuine faults still throw.
+ */
+export async function scheduleCall(input: {
+  studioId: string
+  leadId: string
+  callbackTime: string
+  callNote?: string | null
+}): Promise<ScheduleCallResult> {
   const { client, user } = await getAuthorizedClient()
 
-  const { data: memberships } = await client
-    .from('studio_users')
-    .select('studio_id, role')
-    .eq('user_id', user.id)
-  const isSuper = memberships?.some(m => m.role === 'super_admin') ?? false
-  const userStudioIds = (memberships ?? []).map(m => m.studio_id)
-  if (!isSuper && userStudioIds.length === 0) return []
-
-  const response = await callN8nCallbacksWebhook<{ rows: N8nCallbackRow[] }>(
-    process.env.N8N_SCHEDULED_CALLBACKS_LIST_URL,
-    {},
-    { emptyBodyFallback: { rows: [] } },
-  )
-  const n8nRows = response.rows ?? []
-  if (n8nRows.length === 0) return []
-
-  const normalizedSet = new Set<string>()
-  for (const row of n8nRows) {
-    const norm = normalizePhone(row.phone_number)
-    if (norm) normalizedSet.add(norm)
+  const when = new Date(input.callbackTime)
+  if (isNaN(when.getTime())) {
+    return { ok: false, code: 'bad_time', error: 'That date and time could not be read.' }
   }
-  if (normalizedSet.size === 0) return []
+  // The dialer's due query is `callback_time <= now()`, so a past time would fire
+  // on the very next 30-minute tick instead of erroring. Reject it here.
+  if (when.getTime() <= Date.now()) {
+    return { ok: false, code: 'past_time', error: 'Pick a time in the future.' }
+  }
 
-  // Paginate the leads fetch because Supabase enforces a project-level max_rows cap
-  // (default 1000) that overrides .limit(). Pagination via .range() bypasses this.
-  // Phone matching has to happen in JS via normalizePhone (handles format drift like
-  // "(224) 469-0382" vs "+12244690382") — most stored phones aren't clean E.164.
-  // Early-exit once every n8n phone has a lead match.
-  const PAGE = 1000
-  const targetMatches = normalizedSet.size
-  const leadByPhone = new Map<string, { id: string; studio_id: string }>()
-  let offset = 0
-  while (true) {
-    let q = client
+  // Read the lead and studio through the caller's own client so RLS decides
+  // visibility — a studio_id in the payload can't be used to reach another
+  // tenant's lead.
+  const [{ data: lead }, { data: studio }] = await Promise.all([
+    client
       .from('leads')
-      .select('id, studio_id, phone')
-      .order('id', { ascending: true })
-      .range(offset, offset + PAGE - 1)
-    if (!isSuper) q = q.in('studio_id', userStudioIds)
-    const { data, error } = await q
-    if (error) throw new Error(`Leads query failed: ${error.message}`)
-    if (!data || data.length === 0) break
-    for (const lead of data) {
-      const norm = normalizePhone(lead.phone)
-      if (norm && normalizedSet.has(norm) && !leadByPhone.has(norm)) {
-        leadByPhone.set(norm, { id: lead.id, studio_id: lead.studio_id })
-      }
+      .select('id, studio_id, name, phone, email, reason, comments')
+      .eq('id', input.leadId)
+      .eq('studio_id', input.studioId)
+      .maybeSingle(),
+    client
+      .from('studios')
+      .select('id, voice_agent_enabled')
+      .eq('id', input.studioId)
+      .maybeSingle(),
+  ])
+
+  if (!lead || !studio) {
+    return { ok: false, code: 'not_found', error: 'That lead is no longer available.' }
+  }
+
+  const phone = normalizePhone(lead.phone as string | null)
+  if (!phone) {
+    return {
+      ok: false,
+      code: 'no_phone',
+      error: 'This lead has no usable phone number. Add one before scheduling a call.',
     }
-    if (leadByPhone.size === targetMatches) break
-    if (data.length < PAGE) break
-    offset += PAGE
   }
 
-  const enriched: ScheduledCallback[] = []
-  for (const row of n8nRows) {
-    const norm = normalizePhone(row.phone_number)
-    if (!norm) continue
-    const lead = leadByPhone.get(norm)
-    if (!lead) continue   // orphan — drop
-    enriched.push({
-      n8n_row_id: row.id,
-      first_name: row.first_name,
-      last_name: row.last_name,
-      phone_number: norm,
-      email: row.email,
-      dance_interest: row.dance_interest,
-      reason: row.reason,
-      callback_time: row.callback_time ?? '',
+  // The kill switch. The n8n dialer does not check this column (a known gap —
+  // see docs/specs/scheduled-calls.md), so refusing to queue is the app's only
+  // lever for honouring a paused voice agent.
+  if (studio.voice_agent_enabled === false) {
+    return {
+      ok: false,
+      code: 'voice_agent_paused',
+      error: 'The AI voice agent is paused for this studio. Resume it in Settings to schedule calls.',
+    }
+  }
+
+  // One pending call per lead. Not a DB constraint on purpose (migration 053
+  // explains why the Retell insert path can't tolerate a rejection), so it's
+  // enforced here where we can offer the user a choice instead of an error.
+  const { data: existing } = await client
+    .from('scheduled_calls')
+    .select(SCHEDULED_CALL_COLUMNS)
+    .eq('studio_id', input.studioId)
+    .eq('lead_id', input.leadId)
+    .is('called_at', null)
+    .is('cancelled_at', null)
+    .is('skipped_at', null)
+    .order('callback_time', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (existing) {
+    return {
+      ok: false,
+      code: 'duplicate',
+      error: 'This lead already has a call queued.',
+      existing: existing as PendingScheduledCall,
+    }
+  }
+
+  const [firstName, ...rest] = ((lead.name as string | null) ?? '').trim().split(/\s+/)
+
+  const { data: created, error } = await client
+    .from('scheduled_calls')
+    .insert({
+      studio_id: input.studioId,
       lead_id: lead.id,
-      studio_id: lead.studio_id,
+      first_name: firstName || null,
+      last_name: rest.length > 0 ? rest.join(' ') : null,
+      phone_number: phone,
+      email: (lead.email as string | null) ?? null,
+      // `comments` is the lead's own free-text inquiry, which is what the agent
+      // reads as dance_interest on AI-queued rows. Keep the two paths consistent.
+      dance_interest: (lead.comments as string | null) ?? null,
+      reason: (lead.reason as string | null) ?? null,
+      call_note: input.callNote?.trim() || null,
+      callback_time: when.toISOString(),
+      source: 'manual',
+      created_by: user.id,
     })
-  }
+    .select(SCHEDULED_CALL_COLUMNS)
+    .single()
 
-  enriched.sort((a, b) => a.callback_time.localeCompare(b.callback_time))
-  return enriched
+  if (error) throw new Error(error.message)
+
+  client.from('activity_logs').insert({
+    studio_id: input.studioId,
+    lead_id: lead.id,
+    lead_name: (lead.name as string | null) ?? null,
+    actor_email: user.email ?? null,
+    event_type: 'call_scheduled',
+    changes: [{ field: 'callback_time', old_value: null, new_value: when.toISOString() }],
+  }).then(() => {}, () => {})
+
+  return { ok: true, call: created as ScheduledCall }
 }
 
 export async function fetchMostRecentCallForLead(
@@ -3717,26 +3767,51 @@ export async function fetchMostRecentCallForLead(
   } as CallHistoryRow
 }
 
-export async function cancelScheduledCallback(
-  n8nRowId: number,
-): Promise<{ success: true; rowsUpdated: number }> {
-  // Visibility check: caller can only cancel rows they're allowed to see.
-  // Reuses the same studio-filtering + orphan-drop logic as the list view.
-  const visible = await fetchScheduledCallbacks()
-  const target = visible.find(r => r.n8n_row_id === n8nRowId)
-  if (!target) throw new Error('Callback not found or not authorized to cancel')
+/**
+ * Cancels one queued call by primary key.
+ *
+ * Pre-053 this had to match on phone_number (the n8n data-table node could not
+ * filter the synthetic row id), which neutralised EVERY pending row for that
+ * phone. Now it targets exactly one row.
+ *
+ * `called_at IS NULL AND cancelled_at IS NULL` in the WHERE clause makes this a
+ * compare-and-set: if the dialer stamped the row in the 30-minute window between
+ * the page rendering and the click, zero rows update and we say so rather than
+ * reporting a cancellation that never happened.
+ */
+export async function cancelScheduledCall(
+  id: string,
+): Promise<{ ok: true; cancelled: boolean }> {
+  const { client, user } = await getAuthorizedClient()
 
-  // n8n's data table node can't filter on the auto-generated `id` column (not in
-  // schema), so the cancel webhook filters on phone_number + called_at IS NULL.
-  // Per spec edge case #3, multiple pending rows for the same phone all get
-  // neutralized — acceptable because a lead has at most one pending callback in
-  // practice.
-  const response = await callN8nCallbacksWebhook<{ success?: boolean; rowsUpdated?: number }>(
-    process.env.N8N_SCHEDULED_CALLBACKS_CANCEL_URL,
-    { phone_number: target.phone_number },
-  )
+  const { data, error } = await client
+    .from('scheduled_calls')
+    .update({ cancelled_at: new Date().toISOString(), cancelled_by: user.id })
+    .eq('id', id)
+    .is('called_at', null)
+    .is('cancelled_at', null)
+    // Also a no-op if a voice-agent resume abandoned the row first, so the UI says
+    // "already went out" rather than claiming a cancellation that did nothing.
+    .is('skipped_at', null)
+    .select('id, studio_id, lead_id, first_name, last_name, callback_time')
 
-  return { success: true, rowsUpdated: response.rowsUpdated ?? 0 }
+  if (error) throw new Error(error.message)
+
+  const row = data?.[0]
+  if (!row) return { ok: true, cancelled: false }
+
+  if (row.lead_id) {
+    client.from('activity_logs').insert({
+      studio_id: row.studio_id,
+      lead_id: row.lead_id,
+      lead_name: [row.first_name, row.last_name].filter(Boolean).join(' ') || null,
+      actor_email: user.email ?? null,
+      event_type: 'call_schedule_cancelled',
+      changes: [{ field: 'callback_time', old_value: row.callback_time, new_value: null }],
+    }).then(() => {}, () => {})
+  }
+
+  return { ok: true, cancelled: true }
 }
 
 // ─── Client Onboarding ────────────────────────────────────────────────────────

@@ -50,7 +50,7 @@ export async function proxy(request: NextRequest) {
   // agent). It has no user session, so it must bypass the login redirect — it
   // enforces its own shared-secret check in app/api/appointments/_auth.ts and
   // fails closed when N8N_APPOINTMENTS_SECRET is unset.
-  const PUBLIC_PATHS = ['/login', '/auth/callback', '/accept-invite', '/api/webhooks', '/api/notion-sync', '/api/cron/probe-integrations', '/api/appointments']
+  const PUBLIC_PATHS = ['/login', '/auth/callback', '/accept-invite', '/api/staff/resend-invite', '/api/webhooks', '/api/notion-sync', '/api/cron/probe-integrations', '/api/appointments']
   if (!user && !PUBLIC_PATHS.some(p => pathname.startsWith(p))) {
     return NextResponse.redirect(new URL('/login', request.url))
   }

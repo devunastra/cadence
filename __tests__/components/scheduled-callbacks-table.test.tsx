@@ -9,28 +9,29 @@
  *    warning toast and must NOT render the CallDetailDrawer.
  *  - Plus a happy-path drawer-open test so the negative tests aren't read in
  *    isolation.
- *  - Plus the cancel happy path with the new phone-based webhook contract
- *    (the regression we just hit — n8n update was matching too broadly).
+ *  - Plus the cancel happy path, now on the migration-053 contract: cancel
+ *    targets ONE row by uuid primary key and returns { ok, cancelled }. The old
+ *    phone-based webhook (which stamped every pending row for a phone) is gone.
  *
- * Last synced with: app/actions.ts + scheduled-callbacks-table.tsx (post phone-based cancel fix)
+ * Last synced with: app/actions.ts + scheduled-callbacks-table.tsx (post migration 053)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render } from '@testing-library/react'
 import { screen, waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
-import type { ScheduledCallback } from '@/lib/types'
+import type { PendingScheduledCall } from '@/lib/types'
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-const fetchScheduledCallbacksMock = vi.fn()
+const fetchScheduledCallsMock = vi.fn()
 const fetchMostRecentCallForLeadMock = vi.fn()
-const cancelScheduledCallbackMock = vi.fn()
+const cancelScheduledCallMock = vi.fn()
 
 vi.mock('@/app/actions', () => ({
-  fetchScheduledCallbacks: (...args: unknown[]) => fetchScheduledCallbacksMock(...args),
+  fetchScheduledCalls: (...args: unknown[]) => fetchScheduledCallsMock(...args),
   fetchMostRecentCallForLead: (...args: unknown[]) => fetchMostRecentCallForLeadMock(...args),
-  cancelScheduledCallback: (...args: unknown[]) => cancelScheduledCallbackMock(...args),
+  cancelScheduledCall: (...args: unknown[]) => cancelScheduledCallMock(...args),
 }))
 
 const showSuccessMock = vi.fn()
@@ -57,26 +58,51 @@ vi.mock('@/components/studio-context', () => ({
   useCurrentStudio: () => ({ currentStudio: { timezone: 'America/Chicago' } }),
 }))
 
+// Post-053 the table subscribes to scheduled_calls via Realtime. Stub the
+// browser client so the subscription is a no-op in tests.
+const removeChannelMock = vi.fn()
+vi.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({
+    channel: () => {
+      const chan = { on: () => chan, subscribe: () => chan }
+      return chan
+    },
+    removeChannel: removeChannelMock,
+  }),
+}))
+
 // Import after mocks so the component picks up the stubs
-// eslint-disable-next-line import/first
 import { ScheduledCallbacksTable } from '@/components/follow-ups/scheduled-callbacks-table'
+
+const STUDIO = 'studio-uuid-1'
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
-function makeRow(overrides: Partial<ScheduledCallback> = {}): ScheduledCallback {
+function makeRow(overrides: Partial<PendingScheduledCall> = {}): PendingScheduledCall {
   return {
-    n8n_row_id: 65,
+    id: 'call-row-1',
+    studio_id: STUDIO,
+    lead_id: 'lead-uuid-1',
     first_name: 'Cristobal',
     last_name: 'Salido',
     phone_number: '+12244690382',
     email: 'crsalidom@gmail.com',
     dance_interest: 'For Fun',
     reason: 'For Fun',
+    call_note: null,
     callback_time: '2026-05-25T22:10:00.000Z',
-    lead_id: 'lead-uuid-1',
-    studio_id: 'studio-uuid-1',
+    called_at: null,
+    retell_call_id: null,
+    source: 'ai_agent',
+    created_by: null,
+    cancelled_at: null,
+    cancelled_by: null,
+    skipped_at: null,
+    skip_reason: null,
+    created_at: '2026-05-20T22:10:00.000Z',
+    updated_at: '2026-05-20T22:10:00.000Z',
     ...overrides,
-  }
+  } as PendingScheduledCall
 }
 
 function makeCallRow(leadId = 'lead-uuid-1') {
@@ -104,12 +130,13 @@ function makeCallRow(leadId = 'lead-uuid-1') {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  fetchScheduledCallbacksMock.mockReset()
+  fetchScheduledCallsMock.mockReset()
   fetchMostRecentCallForLeadMock.mockReset()
-  cancelScheduledCallbackMock.mockReset()
+  cancelScheduledCallMock.mockReset()
   showSuccessMock.mockReset()
   showWarningMock.mockReset()
   showErrorMock.mockReset()
+  removeChannelMock.mockReset()
 })
 
 afterEach(() => {
@@ -117,39 +144,57 @@ afterEach(() => {
 })
 
 describe('ScheduledCallbacksTable — initial render', () => {
-  it('shows the empty state when fetchScheduledCallbacks returns []', async () => {
-    fetchScheduledCallbacksMock.mockResolvedValue([])
-    render(<ScheduledCallbacksTable refreshTrigger={0} />)
-    expect(await screen.findByText(/no scheduled callbacks at this time/i)).toBeInTheDocument()
+  it('shows the empty state when fetchScheduledCalls returns []', async () => {
+    fetchScheduledCallsMock.mockResolvedValue([])
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
+    expect(await screen.findByText(/no scheduled calls at this time/i)).toBeInTheDocument()
   })
 
-  it('renders one row per fetched callback', async () => {
-    fetchScheduledCallbacksMock.mockResolvedValue([makeRow()])
-    render(<ScheduledCallbacksTable refreshTrigger={0} />)
+  it('renders one row per fetched call', async () => {
+    fetchScheduledCallsMock.mockResolvedValue([makeRow()])
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
     expect(await screen.findByText('Cristobal Salido')).toBeInTheDocument()
-    expect(screen.getByText(/1 scheduled callback$/i)).toBeInTheDocument()
+    expect(screen.getByText(/1 scheduled call$/i)).toBeInTheDocument()
+  })
+
+  // The pre-053 fetch took no studioId and unioned every studio the user
+  // belonged to, so the sidebar studio switcher had no effect on this tab.
+  it('scopes the fetch to the studio it was given', async () => {
+    fetchScheduledCallsMock.mockResolvedValue([])
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
+    await waitFor(() => expect(fetchScheduledCallsMock).toHaveBeenCalledWith(STUDIO))
   })
 
   it('shows error + Retry when fetch throws', async () => {
-    fetchScheduledCallbacksMock.mockRejectedValue(new Error('n8n unreachable'))
-    render(<ScheduledCallbacksTable refreshTrigger={0} />)
-    expect(await screen.findByText('n8n unreachable')).toBeInTheDocument()
+    fetchScheduledCallsMock.mockRejectedValue(new Error('database unreachable'))
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
+    expect(await screen.findByText('database unreachable')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+  })
+
+  it('distinguishes staff-scheduled rows from AI-agent rows', async () => {
+    fetchScheduledCallsMock.mockResolvedValue([
+      makeRow({ id: 'a', source: 'manual', first_name: 'Manual', last_name: 'Row' }),
+      makeRow({ id: 'b', source: 'ai_agent', first_name: 'Agent', last_name: 'Row' }),
+    ])
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
+    expect(await screen.findByText(/scheduled by staff/i)).toBeInTheDocument()
+    expect(screen.getByText(/^AI agent$/i)).toBeInTheDocument()
   })
 })
 
 describe('TC-DRAWER-01 / happy path — row click opens CallDetailDrawer', () => {
   it('fetches the lead’s most recent call and renders the drawer', async () => {
     const user = userEvent.setup()
-    fetchScheduledCallbacksMock.mockResolvedValue([makeRow()])
+    fetchScheduledCallsMock.mockResolvedValue([makeRow()])
     fetchMostRecentCallForLeadMock.mockResolvedValue(makeCallRow())
 
-    render(<ScheduledCallbacksTable refreshTrigger={0} />)
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
     const nameCell = await screen.findByText('Cristobal Salido')
 
     await user.click(nameCell)
 
-    expect(fetchMostRecentCallForLeadMock).toHaveBeenCalledWith('lead-uuid-1', 'studio-uuid-1')
+    expect(fetchMostRecentCallForLeadMock).toHaveBeenCalledWith('lead-uuid-1', STUDIO)
     expect(await screen.findByTestId('call-detail-drawer')).toHaveTextContent('drawer:call-uuid-1')
     expect(showWarningMock).not.toHaveBeenCalled()
   })
@@ -158,10 +203,10 @@ describe('TC-DRAWER-01 / happy path — row click opens CallDetailDrawer', () =>
 describe('TC-DRAWER-02 / B-02 — row click when lead has no prior calls', () => {
   it('shows a warning toast and does NOT render the drawer', async () => {
     const user = userEvent.setup()
-    fetchScheduledCallbacksMock.mockResolvedValue([makeRow()])
+    fetchScheduledCallsMock.mockResolvedValue([makeRow()])
     fetchMostRecentCallForLeadMock.mockResolvedValue(null)
 
-    render(<ScheduledCallbacksTable refreshTrigger={0} />)
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
     const nameCell = await screen.findByText('Cristobal Salido')
 
     await user.click(nameCell)
@@ -173,19 +218,36 @@ describe('TC-DRAWER-02 / B-02 — row click when lead has no prior calls', () =>
   })
 })
 
+describe('TC-DRAWER-03 — row click when the row has no linked lead', () => {
+  // lead_id is nullable post-053: an inbound caller can be queued before they
+  // exist as a lead. Clicking must not call the action with a null id.
+  it('warns and skips the fetch entirely', async () => {
+    const user = userEvent.setup()
+    fetchScheduledCallsMock.mockResolvedValue([makeRow({ lead_id: null })])
+
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
+    await user.click(await screen.findByText('Cristobal Salido'))
+
+    await waitFor(() =>
+      expect(showWarningMock).toHaveBeenCalledWith(expect.stringMatching(/isn't linked to a lead/i)),
+    )
+    expect(fetchMostRecentCallForLeadMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('TC-CANCEL-02 / B-03 — clicking cancel button does NOT trigger the drawer', () => {
   it('opens the confirm modal without calling fetchMostRecentCallForLead', async () => {
     const user = userEvent.setup()
-    fetchScheduledCallbacksMock.mockResolvedValue([makeRow()])
+    fetchScheduledCallsMock.mockResolvedValue([makeRow()])
 
-    render(<ScheduledCallbacksTable refreshTrigger={0} />)
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
     await screen.findByText('Cristobal Salido')
 
-    const cancelBtn = screen.getByRole('button', { name: /cancel scheduled callback/i })
+    const cancelBtn = screen.getByRole('button', { name: /cancel scheduled call/i })
     await user.click(cancelBtn)
 
     // Confirm modal opens
-    expect(screen.getByText(/cancel scheduled callback\?/i)).toBeInTheDocument()
+    expect(screen.getByText(/cancel scheduled call\?/i)).toBeInTheDocument()
     // Drawer-fetch must NOT have fired (stopPropagation worked)
     expect(fetchMostRecentCallForLeadMock).not.toHaveBeenCalled()
     expect(screen.queryByTestId('call-detail-drawer')).not.toBeInTheDocument()
@@ -193,18 +255,18 @@ describe('TC-CANCEL-02 / B-03 — clicking cancel button does NOT trigger the dr
 })
 
 describe('Cancel happy path — confirming removes the row and shows success toast', () => {
-  it('calls cancelScheduledCallback with the row’s n8n_row_id and removes the row', async () => {
+  it('calls cancelScheduledCall with the row’s uuid and removes the row', async () => {
     const user = userEvent.setup()
-    fetchScheduledCallbacksMock.mockResolvedValue([makeRow()])
-    cancelScheduledCallbackMock.mockResolvedValue({ success: true, rowsUpdated: 1 })
+    fetchScheduledCallsMock.mockResolvedValue([makeRow()])
+    cancelScheduledCallMock.mockResolvedValue({ ok: true, cancelled: true })
 
-    render(<ScheduledCallbacksTable refreshTrigger={0} />)
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
     await screen.findByText('Cristobal Salido')
 
-    await user.click(screen.getByRole('button', { name: /cancel scheduled callback/i }))
-    await user.click(screen.getByRole('button', { name: /^cancel callback$/i }))
+    await user.click(screen.getByRole('button', { name: /cancel scheduled call/i }))
+    await user.click(screen.getByRole('button', { name: /^cancel call$/i }))
 
-    await waitFor(() => expect(cancelScheduledCallbackMock).toHaveBeenCalledWith(65))
+    await waitFor(() => expect(cancelScheduledCallMock).toHaveBeenCalledWith('call-row-1'))
     await waitFor(() =>
       expect(showSuccessMock).toHaveBeenCalledWith(expect.stringMatching(/cancelled for cristobal salido/i)),
     )
@@ -212,34 +274,34 @@ describe('Cancel happy path — confirming removes the row and shows success toa
     expect(screen.queryByText('Cristobal Salido')).not.toBeInTheDocument()
   })
 
-  it('shows a warning toast when rowsUpdated is 0 (race with auto-trigger)', async () => {
+  it('warns when cancelled is false (dialer won the race)', async () => {
     const user = userEvent.setup()
-    fetchScheduledCallbacksMock.mockResolvedValue([makeRow()])
-    cancelScheduledCallbackMock.mockResolvedValue({ success: true, rowsUpdated: 0 })
+    fetchScheduledCallsMock.mockResolvedValue([makeRow()])
+    cancelScheduledCallMock.mockResolvedValue({ ok: true, cancelled: false })
 
-    render(<ScheduledCallbacksTable refreshTrigger={0} />)
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
     await screen.findByText('Cristobal Salido')
 
-    await user.click(screen.getByRole('button', { name: /cancel scheduled callback/i }))
-    await user.click(screen.getByRole('button', { name: /^cancel callback$/i }))
+    await user.click(screen.getByRole('button', { name: /cancel scheduled call/i }))
+    await user.click(screen.getByRole('button', { name: /^cancel call$/i }))
 
     await waitFor(() =>
-      expect(showWarningMock).toHaveBeenCalledWith(expect.stringMatching(/already made by the ai/i)),
+      expect(showWarningMock).toHaveBeenCalledWith(expect.stringMatching(/already went out/i)),
     )
   })
 
   it('keeps the row visible + shows error toast when cancel throws', async () => {
     const user = userEvent.setup()
-    fetchScheduledCallbacksMock.mockResolvedValue([makeRow()])
-    cancelScheduledCallbackMock.mockRejectedValue(new Error('n8n timeout'))
+    fetchScheduledCallsMock.mockResolvedValue([makeRow()])
+    cancelScheduledCallMock.mockRejectedValue(new Error('database timeout'))
 
-    render(<ScheduledCallbacksTable refreshTrigger={0} />)
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
     await screen.findByText('Cristobal Salido')
 
-    await user.click(screen.getByRole('button', { name: /cancel scheduled callback/i }))
-    await user.click(screen.getByRole('button', { name: /^cancel callback$/i }))
+    await user.click(screen.getByRole('button', { name: /cancel scheduled call/i }))
+    await user.click(screen.getByRole('button', { name: /^cancel call$/i }))
 
-    await waitFor(() => expect(showErrorMock).toHaveBeenCalledWith('n8n timeout'))
+    await waitFor(() => expect(showErrorMock).toHaveBeenCalledWith('database timeout'))
     // Row should still be present (not optimistically removed on error).
     // Modal stays open on error, so the name appears in both the row cell and
     // the modal copy — assert >=1 occurrence rather than exactly one.
@@ -247,29 +309,29 @@ describe('Cancel happy path — confirming removes the row and shows success toa
   })
 })
 
-describe('Multi-row sanity — cancelling row A leaves row B untouched in the UI', () => {
-  // Regression for the bug Joshua just hit: cancelling one row stamped ALL pending rows.
-  // The UI-side guarantee is that only the clicked row is optimistically removed; if
-  // n8n stamps too broadly, the next refresh would correct it.
-  it('only the clicked row is removed optimistically; the other stays', async () => {
+describe('Multi-row sanity — cancelling row A leaves row B untouched', () => {
+  // Pre-053 cancel matched on phone_number and stamped EVERY pending row for
+  // that phone. Now it targets one uuid, so this is a real guarantee rather than
+  // a UI-side illusion corrected on the next refresh.
+  it('only the clicked row is cancelled; the other stays', async () => {
     const user = userEvent.setup()
-    const rowA = makeRow({ n8n_row_id: 65, first_name: 'Cristobal', last_name: 'Salido', phone_number: '+12244690382', lead_id: 'lead-a' })
-    const rowB = makeRow({ n8n_row_id: 66, first_name: 'Test', last_name: 'User',     phone_number: '+15551234567', lead_id: 'lead-b' })
-    fetchScheduledCallbacksMock.mockResolvedValue([rowA, rowB])
-    cancelScheduledCallbackMock.mockResolvedValue({ success: true, rowsUpdated: 1 })
+    const rowA = makeRow({ id: 'row-a', first_name: 'Cristobal', last_name: 'Salido', phone_number: '+12244690382', lead_id: 'lead-a' })
+    const rowB = makeRow({ id: 'row-b', first_name: 'Test', last_name: 'User', phone_number: '+15551234567', lead_id: 'lead-b' })
+    fetchScheduledCallsMock.mockResolvedValue([rowA, rowB])
+    cancelScheduledCallMock.mockResolvedValue({ ok: true, cancelled: true })
 
-    render(<ScheduledCallbacksTable refreshTrigger={0} />)
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
     await screen.findByText('Cristobal Salido')
     await screen.findByText('Test User')
 
     // Cancel buttons render in row order
-    const cancelButtons = screen.getAllByRole('button', { name: /cancel scheduled callback/i })
+    const cancelButtons = screen.getAllByRole('button', { name: /cancel scheduled call/i })
     await user.click(cancelButtons[0]) // click row A's cancel
-    await user.click(screen.getByRole('button', { name: /^cancel callback$/i }))
+    await user.click(screen.getByRole('button', { name: /^cancel call$/i }))
 
     await waitFor(() => expect(screen.queryByText('Cristobal Salido')).not.toBeInTheDocument())
     expect(screen.getByText('Test User')).toBeInTheDocument()
-    expect(cancelScheduledCallbackMock).toHaveBeenCalledTimes(1)
-    expect(cancelScheduledCallbackMock).toHaveBeenCalledWith(65)
+    expect(cancelScheduledCallMock).toHaveBeenCalledTimes(1)
+    expect(cancelScheduledCallMock).toHaveBeenCalledWith('row-a')
   })
 })

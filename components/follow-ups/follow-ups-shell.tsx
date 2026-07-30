@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useTransition, useCallback } from 'react'
 import { useMounted } from '@/lib/hooks'
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, ChevronDown, Check, RefreshCw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, ChevronDown, Check, RefreshCw, Plus } from 'lucide-react'
 import { fetchQualityReviews, fetchFollowUpKpis, savePageFilters } from '@/app/actions'
 import type { QualityReviewRow, QualityReviewParams, FollowUpKpis, CallHistoryRow } from '@/app/actions'
 import { STATUS_COLORS, NOTION_COLORS } from '@/lib/constants'
@@ -13,6 +13,7 @@ import { CallDetailDrawer } from '@/components/call-history/call-detail-drawer'
 import { StatCard } from '@/components/call-analytics/stat-card'
 import { DateFieldPicker } from '@/components/date-field-picker'
 import { ScheduledCallbacksTable } from '@/components/follow-ups/scheduled-callbacks-table'
+import { ScheduleCallModal } from '@/components/follow-ups/schedule-call-modal'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -325,6 +326,7 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
   const [selectedCall, setSelectedCall] = useState<CallHistoryRow | null>(null)
   const [filterOpen, setFilterOpen] = useState(false)
   const [scheduledRefreshTrigger, setScheduledRefreshTrigger] = useState(0)
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
   const mounted = useMounted()
   const [, startTransition] = useTransition()
   const filterRef = useRef<HTMLDivElement>(null)
@@ -614,10 +616,24 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
             )}
           </div>
         )}
+
+        {/* Desktop CTA — right-aligned. Mobile gets its own row below. */}
+        {tab === 'scheduled_callbacks' && (
+          <div className="ml-auto hidden md:flex">
+            <ScheduleCallButton onClick={() => setScheduleModalOpen(true)} />
+          </div>
+        )}
       </div>
 
+      {/* Mobile CTA — own row so the long label can't wrap the pills */}
+      {tab === 'scheduled_callbacks' && (
+        <div className="flex md:hidden flex-shrink-0">
+          <ScheduleCallButton onClick={() => setScheduleModalOpen(true)} fullWidth />
+        </div>
+      )}
+
       {tab === 'scheduled_callbacks' ? (
-        <ScheduledCallbacksTable refreshTrigger={scheduledRefreshTrigger} />
+        <ScheduledCallbacksTable studioId={studioId} refreshTrigger={scheduledRefreshTrigger} />
       ) : (<>
       {/* Table card */}
       <div className="relative md:flex-1 md:min-h-0 rounded-xl overflow-hidden shadow-sm" style={{ border: '1px solid var(--color-border)' }}>
@@ -816,6 +832,42 @@ export function FollowUpsShell({ studioId }: FollowUpsShellProps) {
       {selectedCall && (
         <CallDetailDrawer call={selectedCall} onClose={() => setSelectedCall(null)} />
       )}
+
+      {scheduleModalOpen && (
+        <ScheduleCallModal
+          onClose={() => setScheduleModalOpen(false)}
+          // The table also has a Realtime subscription on scheduled_calls, but
+          // bumping the trigger makes the new row appear without waiting on the
+          // websocket round-trip.
+          onScheduled={() => setScheduledRefreshTrigger(t => t + 1)}
+        />
+      )}
     </div>
+  )
+}
+
+function ScheduleCallButton({ onClick, fullWidth = false }: { onClick: () => void; fullWidth?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-white ${fullWidth ? 'w-full' : ''}`}
+      style={{
+        backgroundColor: 'var(--color-accent)',
+        cursor: 'pointer',
+        transition: 'background var(--transition-fast), transform var(--transition-fast)',
+      }}
+      onMouseEnter={e => {
+        ;(e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent-hover)'
+        ;(e.currentTarget as HTMLElement).style.transform = 'scale(1.02)'
+      }}
+      onMouseLeave={e => {
+        ;(e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-accent)'
+        ;(e.currentTarget as HTMLElement).style.transform = 'none'
+      }}
+    >
+      <Plus size={14} />
+      Schedule a Call
+    </button>
   )
 }
