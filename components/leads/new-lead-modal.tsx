@@ -28,7 +28,6 @@ export function NewLeadModal({ studioId, fieldOptions, onCreated, onClose, onBef
   const [phone, setPhone]       = useState('')
   const [email, setEmail]       = useState('')
   const [status, setStatus]     = useState('')
-  const [level, setLevel]       = useState('')
   const [source, setSource]     = useState('')
   const [reason, setReason]     = useState('')
   const [available, setAvailable] = useState('')
@@ -36,10 +35,9 @@ export function NewLeadModal({ studioId, fieldOptions, onCreated, onClose, onBef
   const [saving, setSaving]     = useState(false)
   const { showError } = useToast()
 
-  // Default status/level to common values if the studio has them
+  // Default status to a common value if the studio has it
   useEffect(() => {
     if ((fieldOptions['status'] ?? []).some(o => o.value === 'Active')) setStatus('Active')
-    if ((fieldOptions['level']  ?? []).some(o => o.value === 'Inquiry')) setLevel('Inquiry')
   }, [fieldOptions])
 
   // Close on Escape
@@ -58,10 +56,9 @@ export function NewLeadModal({ studioId, fieldOptions, onCreated, onClose, onBef
     onBeforeCreate?.()
     try {
       const statusId = status ? (fieldOptions['status'] ?? []).find(o => o.value === status)?.id ?? null : null
-      const levelId  = level  ? (fieldOptions['level']  ?? []).find(o => o.value === level)?.id  ?? null : null
       const sourceId = source ? (fieldOptions['source'] ?? []).find(o => o.value === source)?.id ?? null : null
       const reasonId = reason ? (fieldOptions['reason'] ?? []).find(o => o.value === reason)?.id ?? null : null
-      const lead = await createLead({ studioId, name: name.trim(), phone, email, statusId, levelId, sourceId, reasonId, available, comments })
+      const lead = await createLead({ studioId, name: name.trim(), phone, email, statusId, sourceId, reasonId, available, comments })
       onCreated(lead)
       onClose()
     } catch (err) {
@@ -111,34 +108,28 @@ export function NewLeadModal({ studioId, fieldOptions, onCreated, onClose, onBef
             </div>
           </div>
 
-          {/* Status + Level */}
+          {/* Status + Source */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Status</label>
               <SimpleSelect value={status} onChange={setStatus} placeholder="— None —" options={(fieldOptions['status'] ?? []).map(o => ({ value: o.value, label: o.value }))} fullWidth />
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Level</label>
-              <SimpleSelect value={level} onChange={setLevel} placeholder="— None —" options={(fieldOptions['level'] ?? []).map(o => ({ value: o.value, label: o.value }))} fullWidth />
-            </div>
-          </div>
-
-          {/* Source + Reason */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
               <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Source</label>
               <SimpleSelect value={source} onChange={setSource} placeholder="— None —" options={(fieldOptions['source'] ?? []).map(o => ({ value: o.value, label: o.value }))} fullWidth />
             </div>
+          </div>
+
+          {/* Reason + Available */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Reason</label>
               <SimpleSelect value={reason} onChange={setReason} placeholder="— None —" options={(fieldOptions['reason'] ?? []).map(o => ({ value: o.value, label: o.value }))} fullWidth />
             </div>
-          </div>
-
-          {/* Available */}
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Available</label>
-            <input type="text" value={available} onChange={e => setAvailable(e.target.value)} placeholder="Availability notes" className={INPUT_CLASS} style={INPUT_STYLE} />
+            <div>
+              <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Available</label>
+              <input type="text" value={available} onChange={e => setAvailable(e.target.value)} placeholder="Availability notes" className={INPUT_CLASS} style={INPUT_STYLE} />
+            </div>
           </div>
 
           {/* Comments */}

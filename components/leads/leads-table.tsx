@@ -4,7 +4,7 @@ import { useState, useTransition, useEffect, useCallback, useRef } from 'react'
 import { useMounted } from '@/lib/hooks'
 import { displayTzForLeadField } from '@/lib/date-utils'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronUp, PanelRightOpen, Clock, User, CircleDot, Trophy, Zap, Phone, Calendar, GraduationCap, MessageSquare, Globe, Mail, Tag, AlarmClock, Users, CheckSquare, Copy, Check, Trash2, ChevronDown, X, type LucideIcon } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronUp, PanelRightOpen, Clock, User, CircleDot, Zap, Phone, Calendar, GraduationCap, MessageSquare, StickyNote, Globe, Mail, Tag, AlarmClock, Users, CheckSquare, Copy, Check, Trash2, ChevronDown, X, type LucideIcon } from 'lucide-react'
 import { EnumDropdown } from './enum-dropdown'
 import { DatePickerPopup } from './date-picker-popup'
 import { NewLeadModal } from './new-lead-modal'
@@ -54,7 +54,7 @@ const ENUM_FIELDS = Object.keys(ALL_LEAD_ENUM_FIELDS) as (keyof typeof ALL_LEAD_
 const BOOLEAN_FIELDS: (keyof Lead)[] = ['showed', 'bought', 'old']
 const DATE_FIELDS: (keyof Lead)[] = ['last_contacted', 'first_lesson']
 const FIELD_LABELS: Record<string, string> = {
-  status: 'Status', level: 'Level', action: 'Action', source: 'Source',
+  status: 'Status', action: 'Action', source: 'Source',
   reason: 'Reason', partnership: 'Partnership',
   showed: 'Showed', bought: 'Bought', old: 'Old',
 }
@@ -71,12 +71,12 @@ const DEFAULT_COL_WIDTHS: Partial<Record<keyof Lead, number>> = {
   created_at:     210,
   name:           170,
   status:         120,
-  level:           90,
   action:         142,
   phone:          140,
   last_contacted: 220,
   first_lesson:   190,
   comments:       240,
+  notes:          240,
   source:         100,
   email:          235,
   reason:         110,
@@ -171,12 +171,12 @@ const ALL_COLUMNS: { key: keyof Lead; label: string; icon?: LucideIcon }[] = [
   { key: 'created_at',     label: 'Created Time',  icon: Clock },
   { key: 'name',           label: 'Name',           icon: User },
   { key: 'status',         label: 'Status',         icon: CircleDot },
-  { key: 'level',          label: 'Level',          icon: Trophy },
   { key: 'action',         label: 'Action',         icon: Zap },
   { key: 'phone',          label: 'Phone',          icon: Phone },
   { key: 'last_contacted', label: 'Last Contacted', icon: Calendar },
   { key: 'first_lesson',   label: 'First Lesson',   icon: GraduationCap },
   { key: 'comments',       label: 'Comments',       icon: MessageSquare },
+  { key: 'notes',          label: 'Notes',          icon: StickyNote },
   { key: 'source',         label: 'Source',         icon: Globe },
   { key: 'email',          label: 'Email',          icon: Mail },
   { key: 'reason',         label: 'Reason',         icon: Tag },
@@ -212,7 +212,6 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
   const [sortField, setSortField] = useState('created_at')
   const [sortAscending, setSortAscending] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string[]>([])
-  const [levelFilter, setLevelFilter] = useState<string[]>([])
   const [actionFilter, setActionFilter] = useState<string[]>([])
   const [sourceFilter, setSourceFilter] = useState<string[]>([])
   const [reasonFilter, setReasonFilter] = useState<string[]>([])
@@ -522,7 +521,6 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
   }
 
   function handleStatusFilterChange(value: string[]) { setStatusFilter(value); setPage(0) }
-  function handleLevelFilterChange(value: string[]) { setLevelFilter(value); setPage(0) }
   function handleActionFilterChange(value: string[]) { setActionFilter(value); setPage(0) }
   function handleSourceFilterChange(value: string[]) { setSourceFilter(value); setPage(0) }
   function handleReasonFilterChange(value: string[]) { setReasonFilter(value); setPage(0) }
@@ -548,14 +546,14 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
   useEffect(() => {
     if (!mounted || !prefsReady) return
     setLoading(true)
-    fetchLeadsPage({ studioId, page, pageSize, search: debouncedSearch, statusFilter, levelFilter, actionFilter, sourceFilter, reasonFilter, sortField, sortAscending })
+    fetchLeadsPage({ studioId, page, pageSize, search: debouncedSearch, statusFilter, actionFilter, sourceFilter, reasonFilter, sortField, sortAscending })
       .then(({ leads: data, total: count }) => {
         setLeads(data)
         setTotal(count)
       })
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [mounted, prefsReady, studioId, page, pageSize, debouncedSearch, statusFilter, levelFilter, actionFilter, sourceFilter, reasonFilter, sortField, sortAscending, refreshKey])
+  }, [mounted, prefsReady, studioId, page, pageSize, debouncedSearch, statusFilter, actionFilter, sourceFilter, reasonFilter, sortField, sortAscending, refreshKey])
 
   // Reset confirm-delete state whenever the selection changes
   useEffect(() => { setShowConfirmDelete(false) }, [selectedIds])
@@ -598,7 +596,6 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
         // Page filters
         const pf = (prefs.page_filters ?? {}) as PageFilters
         if (pf.leads?.filters?.status) setStatusFilter(pf.leads.filters.status)
-        if (pf.leads?.filters?.level) setLevelFilter(pf.leads.filters.level)
         if (pf.leads?.filters?.action) setActionFilter(pf.leads.filters.action)
         if (pf.leads?.filters?.source) setSourceFilter(pf.leads.filters.source)
         if (pf.leads?.filters?.reason) setReasonFilter(pf.leads.filters.reason)
@@ -639,13 +636,13 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
     filterSaveTimer.current = setTimeout(() => {
       savePageFilters(studioId, {
         leads: {
-          filters: { status: statusFilter, level: levelFilter, action: actionFilter, source: sourceFilter, reason: reasonFilter },
+          filters: { status: statusFilter, action: actionFilter, source: sourceFilter, reason: reasonFilter },
           sort: { field: sortField, ascending: sortAscending },
         },
       }).catch(() => {})
     }, 1000)
     return () => { if (filterSaveTimer.current) clearTimeout(filterSaveTimer.current) }
-  }, [studioId, mounted, statusFilter, levelFilter, actionFilter, sourceFilter, reasonFilter, sortField, sortAscending]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [studioId, mounted, statusFilter, actionFilter, sourceFilter, reasonFilter, sortField, sortAscending]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function startEdit(lead: Lead, field: keyof Lead) {
     editCommittedRef.current = false
@@ -909,7 +906,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
       )
     }
 
-    if (field === 'comments') {
+    if (field === 'comments' || field === 'notes') {
       if (isEditing) {
         return (
           <textarea
@@ -999,8 +996,6 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
               onSearchChange={handleDebouncedSearch}
               statusFilter={statusFilter}
               onStatusFilterChange={handleStatusFilterChange}
-              levelFilter={levelFilter}
-              onLevelFilterChange={handleLevelFilterChange}
               actionFilter={actionFilter}
               onActionFilterChange={handleActionFilterChange}
               sourceFilter={sourceFilter}
@@ -1257,8 +1252,12 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
                   </span>
                   <div
                     onMouseDown={e => startResize(e, String(col.key))}
-                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize group/resize"
-                  />
+                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize group/resize flex justify-end"
+                    title="Drag to resize column"
+                  >
+                    {/* Visible accent guide on hover so the drag affordance is discoverable */}
+                    <span className="w-[2px] h-full opacity-0 group-hover/resize:opacity-100 transition-opacity bg-[var(--color-accent)]" />
+                  </div>
                 </th>
               ))}
             </tr>

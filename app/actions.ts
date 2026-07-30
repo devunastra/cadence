@@ -179,7 +179,7 @@ const GHL_SYNCED_FIELDS = new Set(['name', 'phone', 'email'])
 
 const UPDATABLE_LEAD_FIELDS = new Set([
   'name', 'phone', 'email', 'status', 'level', 'action', 'source', 'reason', 'partnership',
-  'showed', 'bought', 'old', 'comments', 'available', 'last_contacted', 'first_lesson', 'texted',
+  'showed', 'bought', 'old', 'comments', 'notes', 'available', 'last_contacted', 'first_lesson', 'texted',
 ])
 
 export async function updateLead(id: string, updates: Record<string, string | boolean | null>): Promise<void> {
@@ -870,7 +870,7 @@ export async function uploadAvatar(formData: FormData): Promise<{ url: string }>
 
 const ENUM_JOIN_SELECT = `
   id, studio_id, created_at, name, phone, email,
-  last_contacted, first_lesson, comments, available,
+  last_contacted, first_lesson, comments, notes, available,
   showed, bought, old, ghl_contact_id, created_by_email,
   status:studio_field_options!leads_status_fkey(id, value),
   level:studio_field_options!leads_level_fkey(id, value),
@@ -907,7 +907,6 @@ export async function fetchLeadsPage({
   pageSize,
   search,
   statusFilter,
-  levelFilter,
   actionFilter,
   sourceFilter,
   reasonFilter,
@@ -919,7 +918,6 @@ export async function fetchLeadsPage({
   pageSize: number
   search: string
   statusFilter: string[]
-  levelFilter: string[]
   actionFilter: string[]
   sourceFilter: string[]
   reasonFilter: string[]
@@ -935,7 +933,6 @@ export async function fetchLeadsPage({
 
   const filterEntries: { field: string; values: string[] }[] = [
     { field: 'status', values: statusFilter },
-    { field: 'level',  values: levelFilter },
     { field: 'action', values: actionFilter },
     { field: 'source', values: sourceFilter },
     { field: 'reason', values: reasonFilter },
@@ -965,7 +962,6 @@ export async function fetchLeadsPage({
     for (const word of words) query = query.ilike('name', `%${word}%`)
   }
   if (filterIds['status']?.length)    query = query.in('status', filterIds['status'])
-  if (filterIds['level']?.length)     query = query.in('level',  filterIds['level'])
   if (filterIds['action']?.length)    query = query.in('action', filterIds['action'])
   if (filterIds['source']?.length)    query = query.in('source', filterIds['source'])
   if (filterIds['reason']?.length)    query = query.in('reason', filterIds['reason'])
@@ -994,7 +990,7 @@ export async function fetchLeadsInit(studioId: string) {
     client.from('studio_field_options').select('id, field, value, bg, text').eq('studio_id', studioId).order('sort_order', { ascending: true, nullsFirst: false }),
     getUserPreferences(studioId).catch(() => null),
     getPageFilters(studioId).catch(() => ({} as PageFilters)),
-    fetchLeadsPage({ studioId, page: 0, pageSize: 50, search: '', statusFilter: [], levelFilter: [], actionFilter: [], sourceFilter: [], reasonFilter: [] }).catch(() => ({ leads: [] as Lead[], total: 0 })),
+    fetchLeadsPage({ studioId, page: 0, pageSize: 50, search: '', statusFilter: [], actionFilter: [], sourceFilter: [], reasonFilter: [] }).catch(() => ({ leads: [] as Lead[], total: 0 })),
   ])
   const customViews = (viewsResult.data ?? []).map((v: { id: string; name: string; columns: string[] }) => ({
     id: v.id, name: v.name, columns: v.columns,
