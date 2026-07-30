@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
-import { Phone, Clock, Tag, MessageSquare, Zap, Mic, PhoneCall, Copy, Check, ExternalLink, ChevronDown } from 'lucide-react'
+import { Phone, Clock, Tag, MessageSquare, StickyNote, Zap, Mic, PhoneCall, Copy, Check, ExternalLink, ChevronDown } from 'lucide-react'
 import { updateLead } from '@/app/actions'
 import type { Lead } from '@/lib/types'
 import type { FieldOption } from '@/lib/field-options'
@@ -362,7 +362,6 @@ export function LeadInfoPanel({
         {/* Statuses */}
         <Section icon={<Tag size={13} />} title="Statuses">
           <Row label="Status"><EnumCell field="status" /></Row>
-          <Row label="Level"><EnumCell field="level" /></Row>
           <Row label="Action"><EnumCell field="action" /></Row>
         </Section>
 
@@ -420,6 +419,33 @@ export function LeadInfoPanel({
                 style={{ color: 'var(--color-text-body)' }}
               >
                 {data.comments || '—'}
+              </p>
+            )}
+          </div>
+        </Section>
+
+        {/* Notes — teacher call/contact notes */}
+        <Section icon={<StickyNote size={13} />} title="Notes">
+          <div className="px-4 py-3">
+            {editingField === 'notes' ? (
+              <div className="-mx-2">
+                <textarea
+                  autoFocus
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                  onBlur={() => commitEdit('notes')}
+                  rows={8}
+                  className="w-full text-base md:text-sm rounded-lg px-2 py-2 focus:outline-none focus:ring-0 resize-none bg-transparent"
+                  style={{ color: 'var(--color-text-body)' }}
+                />
+              </div>
+            ) : (
+              <p
+                onClick={() => startEdit('notes')}
+                className="text-sm leading-relaxed whitespace-pre-wrap min-h-[160px] cursor-text"
+                style={{ color: 'var(--color-text-body)' }}
+              >
+                {data.notes || '—'}
               </p>
             )}
           </div>

@@ -86,6 +86,7 @@ export interface Lead {
   last_contacted: string | null
   first_lesson: string | null
   comments: string | null
+  notes: string | null
   source: string | null
   reason: string | null
   available: string | null

@@ -79,9 +79,11 @@ export type Source = (typeof SOURCE_OPTIONS)[number]
 export type Reason = (typeof REASON_OPTIONS)[number]
 export type Partnership = (typeof PARTNERSHIP_OPTIONS)[number]
 
+// NOTE: 'level' is intentionally omitted — the Level field was retired from the
+// leads UI. LEVEL_OPTIONS/Level type are kept only for the color registry and any
+// historical data still stored in leads.level.
 export const ALL_LEAD_ENUM_FIELDS = {
   status: STATUS_OPTIONS,
-  level: LEVEL_OPTIONS,
   action: ACTION_OPTIONS,
   source: SOURCE_OPTIONS,
   reason: REASON_OPTIONS,

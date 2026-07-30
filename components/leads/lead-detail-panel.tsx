@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { X, Phone, Clock, Tag, MessageSquare, Zap, Mic, Pencil } from 'lucide-react'
+import { X, Phone, Clock, Tag, MessageSquare, StickyNote, Zap, Mic, Pencil } from 'lucide-react'
 import { updateLead, fetchCallsForLead } from '@/app/actions'
 import { STATUS_COLORS } from '@/lib/constants'
 import type { TranscriptCallRow } from '@/app/actions'
@@ -353,7 +353,6 @@ export function LeadDetailPanel({
             {/* Statuses */}
             <Card icon={<Tag size={14} />} title="Statuses">
               <Row label="Status"><EnumCell field="status" /></Row>
-              <Row label="Level"><EnumCell field="level" /></Row>
               <Row label="Action"><EnumCell field="action" /></Row>
             </Card>
 
@@ -410,6 +409,31 @@ export function LeadDetailPanel({
                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
                 >
                   {data.comments || <span style={{ color: 'var(--color-text-muted)' }}>Add a comment...</span>}
+                </p>
+              )}
+            </Card>
+
+            {/* Notes — teacher call/contact notes */}
+            <Card icon={<StickyNote size={14} />} title="Notes">
+              {editingField === 'notes' ? (
+                <textarea
+                  autoFocus
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                  onBlur={() => commitEdit('notes')}
+                  rows={4}
+                  className="w-full text-base md:text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] resize-none"
+                  style={{ border: '1px solid var(--color-accent)', backgroundColor: 'var(--color-bg)', color: 'var(--color-text-primary)' }}
+                />
+              ) : (
+                <p
+                  onClick={() => startEdit('notes')}
+                  className="text-sm cursor-pointer rounded-lg p-2 -m-2 leading-relaxed whitespace-pre-wrap min-h-[80px] transition-colors"
+                  style={{ color: 'var(--color-text-secondary)' }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
+                >
+                  {data.notes || <span style={{ color: 'var(--color-text-muted)' }}>Add a note...</span>}
                 </p>
               )}
             </Card>

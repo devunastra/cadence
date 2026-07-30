@@ -16,7 +16,6 @@ interface BulkField {
 
 const FIELDS: BulkField[] = [
   { key: 'status',      label: 'Status',      kind: 'enum' },
-  { key: 'level',       label: 'Level',       kind: 'enum' },
   { key: 'action',      label: 'Action',      kind: 'enum' },
   { key: 'source',      label: 'Source',      kind: 'enum' },
   { key: 'reason',      label: 'Reason',      kind: 'enum' },

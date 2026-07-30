@@ -15,8 +15,6 @@ interface LeadsFilterBarProps {
     onSearchChange: (v: string) => void;
     statusFilter: string[];
     onStatusFilterChange: (v: string[]) => void;
-    levelFilter: string[];
-    onLevelFilterChange: (v: string[]) => void;
     actionFilter: string[];
     onActionFilterChange: (v: string[]) => void;
     sourceFilter: string[];
@@ -67,8 +65,6 @@ export function LeadsFilterBar({
     onSearchChange,
     statusFilter,
     onStatusFilterChange,
-    levelFilter,
-    onLevelFilterChange,
     actionFilter,
     onActionFilterChange,
     sourceFilter,
@@ -92,7 +88,6 @@ export function LeadsFilterBar({
 
     const activeFilterCount = [
         statusFilter,
-        levelFilter,
         actionFilter,
         sourceFilter,
         reasonFilter,
@@ -100,7 +95,6 @@ export function LeadsFilterBar({
 
     function clearAllFilters() {
         onStatusFilterChange([]);
-        onLevelFilterChange([]);
         onActionFilterChange([]);
         onSourceFilterChange([]);
         onReasonFilterChange([]);
@@ -291,17 +285,6 @@ export function LeadsFilterBar({
                                     onChange={onStatusFilterChange}
                                     placeholder="All statuses"
                                     options={toStringOptions("status")}
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium mb-1" style={{ color: "var(--color-text-secondary)" }}>
-                                    Level
-                                </label>
-                                <FilterDropdown
-                                    values={levelFilter}
-                                    onChange={onLevelFilterChange}
-                                    placeholder="All levels"
-                                    options={toStringOptions("level")}
                                 />
                             </div>
                             <div>
