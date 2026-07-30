@@ -55,7 +55,7 @@ Authority rules (enforced before scenario branching):
 | **Preconditions** | Inviter is `super_admin`; `email` is not in `auth.users`; `studioId` omitted; `role` must be `studio_owner`. |
 | **Auth.users write** | `auth.admin.generateLink({ type:'invite' })` — creates the user; metadata: `invited_by`, `onboarding_complete:false`, `studio_setup_complete:false`, `role_intent:'studio_owner'`. |
 | **DB writes** | None yet. Studio + `studio_users` row are written by `completeStudioOnboarding` after the wizard. |
-| **Email sent** | `sendStudioOwnerInvite` (branded Resend). CTA: `{siteUrl}/auth/callback?token_hash=…&type=invite`. |
+| **Email sent** | `sendStudioOwnerInvite` (branded Resend). CTA: `{siteUrl}/accept-invite?token_hash=…&type=invite&by=…` — the token is **verified on form submit**, not on page load, so email link-scanners can't consume it by pre-fetching. |
 | **User journey** | Email → /accept-invite (sets password) → /onboarding wizard → studio created → /leads. |
 | **Response** | `200 { ok:true }` |
 
@@ -68,7 +68,7 @@ Authority rules (enforced before scenario branching):
 | **Preconditions** | Inviter is `super_admin` or `studio_owner` of `studioId`; `email` is not in `auth.users`; studio exists and not soft-deleted. |
 | **Auth.users write** | `auth.admin.generateLink({ type:'invite' })` — creates the user + one-time token (no Supabase email sent); metadata: `invited_by`, `onboarding_complete:false`. (No `role_intent`/`studio_setup_complete:false` → proxy does NOT redirect to /onboarding.) |
 | **DB writes** | `studio_users` upsert with `(studio_id, user_id, role)` before the email send so the row is in place by the time they sign in. |
-| **Email sent** | `sendCoStaffInvite` (branded Resend). Subject: *"You're invited to {studio} on Cadence"*. CTA: `{siteUrl}/auth/callback?token_hash=…&type=invite`. |
+| **Email sent** | `sendCoStaffInvite` (branded Resend). Subject: *"You're invited to {studio} on Cadence"*. CTA: `{siteUrl}/accept-invite?token_hash=…&type=invite&by=…` — token **verified on form submit** (scanner-safe). |
 | **User journey** | Email → /accept-invite (sets password) → /leads with the studio in the switcher. |
 | **Response** | `200 { ok:true }` (or `200 { ok:true, warning }` if email send failed — membership is kept; super_admin can resend). |
 
@@ -215,9 +215,12 @@ All branded emails share `emailShell()` in `lib/email.ts`. From-address: `RESEND
 | File | Role |
 |---|---|
 | `app/api/staff/invite/route.ts` | All scenario branching |
+| `app/api/staff/resend-invite/route.ts` | Public, rate-limited self-serve resend for a pending invite (used by the expired-link panel). Generic responses (no enumeration). Existing users get a `magiclink` token, not `invite`. |
 | `lib/email.ts` | 4 branded Resend templates + shared shell |
 | `components/settings/my-staff-table.tsx` | UI: invite form, role-change modal, response handling |
-| `app/(auth)/accept-invite/page.tsx` | Password setup (scenarios a, b) |
+| `app/(auth)/accept-invite/page.tsx` | Password setup (scenarios a, b). Verifies the OTP on **submit** (scanner-safe); shows an expired-link → resend panel on failure. |
+| `app/auth/callback/route.ts` | Invite links (`type=invite`) are **not** verified here — forwarded to `/accept-invite` with the token so verification happens on form submit. Still handles `recovery` + generic `code`. |
+| `app/(auth)/reset-password/page.tsx` | Recovery password set. Stamps `onboarding_complete:true` so an invitee who recovered via reset (broken invite link) isn't bounced back to `/accept-invite`. |
 | `app/(auth)/onboarding/page.tsx` | Wizard (scenarios a, c) |
 | `proxy.ts` | Onboarding gate — redirects to /onboarding when `studio_setup_complete:false` |
 | `app/actions.ts` → `completeStudioOnboarding` | Studio creation on wizard submit |

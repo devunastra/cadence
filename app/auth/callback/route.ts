@@ -26,26 +26,21 @@ export async function GET(request: NextRequest) {
   const token_hash = searchParams.get('token_hash')
   const type = searchParams.get('type')
 
-  // Invite via PKCE code flow (?type=invite&code=xxx)
-  if (code && type === 'invite') {
-    const response = NextResponse.redirect(`${origin}/accept-invite`)
-    const supabase = makeSupabaseClient(request, response)
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
-    if (error) {
-      return NextResponse.redirect(`${origin}/login?error=invalid_invite`)
-    }
-    return response
-  }
-
-  // Invite via OTP flow (?token_hash=xxx&type=invite)
-  if (token_hash && type === 'invite') {
-    const response = NextResponse.redirect(`${origin}/accept-invite`)
-    const supabase = makeSupabaseClient(request, response)
-    const { error } = await supabase.auth.verifyOtp({ token_hash, type: 'invite' })
-    if (error) {
-      return NextResponse.redirect(`${origin}/login?error=invalid_invite`)
-    }
-    return response
+  // Invite links (?type=invite with code or token_hash).
+  //
+  // IMPORTANT: we do NOT verify/consume the one-time token here. Invite tokens
+  // are single-use, and corporate mailbox link-scanners (Outlook SafeLinks,
+  // Gmail, antivirus) auto-GET every link on delivery — which would consume the
+  // token before the human ever clicks, dumping them on /login. Instead we just
+  // forward the token to /accept-invite and verify it on the password-form
+  // SUBMIT (scanners GET, they don't submit forms). Newer invite emails link to
+  // /accept-invite directly; this branch keeps already-sent /auth/callback links
+  // working and equally scanner-safe.
+  if (type === 'invite' && (code || token_hash)) {
+    const params = new URLSearchParams({ type: 'invite' })
+    if (token_hash) params.set('token_hash', token_hash)
+    if (code) params.set('code', code)
+    return NextResponse.redirect(`${origin}/accept-invite?${params.toString()}`)
   }
 
   // PKCE code flow — password reset
