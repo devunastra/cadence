@@ -9,11 +9,10 @@ export default async function MyStaffPage() {
   if (!user) redirect('/login')
 
   const memberships = await getMemberships(user.id)
+  const isSuperAdmin = memberships.some(m => m.role === 'super_admin')
   const myMembership = memberships[0] ?? null
   const role = (myMembership?.role ?? 'studio_staff') as Role
-  if (role === 'studio_staff' || !myMembership) redirect('/settings/my-profile')
-
-  const isSuperAdmin = role === 'super_admin'
+  if (!isSuperAdmin && (role === 'studio_staff' || !myMembership)) redirect('/settings/my-profile')
   const allStudios = await getStudios(isSuperAdmin, memberships.map(m => m.studio_id))
   const studioNameMap: Record<string, string> = Object.fromEntries(allStudios.map(s => [s.id, s.name]))
   const scopeStudioIds = allStudios.map(s => s.id)

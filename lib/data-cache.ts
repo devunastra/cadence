@@ -13,13 +13,20 @@ export const getCurrentUser = cache(async () => {
   return user
 })
 
+// Order is not guaranteed by Postgres, but several callers read memberships[0]
+// as "the primary membership". Sort super_admin first so that read is stable and
+// a user's highest role wins regardless of physical row order (see ROLE_ORDER).
+const MEMBERSHIP_ROLE_ORDER: Record<string, number> = { super_admin: 0, studio_owner: 1, studio_staff: 2 }
+
 export const getMemberships = cache(async (userId: string) => {
   const supabase = await createClient()
   const { data } = await supabase
     .from('studio_users')
     .select('studio_id, role')
     .eq('user_id', userId)
-  return data ?? []
+  return (data ?? []).sort(
+    (a, b) => (MEMBERSHIP_ROLE_ORDER[a.role] ?? 99) - (MEMBERSHIP_ROLE_ORDER[b.role] ?? 99)
+  )
 })
 
 export const getSelectedStudioId = cache(async () => {
