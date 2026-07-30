@@ -13,6 +13,7 @@ import { reconcileSourceDetail } from '@/lib/source-kinds'
 import type { SourceDetail } from '@/lib/source-kinds'
 import { NOTION_COLORS } from '@/lib/constants'
 import { naiveTzPartsToUtcIso } from '@/lib/date-utils'
+import { persistAppointment } from '@/lib/appointment-booking'
 import { NAV_PAGES } from '@/lib/nav'
 
 // Converts a naive studio-local ISO string ("2026-05-08T17:00:00") to a UTC ISO
