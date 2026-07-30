@@ -42,3 +42,7 @@ deno.lock
 
 # Retell flow audit dumps (contain live tool auth tokens)
 .audit-*.json
+
+# Retell agent snapshots — agent.json / conversation-flow-*.json embed the live
+# custom_tool Bearer tokens for the n8n webhooks, same exposure as .audit-*.json
+backups/

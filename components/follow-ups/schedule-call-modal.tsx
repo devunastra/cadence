@@ -318,14 +318,21 @@ export function ScheduleCallModal({ presetLead, onClose, onScheduled }: Props) {
               </p>
             )}
 
-            {/* Note */}
+            {/* Note. Deliberately not phrased as "why is the AI calling?" — the note
+                is delivered to Retell as a dynamic variable but no agent prompt reads
+                it yet, so that wording would promise something that doesn't happen.
+                It IS shown to staff in the Scheduled Callbacks list today. */}
             <div>
-              <label style={LABEL_STYLE}>Why is the AI calling?</label>
+              <label style={LABEL_STYLE}>Reason for the call</label>
               <ExpandableTextarea
                 value={note}
                 onChange={setNote}
                 placeholder="e.g. Follow up on the pricing question from Tuesday's call"
               />
+              <p className="mt-1.5 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                Shown to your team on the Scheduled Callbacks list. The AI agent
+                doesn&apos;t read this yet.
+              </p>
             </div>
 
             {/* Duplicate conflict */}

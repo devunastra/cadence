@@ -392,14 +392,36 @@ workflow drains every studio's due rows — the old cross-tenant bug in a new sh
 Between the app deploy and the n8n swap, the two halves disagree: the app reads
 `scheduled_calls` while n8n still reads the data tables. Land them together.
 
-### Step 5 — retire the old path
+### Step 5 — retire the old path (⚠️ NOT as simple as it looks)
 
-- Delete `N8N_SCHEDULED_CALLBACKS_LIST_URL`, `N8N_SCHEDULED_CALLBACKS_CANCEL_URL`,
-  and `N8N_SCHEDULED_CALLBACKS_SECRET` from the host env. The app no longer reads
-  them.
-- `AMLS Scheduled Callbacks Webhook (Joshua)` (`DrMdkkkCZBZTu3OS`) is now dead —
-  deactivate it. Leave the data tables in place read-only for a week as a
-  rollback, then archive.
+**Do NOT delete the `N8N_SCHEDULED_CALLBACKS_*` env vars, and do NOT deactivate
+`DrMdkkkCZBZTu3OS`.** An earlier draft of this runbook said to do both. That was
+wrong and would have broken the Integrations health page.
+
+`lib/integration-health.ts` → `checkN8nCallbacks()` still reads
+`N8N_SCHEDULED_CALLBACKS_LIST_URL` + `_SECRET` and probes that webhook for
+Settings → Integrations. Removing the vars makes the probe report
+`not_configured`; deactivating the workflow makes it report `error` — a red light
+for a feature that is actually fine.
+
+The probe is now **measuring the wrong dependency**. Scheduled calls no longer
+touch that webhook at all; they depend on the `scheduled_calls` table and the n8n
+dialer. So today it reports green for a retired system, and would report red for a
+healthy one. Both signals are wrong.
+
+Correct sequence, once the app deploy is confirmed live:
+
+1. Repoint `checkN8nCallbacks()` at the real dependency — can the queue be read —
+   or drop the probe and its card. It has thorough coverage in
+   `__tests__/lib/integration-health.test.ts`, so rewrite tests alongside it. This
+   was deliberately **not** done during the migration: rewriting a well-tested
+   monitoring module at the tail end of a large change is how regressions get in.
+2. *Then* deactivate `DrMdkkkCZBZTu3OS` and drop the env vars together.
+3. Leave the three data tables (`9U0GXNR5uRUTWUPy`, `VmEyZDyEjnlYEIBb`,
+   `QcDzVFL8ccbemEcA`) read-only for a week as a rollback path, then archive.
+
+Ordering matters: the old app build reads the webhook, so nothing here is safe
+until the new build is confirmed serving.
 
 ### Step 6 — verify
 
