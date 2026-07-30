@@ -136,19 +136,38 @@ export interface Call {
   called_phone: string | null
 }
 
-// ── Scheduled Callbacks (n8n AI Callback queue) ─────────────────────────────
+// ── Scheduled Calls (queue of future outbound AI calls) ──────────────────────
+//
+// Backed by the `scheduled_calls` table (migration 053). Replaced the per-studio
+// n8n data tables, which carried no studio_id and forced the app to guess tenant
+// ownership by phone-matching against `leads`.
 
-export interface ScheduledCallback {
-  n8n_row_id: number          // n8n data table assigns integer row IDs
+export interface ScheduledCall {
+  id: string
+  studio_id: string
+  lead_id: string | null      // null when the callee isn't a lead yet
   first_name: string | null
   last_name: string | null
-  phone_number: string        // normalized E.164 by server action
+  phone_number: string        // E.164, normalised by the writer
   email: string | null
   dance_interest: string | null
-  reason: string | null
-  callback_time: string       // ISO timestamp
-  lead_id: string             // every visible row must have a matching lead
-  studio_id: string
+  reason: string | null       // lead's dance reason: Wedding / For Fun / ...
+  call_note: string | null    // free-text "why are we calling"
+  callback_time: string       // ISO timestamp (timestamptz)
+  called_at: string | null
+  retell_call_id: string | null
+  source: 'ai_agent' | 'manual'
+  created_by: string | null
+  cancelled_at: string | null
+  cancelled_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** A `scheduled_calls` row that has neither been dialled nor cancelled. */
+export type PendingScheduledCall = ScheduledCall & {
+  called_at: null
+  cancelled_at: null
 }
 
 export interface CallReview {
