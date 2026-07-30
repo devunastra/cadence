@@ -160,14 +160,23 @@ export interface ScheduledCall {
   created_by: string | null
   cancelled_at: string | null
   cancelled_by: string | null
+  // Set by the migration-054 trigger when a studio's voice agent is switched back
+  // on: resuming abandons the whole queued backlog rather than deferring it.
+  skipped_at: string | null
+  skip_reason: string | null
   created_at: string
   updated_at: string
 }
 
-/** A `scheduled_calls` row that has neither been dialled nor cancelled. */
+/**
+ * A `scheduled_calls` row still eligible to be dialled — not called, not cancelled
+ * by staff, and not abandoned by a voice-agent resume. All three must be null; the
+ * dialer's WHERE clause and `idx_scheduled_calls_due` agree on exactly this.
+ */
 export type PendingScheduledCall = ScheduledCall & {
   called_at: null
   cancelled_at: null
+  skipped_at: null
 }
 
 export interface CallReview {

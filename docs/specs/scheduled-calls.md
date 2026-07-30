@@ -78,9 +78,43 @@ App "+ Schedule a Call"    ─┘            ▲                              �
 `public.scheduled_calls` — see [migration 053](../../supabase/migrations/053_scheduled_calls.sql)
 for the annotated DDL. Notes worth carrying in your head:
 
-- **`called_at` and `cancelled_at` are separate.** Pre-053 cancel overloaded
-  `called_at`, making "we called them" and "staff cancelled" indistinguishable.
-  Pending = both null.
+- **Three outcome columns, never overloaded.** `called_at` (dialled) /
+  `cancelled_at` (a human cancelled) / `skipped_at` (system abandoned it, migration
+  054). Pre-053 cancel overloaded `called_at`, making "we called them" and "staff
+  cancelled" indistinguishable — 054 deliberately did not repeat that by reusing
+  `cancelled_at` for the resume purge. **Pending = all three null**, and
+  `idx_scheduled_calls_due` matches exactly that predicate.
+
+### Resume purge (migration 054)
+
+Pausing a voice agent does not defer its queued calls — switching the agent back on
+**abandons** them. Only calls queued after the switch-on are dialled.
+
+A trigger on `studios.voice_agent_enabled` (false → true) does the work, not the
+dialer guard. The guard only sees rows that are *due*, so a row queued during the
+pause with a callback_time next week would have slipped through it. Living in the
+database means it holds regardless of who flips the column — the Settings toggle, a
+SQL console, a future service — and is atomic with the flip, so there is no window
+where the agent is on and a stale row is still dialable. `SECURITY DEFINER` because a
+studio_owner's own RLS policy would otherwise filter the purge into a silent partial.
+
+Everything selecting pending rows must carry `skipped_at IS NULL`:
+`fetchScheduledCalls`, `scheduleCall`'s duplicate check, `cancelScheduledCall`'s
+compare-and-set, and the `Get row(s)` filter in **all four** workflows. Miss one and
+abandoned rows get re-read and dialled.
+
+**Verification (2026-07-30, live DB, Joshua Test studio):** paused the studio, queued
+a row due in **7 days**, switched the agent on → row came back `skipped_at` set,
+`skip_reason='voice_agent_resumed'`, no longer dialable. A row inserted *after* the
+switch-on stayed dialable. Both halves of the rule confirmed; test rows removed and
+the studio restored. This is a DB trigger so it has no vitest coverage — the live
+check above is the evidence.
+
+**Existing backlog needs no manual cleanup.** Schaumburg and White Rock are both
+`voice_agent_enabled = false`, so their queued rows purge automatically the first time
+either is switched on. Schaumburg's four (Susan Krussel, Pauline Salcedo, Cole Keller,
+Chris Kim) remain in `leads` with their inquiry text if anyone wants to call them by
+hand.
 - **`source`** is `'ai_agent'` or `'manual'`, surfaced as a badge in the UI.
 - **`call_note`** is new: free text for *why* we're calling. `reason` was already
   taken by the lead's dance reason (Wedding / For Fun / …), which the post-dial
@@ -117,7 +151,7 @@ handled in exactly one place. Never pass a naive local string.
 | G3 | **Retell API key + `from_number` are inline in the n8n HTTP nodes**, in plaintext, hardcoded per workflow. Lincolnshire prod also hardcodes `agent_id` instead of using `active_outbound_agent_id`. | Not addressed |
 | G4 | **`callback_time <= $now` on a data-table `date` column looked unreliable** — row 91 was scheduled 20:05 and stamped 20:00:46 on a real tick. Most other "early" stamps were off-boundary manual dev runs. A real `timestamptz` removes the ambiguity; worth re-checking post-cutover. | Expected to be fixed by 053 |
 | G5 | `call_note` → Retell. **n8n half done 2026-07-30** — `Trigger Retell Outbound Call` in the Joshua copy and White Rock now sends `"call_note": "{{ $('Phone Number Formatting').item.json.call_note \|\| '' }}"`. The `\|\| ''` fallback stops a null rendering as the literal string `"null"` in the agent's context. It flows because `Get row(s)` returns every `scheduled_calls` column and `Phone Number Formatting` spreads `...data`. **Still open: the agent's prompt does not reference `{{call_note}}`, so Sarah still cannot read it.** Lincolnshire/Schaumburg also need the same line once swapped (their data tables have no `call_note` column). | Prompt work blocked on G6 |
-| G7 | **The kill switch holds a backlog instead of discarding it — wrong per intent.** Confirmed with Joshua 2026-07-30: when the voice agent is off, queued callbacks must **never** be called; re-enabling should only call *newly* queued leads, not the ones that accumulated while it was off. The `Voice Agent Enabled?` guard only *blocks* the dial and leaves `called_at` NULL, so every held row becomes due again on the first tick after the switch flips. Schaumburg was paused `2026-07-28 17:17:51Z` and all four of its pending rows were queued after that — three would dial immediately on re-enable. Fix: wire the guard's **false** branch to neutralise the row. Needs a new column (see note) — do **not** reuse `cancelled_at`, which means "staff cancelled" and would repeat the `called_at`-overloading mistake 053 exists to undo. | Open — design confirmed, not yet built |
+| G7 | **Resuming a paused voice agent must discard its backlog.** ✅ **FIXED — migration 054.** Joshua's rule: *"when i turn on the agent, dont dial anyone, dial only the future leads who will come after the switch on."* Implemented as a trigger on `studios.voice_agent_enabled` (false → true) that stamps `skipped_at` + `skip_reason='voice_agent_resumed'` on every still-pending row for that studio. **Not** implemented in the dialer guard: that only ever sees rows which are *due*, so a row queued during the pause with a callback_time next week would have survived untouched — exactly the case the rule forbids. Verified end-to-end against the live DB (see §Verification). | ✅ Done 2026-07-30 |
 | G6 | **Lincolnshire has three conflicting agent IDs.** `studios.active_outbound_agent_id` = `agent_cd8a872b64a03338e6c54a41a0`, `studios.retell_agent_id` = `agent_c6c4facfa0c12f9d7e1f1a8c83`, but prod's `Trigger Retell Outbound Call` hardcodes `agent_id: agent_a21bd030d52b9d54626fa9f44e`. The dialer therefore ignores `active_outbound_agent_id` entirely, contradicting migration 048's stated premise ("n8n reads this column at call time"). The Leads UI agent dropdown has no effect on scheduled callbacks. **Resolve which agent is authoritative before any prompt edit** — editing `agent_cd8a…` would touch an agent that never receives these calls. | Open — decision needed |
 
 ---
@@ -176,7 +210,33 @@ Pre-conditions already done:
 - [x] Query shapes rehearsed directly against Postgres: due-select, id-stamp, and
       compare-and-set cancel all behave as designed.
 
-### Step 0 — n8n Supabase credentials (resolved)
+### Step 0 — n8n Supabase credentials (RESOLVED — empirically verified)
+
+**Verified 2026-07-30 13:00 UTC in production.** Schaumburg execution `74402` shows
+`Get row(s)` returning **3 items** from `scheduled_calls` with the new schema
+(`id` as uuid, plus `call_note`, `source`, `cancelled_at`, `retell_call_id`). RLS
+would have returned zero rows, so credential `yHLLUsK6GjoakeTT` **is service-role** —
+no longer an inference. Three rows is also exactly correct: Susan, Pauline and Cole
+are past due; Chris Kim (18:00Z) is not.
+
+That same execution verified, on live data, without placing a call:
+
+- the `studio_id` + `called_at=is.null` + `cancelled_at=is.null` + `callback_time=lte`
+  filter string
+- `call_note` surviving `Phone Number Formatting` into the Retell payload
+- the kill-switch guard stopping the chain at `Voice Agent Enabled?` — 9 nodes ran,
+  `Trigger Retell Outbound Call` did not
+
+Lincolnshire execution `74403` read cleanly but returned **0 rows** (Jacob is not due
+until Aug 3). Zero rows is ambiguous — indistinguishable from a credential that
+cannot read — and Lincolnshire had been left on the *other* credential
+(`6ZpTbSWHAP4Ro3FO`). All four of its callback nodes were therefore moved to
+`yHLLUsK6GjoakeTT`, the proven one, eliminating that silent-failure mode on the only
+studio whose agent is enabled. Both studios now use one credential for this path.
+
+---
+
+#### Original inference (superseded by the verification above)
 
 `scheduled_calls` has RLS with all three policies keyed on `auth.uid()` via
 `studio_users`. A node authenticating with the **anon** key gets `auth.uid() = NULL`,

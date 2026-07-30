@@ -97,6 +97,8 @@ function makeRow(overrides: Partial<PendingScheduledCall> = {}): PendingSchedule
     created_by: null,
     cancelled_at: null,
     cancelled_by: null,
+    skipped_at: null,
+    skip_reason: null,
     created_at: '2026-05-20T22:10:00.000Z',
     updated_at: '2026-05-20T22:10:00.000Z',
     ...overrides,

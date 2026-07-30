@@ -3569,7 +3569,7 @@ function normalizePhone(raw: string | null | undefined): string | null {
 // Must stay a single `as const` literal: supabase-js parses the select string at
 // the type level, so a concatenated expression degrades the row type to
 // GenericStringError.
-const SCHEDULED_CALL_COLUMNS = 'id, studio_id, lead_id, first_name, last_name, phone_number, email, dance_interest, reason, call_note, callback_time, called_at, retell_call_id, source, created_by, cancelled_at, cancelled_by, created_at, updated_at' as const
+const SCHEDULED_CALL_COLUMNS = 'id, studio_id, lead_id, first_name, last_name, phone_number, email, dance_interest, reason, call_note, callback_time, called_at, retell_call_id, source, created_by, cancelled_at, cancelled_by, skipped_at, skip_reason, created_at, updated_at' as const
 
 /**
  * Pending scheduled calls for ONE studio, soonest first.
@@ -3589,6 +3589,9 @@ export async function fetchScheduledCalls(studioId: string): Promise<PendingSche
     .eq('studio_id', studioId)
     .is('called_at', null)
     .is('cancelled_at', null)
+    // Abandoned by a voice-agent resume (migration 054). Must be excluded here and
+    // in every n8n `Get row(s)` filter, or skipped rows get re-read and dialled.
+    .is('skipped_at', null)
     .order('callback_time', { ascending: true })
 
   if (error) throw new Error(error.message)
@@ -3685,6 +3688,7 @@ export async function scheduleCall(input: {
     .eq('lead_id', input.leadId)
     .is('called_at', null)
     .is('cancelled_at', null)
+    .is('skipped_at', null)
     .order('callback_time', { ascending: true })
     .limit(1)
     .maybeSingle()
@@ -3786,6 +3790,9 @@ export async function cancelScheduledCall(
     .eq('id', id)
     .is('called_at', null)
     .is('cancelled_at', null)
+    // Also a no-op if a voice-agent resume abandoned the row first, so the UI says
+    // "already went out" rather than claiming a cancellation that did nothing.
+    .is('skipped_at', null)
     .select('id, studio_id, lead_id, first_name, last_name, callback_time')
 
   if (error) throw new Error(error.message)
