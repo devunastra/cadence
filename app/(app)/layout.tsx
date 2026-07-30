@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { ProgressBar } from '@/components/progress-bar'
 import { ThemeInitializer } from '@/components/theme-initializer'
 import { AppShell } from '@/components/app-shell'
+import { NavGuard } from '@/components/nav-guard'
 import { StudioProvider } from '@/components/studio-context'
 import { getCurrentUser, getMemberships, getSelectedStudioId, getStudios } from '@/lib/data-cache'
 import { getUserPreferences } from '@/app/actions'
@@ -54,6 +55,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <StudioProvider studio={initialStudio} memberships={memberships}>
       <div className="flex h-screen" style={{ backgroundColor: 'var(--color-bg)' }}>
         <ThemeInitializer theme={prefs?.theme} />
+        <NavGuard />
         <ProgressBar />
         <AppShell
           studios={studios}

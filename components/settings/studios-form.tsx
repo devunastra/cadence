@@ -9,6 +9,7 @@ import { NOTION_COLORS } from "@/lib/constants";
 import { SimpleSelect } from "@/components/simple-select";
 import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { LeadSourcesEditor } from "@/components/settings/lead-sources-editor";
+import { StudioNavTabs } from "@/components/settings/studio-nav-tabs";
 import { DEFAULT_SOURCES } from "@/components/onboarding/onboarding-types";
 import type { SourceDetail } from "@/lib/source-kinds";
 import {
@@ -310,6 +311,9 @@ export function StudiosForm({ initialStudios, isSuperAdmin }: StudiosFormProps) 
                     </table>
                   </div>
                 </div>
+
+                {/* Sidebar tab visibility — super_admin only */}
+                {isSuperAdmin && <StudioNavTabs studios={studios} />}
 
                 {/* Add new studio section — super_admin only; studio_owners add via re-invite (scenario c) */}
                 {!isSuperAdmin ? null : <>

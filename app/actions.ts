@@ -13,7 +13,7 @@ import { reconcileSourceDetail } from '@/lib/source-kinds'
 import type { SourceDetail } from '@/lib/source-kinds'
 import { NOTION_COLORS } from '@/lib/constants'
 import { naiveTzPartsToUtcIso } from '@/lib/date-utils'
-import { persistAppointment } from '@/lib/appointment-booking'
+import { NAV_PAGES } from '@/lib/nav'
 
 // Converts a naive studio-local ISO string ("2026-05-08T17:00:00") to a UTC ISO
 // string. Delegates to naiveTzPartsToUtcIso which handles DST cutover correctly
@@ -629,6 +629,41 @@ export async function updateStudio(id: string, updates: {
     .update(updates)
     .eq('id', id)
 
+  if (error) throw new Error(error.message)
+
+  revalidatePath('/', 'layout')
+}
+
+// Super_admin-only: set which sidebar tabs a studio sees. `overrides` is a map of
+// nav href -> visible boolean; missing keys fall back to the tab's built-in default.
+// We sanitize to only known, toggleable hrefs so a bad payload can't hide the core
+// tab or write junk keys.
+export async function setStudioNavOverrides(
+  studioId: string,
+  overrides: Record<string, boolean>,
+): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  const { data: memberships } = await supabase
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+  const isSuper = memberships?.some(m => m.role === 'super_admin') ?? false
+  if (!isSuper) throw new Error('Forbidden')
+
+  const clean: Record<string, boolean> = {}
+  for (const page of NAV_PAGES) {
+    if (page.core) continue // /leads is never toggleable
+    if (typeof overrides[page.href] === 'boolean') clean[page.href] = overrides[page.href]
+  }
+
+  const serviceClient = createServiceClient()
+  const { error } = await serviceClient
+    .from('studios')
+    .update({ nav_overrides: clean })
+    .eq('id', studioId)
   if (error) throw new Error(error.message)
 
   revalidatePath('/', 'layout')
