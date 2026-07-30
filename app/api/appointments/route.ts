@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAvailabilityForDate, toNaiveLocal } from '@/lib/appointment-availability'
 import { persistAppointment, addMinutesNaive } from '@/lib/appointment-booking'
+import { createServiceClient } from '@/lib/supabase/server'
 import { checkSecret, resolveLocalStudio, isValidDate } from './_auth'
 
 /**
@@ -35,7 +36,9 @@ export async function POST(req: Request) {
   const studioId = String(body.studio_id ?? '')
   const date = body.date
   const time = String(body.time ?? '')
-  const contactName = String(body.contact_name ?? '').trim()
+  const contactEmail = String(body.contact_email ?? '').trim().toLowerCase()
+  let contactName = String(body.contact_name ?? '').trim()
+  let contactId = typeof body.contact_id === 'string' && body.contact_id ? body.contact_id : null
 
   if (!isValidDate(date)) {
     return NextResponse.json({ error: 'date must be YYYY-MM-DD' }, { status: 400 })
@@ -43,12 +46,33 @@ export async function POST(req: Request) {
   if (!/^\d{2}:\d{2}$/.test(time)) {
     return NextResponse.json({ error: 'time must be HH:MM' }, { status: 400 })
   }
-  if (!contactName) {
-    return NextResponse.json({ error: 'contact_name is required' }, { status: 400 })
+  if (!contactName && !contactEmail) {
+    return NextResponse.json({ error: 'contact_name or contact_email is required' }, { status: 400 })
   }
 
   const { studio, error: studioError } = await resolveLocalStudio(studioId)
   if (studioError) return studioError
+
+  // The voice agent only knows the caller's email — it never collects a name,
+  // so resolve both name and lead id from the lead record. Studio-scoped so a
+  // shared email across studios can't cross-link. Falls back to the email
+  // itself rather than failing: a booking with an ugly label beats no booking.
+  if (contactEmail && (!contactName || !contactId)) {
+    const supabase = createServiceClient()
+    const { data: lead } = await supabase
+      .from('leads')
+      .select('id, name')
+      .eq('studio_id', studio!.id)
+      .ilike('email', contactEmail)
+      .limit(1)
+      .maybeSingle()
+    if (lead) {
+      contactName = contactName || (lead.name as string) || contactEmail
+      contactId = contactId || (lead.id as string)
+    } else {
+      contactName = contactName || contactEmail
+    }
+  }
 
   // Advisory pre-check: gives a precise reason (closed / too soon / taken)
   // instead of a bare constraint violation. The DB index is still the arbiter.
@@ -86,7 +110,7 @@ export async function POST(req: Request) {
     startLocal,
     endLocal,
     calendarId:  null,
-    contactId:   typeof body.contact_id === 'string' && body.contact_id ? body.contact_id : null,
+    contactId,
     contactName,
     notes:       typeof body.notes === 'string' ? body.notes : null,
   })
