@@ -319,11 +319,28 @@ No UI work was needed: `getNotifications` and the bell's Realtime subscription f
 `user_id`/`studio_id` only, with no `type` filter or per-type icon switch, so
 `ai_escalation` renders like any other kind.
 
-> **Super-admin split.** `notification-bell.tsx` fires the toast and increments the badge
-> for any row for that user across all studios, but the popover list only shows rows
-> matching the *currently selected* studio. A super admin sitting in Lincolnshire gets a
-> toast and a badge, opens the bell, and sees nothing. Pre-existing (documented in the
-> appointment-notifications spec), but it bites harder for escalations than for bookings.
+**Super-admin split — partly fixed (migration `060`).** Super admins get a row for every
+studio, so a cross-studio escalation surfaced badly:
+
+- The badge counted rows the popover could never show. `getUnreadNotificationCount` is
+  scoped to the selected studio, but the Realtime handler incremented on every row, so the
+  number drifted above the list and read as a bug. **Fixed** — the increment is now scoped
+  to match.
+- The toast showed only the title, so a super admin in White Rock saw
+  "AI escalation — needs follow-up" for a Schaumburg caller with no idea which studio.
+  **Fixed** — `notify_ai_escalation` now carries `studio_name` in metadata, and the toast
+  renders `<Studio> — <title>` when the row is not the current studio.
+
+`NotificationType` was also widened; it was a one-member union (`'appointment_booked'`)
+that no longer described the table.
+
+> **Still open:** cross-studio rows are only *visible* after switching studios — the list
+> stays per-studio by design. Deep-linking with an auto-switch on click is the follow-up.
+>
+> **Also open:** the escalation toast is gated on `notify_appointment_toast`, an
+> appointment-specific pref now silently controlling escalation alerts. Someone who muted
+> booking noise has muted unanswered-caller alerts without being told. And it renders via
+> `showSuccess` — green "success" styling for "nobody picked up."
 
 ### 2. "Can the agent answer and move on instead of always asking if we have questions?"
 
@@ -342,32 +359,70 @@ branch node, so the hand-back is context-aware.
 All 3 copies were rewritten (so a future swap to BACKUP can't reintroduce it), plus the
 now-stale "Do NOT state <phrase> after" carve-out in the group-classes path.
 
+### 3. Making an unanswered transfer distinguishable in the notes column — v12
+
+The note line reads `[stamp] AI escalation — <message>`, and `<message>` is LLM-authored.
+`escalate_message` fires from **three** places in the flow, so an unanswered transfer and
+an ordinary "caller asked about pricing" escalation looked identical when scanning the
+column.
+
+The two `Escalate Message` **function** nodes on the transfer-failure path
+(`node-1776333155412`, `node-1777305637976`) now carry an
+`instruction: { type: 'prompt', text }` requiring `message` to begin with
+`Live transfer unanswered — `. Function nodes support `instruction`; it simply was not
+set. That meant no tool-schema change and no second tool, and the third call site stays
+unprefixed — which is what keeps the two separable.
+
+The patch script **traces** `transfer_call` → failure edge → apology → function node and
+asserts the traced pair matches the expected IDs, rather than hardcoding them. Rewire that
+path later and the patch fails loudly instead of instructing the wrong node. It also
+re-asserts the v11 invariants (`warm_transfer` ×2, `cold_transfer` ×0, canned line absent)
+before writing.
+
+> **This is a prompt directive, not an enforced field.** It will hold most of the time but
+> is not guaranteed. If the prefix ever needs to be filtered on programmatically, the real
+> fix is a separate tool with `"const"` on that argument.
+
 ### How it was shipped
 
 `PATCH /update-conversation-flow` on a published flow returns
-`400 Cannot update published conversation flow`. Correct sequence:
+`400 Cannot update published conversation flow`. Correct sequence, run twice:
 
-1. `POST /create-agent-version` `{base_version: 10}` → draft agent v11 + flow v11
-2. `PATCH /update-conversation-flow/{id}?version=11` (the `version` param is required)
-3. `POST /publish-agent-version` `{version: 11}`
-4. n8n `override_agent_version` **0 → 11**
+1. `POST /create-agent-version` `{base_version: N}` → draft agent `vN+1` + flow `vN+1`
+2. `PATCH /update-conversation-flow/{id}?version=N+1` (the `version` param is required —
+   without it the PATCH targets latest and 400s again)
+3. `POST /publish-agent-version` `{version: N+1}`
+4. n8n `override_agent_version` → `N+1`
+
+Applied v10 → **v11** (warm transfer + question loop), then v11 → **v12** (note prefix).
+Pin is now **12**.
 
 Step 4 matters as much as the rest: the dialer pins the version, so publishing alone
 changes nothing for outbound. It had been pinned at **0** all along, which is why outbound
 callbacks were still quoting **$80** — flow v0 predates the 2026-07-28 pricing fix. The
-bump corrected that as a side effect.
+0 → 11 bump corrected that as a side effect.
 
-Rollback: agent v10 is still published and intact. Set the pin back to `10` (corrected
-pricing, old transfer behaviour) or `0`.
+Rollback: every prior version stays published and intact. Set the pin back to `11`
+(drops only the note prefix), `10` (corrected pricing, original cold transfer), or `0`.
 
 ### Not yet proven
 
 **No signal has traversed the full path.** The RPC was tested by calling it directly
-(phone match, email match, no-match fallback — all correct, test rows deleted); the n8n
-node has never fired. Unverified until a real call: the node's runtime expression against
-the live webhook body, whether the Supabase credential can execute the RPC, and whether
-warm-transfer detection actually flags White Rock's voicemail greeting. One test callback
-where the studio line is left to ring out exercises all three.
+(phone match, email match, no-match fallback, studio name — all correct, test rows
+deleted); the n8n node has never fired. White Rock has 1 call total and 0 transfers ever.
+
+One test callback with the studio line left to ring out exercises all four unknowns:
+
+1. Does warm-transfer human detection actually flag White Rock's voicemail greeting?
+2. Does `Notify Studio (Escalation)`'s expression pull `first_name` / `phone_number` /
+   `message` correctly off the live webhook body? (Written against the shape
+   `Build Escalation Note` uses, never observed executing.)
+3. Can the `AMLS WebApp Temp` credential execute the RPC? (Execute is granted to
+   `service_role`; that credential is *inferred* to be service role because it performs
+   RLS-blocked PATCHes elsewhere — not confirmed.)
+4. Does the agent honour the `Live transfer unanswered — ` prefix?
+
+Until that runs this is shipped, not proven.
 
 ---
 
