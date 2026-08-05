@@ -263,11 +263,13 @@ export function VoiceAgentToggle() {
               boxShadow: `0 0 0 3px ${dotGlow}`,
             }}
           />
-          <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>
+          {/* Never break "Outside calling hours" across two lines — the state is
+              the one thing that always has to be readable at a glance. */}
+          <span className="font-medium whitespace-nowrap" style={{ color: 'var(--color-text-primary)' }}>
             AI Voice Agent: {statusLabel}
           </span>
           {!enabled && currentStudio.voice_agent_paused_at && (
-            <span className="truncate" style={{ color: 'var(--color-text-secondary)' }}>
+            <span className="whitespace-nowrap flex-shrink-0" style={{ color: 'var(--color-text-secondary)' }}>
               · {formatRelativeTime(currentStudio.voice_agent_paused_at)}
             </span>
           )}
@@ -278,8 +280,10 @@ export function VoiceAgentToggle() {
           )}
           {/* Outside the window the switch is still on, so say what's actually
               happening and when it ends — otherwise this reads as a fault. */}
+          {/* Load-bearing: "outside hours" is only actionable if you know for how
+              long. flex-shrink-0 so the sentence after it absorbs any squeeze. */}
           {outsideWindow && resumesAt && (
-            <span className="truncate" style={{ color: 'var(--color-text-secondary)' }}>
+            <span className="whitespace-nowrap flex-shrink-0" style={{ color: 'var(--color-text-secondary)' }}>
               · resumes {resumesAt}
             </span>
           )}

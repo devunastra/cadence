@@ -11,9 +11,16 @@ export default function LeadsPage() {
   return (
     <>
       <h1 className="text-2xl font-semibold flex-shrink-0 px-5 pt-5 pb-3" style={{ color: 'var(--color-text-primary)' }}>Leads</h1>
-      <div className="flex-shrink-0 px-5 pb-3 flex flex-col md:flex-row md:items-center gap-3">
+      {/* Stacked, not side by side. The pill's width need swings with its state —
+          "Active" is short, "Outside calling hours · resumes 12:00 PM · …" is not —
+          so sharing a row means it fits or truncates depending on the time of day.
+          Giving it the full row makes it predictable; the agent selector sits below
+          at its natural width. */}
+      <div className="flex-shrink-0 px-5 pb-3 flex flex-col gap-3">
         <VoiceAgentToggle />
-        <OutboundAgentSelector />
+        <div className="flex">
+          <OutboundAgentSelector />
+        </div>
       </div>
       <div className="flex flex-col md:flex-1 md:min-h-0">
         <LeadsTable studioId={studioId} />
