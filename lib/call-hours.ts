@@ -182,6 +182,46 @@ export function nextCallWindowOpening(
   return null
 }
 
+/**
+ * Short label for when calling resumes, e.g. "8:00 AM", "tomorrow 1:00 PM",
+ * "Mon 12:00 PM". Returns null when there is nothing to wait for — hours are
+ * unrestricted, we're already inside the window, or no day ever opens.
+ *
+ * Used by the AI Voice Agent pill so "Outside calling hours" says when that ends
+ * rather than leaving the reader to go and look it up.
+ */
+export function formatNextOpeningLabel(
+  hours: CallHours | null,
+  tz: string,
+  from: Date = new Date(),
+): string | null {
+  const next = nextCallWindowOpening(hours, tz, from)
+  if (!next || next.getTime() <= from.getTime()) return null
+
+  const nowParts = tzCalendarParts(from, tz)
+  const nextParts = tzCalendarParts(next, tz)
+  const time = formatHHMM(toHHMM(nextParts.hour * 60 + nextParts.minute))
+
+  const sameDay =
+    nowParts.year === nextParts.year &&
+    nowParts.month === nextParts.month &&
+    nowParts.day === nextParts.day
+  if (sameDay) return time
+
+  // Calendar arithmetic only — Date.UTC here is a day-rollover, not a conversion.
+  const tomorrow = new Date(Date.UTC(nowParts.year, nowParts.month, nowParts.day + 1))
+  if (
+    tomorrow.getUTCFullYear() === nextParts.year &&
+    tomorrow.getUTCMonth() === nextParts.month &&
+    tomorrow.getUTCDate() === nextParts.day
+  ) {
+    return `tomorrow ${time}`
+  }
+
+  const dow = new Date(Date.UTC(nextParts.year, nextParts.month, nextParts.day)).getUTCDay()
+  return `${DAY_LABELS[String(dow)]} ${time}`
+}
+
 /** Seven closed days — the shape the editor starts from when a studio has none. */
 export function emptyCallHours(): CallHours {
   return Object.fromEntries(DAY_KEYS.map(d => [d, null])) as CallHours

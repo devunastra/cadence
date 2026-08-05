@@ -59,6 +59,21 @@ All tokens are defined in `app/globals.css` as CSS custom properties.
 | `--transition-fast` | `150ms ease` | Hover states, nav items, opacity changes |
 | `--transition-base` | `200ms ease` | Checkbox fill, button bg, modal open |
 
+### Live Status
+Signals the state of a **running system** — healthy / held / stopped. Distinct from the
+badge tokens, which colour Notion enum values. Inline-style-safe (no CSS class needed).
+
+| Token | Light | Dark | Usage |
+|-------|-------|------|-------|
+| `--color-status-ok` | `#16a34a` | `#22c55e` | Running normally |
+| `--color-status-warn` | `#d97706` | `#f59e0b` | On, but currently held — not a fault |
+| `--color-status-danger` | `#ef4444`* | `#ef4444` | Switched off / stopped |
+
+\* light mode is `#dc2626`. Dark values are lifted a step so the dots keep their punch
+against the dark surface.
+
+**Never add a fourth status hex inline** — extend this group instead.
+
 ---
 
 ## Typography
@@ -130,6 +145,32 @@ and not for filters (those are pills). First used by the AI Calling Hours editor
 
 The standard size doubles as the 44px minimum touch target. The compact size is only
 acceptable inside a row that is itself ≥44px tall, so the tap area still qualifies.
+
+---
+
+## Live Status Pill
+
+A dot + label describing what a running system is doing right now. Used by the AI Voice
+Agent pill in the Leads header (`components/leads/voice-agent-toggle.tsx`).
+
+- Container: `flex items-center justify-between gap-3 px-4 py-2 rounded-lg text-sm`
+- Dot: `8 × 8`, fully rounded, `backgroundColor: var(--color-status-*)` plus a
+  `box-shadow: 0 0 0 3px <same colour @ 0.18 alpha>` halo
+- Container tint follows the dot: neutral `var(--color-surface)` for the healthy state,
+  the status colour at `0.08` alpha with a `0.25` alpha border for warn / danger
+- Label reads `<System>: <State>`, then `·`-separated clauses for detail. Clauses that
+  are nice-to-have rather than load-bearing get `hidden sm:inline` so the pill degrades
+  cleanly on mobile instead of wrapping.
+
+**A status pill must reflect every condition that gates the thing it describes.** If a
+system can be held by more than one mechanism (a switch *and* a schedule, say), a pill
+that reads only the switch will confidently report "Active" while nothing happens. Show
+the held state, and say when it ends.
+
+**Anything time-derived must be hydration-guarded.** Computing a state from the clock
+during SSR hydrates against a different instant. Gate on a `useMounted()` flag and render
+the safe under-claim until mounted. Pair it with a 1-minute `setInterval` so the state
+flips on its own at the boundary rather than waiting for a navigation.
 
 ---
 

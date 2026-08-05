@@ -13,6 +13,7 @@ import {
   nextCallWindowOpening,
   normalizeCallHours,
   formatCallHoursSummary,
+  formatNextOpeningLabel,
   hasAnyWindow,
   windowMinutes,
   parseHHMM,
@@ -260,6 +261,59 @@ describe('nextCallWindowOpening', () => {
     // Tue 2026-08-04 13:00 Chicago = 18:00Z, after that day's 12:00 close.
     const got = nextCallWindowOpening(tuesdayOnly, CHICAGO, localInstant('2026-08-04T18:00:00Z'))
     expect(got?.toISOString()).toBe('2026-08-11T15:00:00.000Z') // Tue 10:00 CDT
+  })
+})
+
+// ── formatNextOpeningLabel ────────────────────────────────────────────────────
+
+describe('formatNextOpeningLabel', () => {
+  it('is null when hours are unrestricted', () => {
+    expect(formatNextOpeningLabel(null, VANCOUVER, localInstant('2026-08-05T10:00:00Z'))).toBeNull()
+  })
+
+  it('is null when already inside the window', () => {
+    // Wed 14:00 Vancouver.
+    expect(formatNextOpeningLabel(WHITE_ROCK, VANCOUVER, localInstant('2026-08-05T21:00:00Z'))).toBeNull()
+  })
+
+  it('is null when no day ever opens', () => {
+    expect(formatNextOpeningLabel(emptyCallHours(), VANCOUVER, localInstant('2026-08-05T21:00:00Z'))).toBeNull()
+  })
+
+  it('shows a bare time when the window opens later today', () => {
+    // Wed 09:00 Vancouver -> opens 12:00 the same day.
+    expect(formatNextOpeningLabel(WHITE_ROCK, VANCOUVER, localInstant('2026-08-05T16:00:00Z')))
+      .toBe('12:00 PM')
+  })
+
+  it('says "tomorrow" when today has closed', () => {
+    // Wed 21:00 Vancouver (past the 20:00 close) -> Thu 12:00.
+    expect(formatNextOpeningLabel(WHITE_ROCK, VANCOUVER, localInstant('2026-08-06T04:00:00Z')))
+      .toBe('tomorrow 12:00 PM')
+  })
+
+  it('names the weekday when it is further out', () => {
+    // Sat 10:00 Vancouver -> Mon 12:00, two days away.
+    expect(formatNextOpeningLabel(WHITE_ROCK, VANCOUVER, localInstant('2026-08-08T17:00:00Z')))
+      .toBe('Mon 12:00 PM')
+  })
+
+  it('reports the label in the studio timezone across a DST change', () => {
+    // Sat 2026-03-07 (PST) -> Mon 2026-03-09 (PDT). Still 12:00 wall-clock.
+    expect(formatNextOpeningLabel(WHITE_ROCK, VANCOUVER, localInstant('2026-03-07T18:00:00Z')))
+      .toBe('Mon 12:00 PM')
+  })
+
+  it('handles Lincolnshire overnight — 02:00 Chicago resumes 8:00 AM today', () => {
+    // Wed 2026-08-05 02:00 Chicago = 07:00Z.
+    expect(formatNextOpeningLabel(LINCOLNSHIRE, CHICAGO, localInstant('2026-08-05T07:00:00Z')))
+      .toBe('8:00 AM')
+  })
+
+  it('handles Lincolnshire just after close — 22:30 Chicago resumes tomorrow', () => {
+    // Wed 22:30 Chicago = 03:30Z Thu.
+    expect(formatNextOpeningLabel(LINCOLNSHIRE, CHICAGO, localInstant('2026-08-06T03:30:00Z')))
+      .toBe('tomorrow 8:00 AM')
   })
 })
 
