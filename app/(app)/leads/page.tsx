@@ -4,6 +4,7 @@ import { useCurrentStudio } from '@/components/studio-context'
 import { LeadsTable } from '@/components/leads/leads-table'
 import { VoiceAgentToggle } from '@/components/leads/voice-agent-toggle'
 import { OutboundAgentSelector } from '@/components/leads/outbound-agent-selector'
+import { FollowupsToggle } from '@/components/leads/followups-toggle'
 
 export default function LeadsPage() {
   const { studioId } = useCurrentStudio()
@@ -18,8 +19,12 @@ export default function LeadsPage() {
           at its natural width. */}
       <div className="flex-shrink-0 px-5 pb-3 flex flex-col gap-3">
         <VoiceAgentToggle />
-        <div className="flex">
+        {/* Two independent settings, so they share a row and wrap rather than
+            stacking — keeping them off the agent pill's row is what stops the
+            follow-ups switch reading as part of the agent's on/off state. */}
+        <div className="flex flex-wrap items-center gap-3">
           <OutboundAgentSelector />
+          <FollowupsToggle />
         </div>
       </div>
       <div className="flex flex-col md:flex-1 md:min-h-0">
