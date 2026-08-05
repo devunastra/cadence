@@ -790,6 +790,72 @@ export async function setVoiceAgentEnabled(studioId: string, enabled: boolean): 
   revalidatePath('/leads')
 }
 
+/**
+ * Turn the automatic no-answer follow-up ladder on or off for a studio.
+ *
+ * Deliberately NOT a second voice-agent pause. This writes one boolean and stops:
+ * no Retell call, no inbound-agent swap, no touching voice_agent_enabled. That is
+ * the whole point of the feature — the agent's normal behaviour is unaffected and
+ * only follow-ups change. Anything added here that talks to Retell breaks that
+ * promise.
+ *
+ * Off means HOLD, not cancel. The RPC stops queuing new rungs
+ * (reason: 'followups_disabled') and the dialer's Call Window Gate leaves already
+ * queued rungs pending, so switching back on resumes them at their original
+ * callback_time. Nothing here stamps skipped_at — see migration 062.
+ */
+export async function setFollowupsEnabled(studioId: string, enabled: boolean): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  // Role gate: owner/super_admin of this studio, else global super_admin (mirrors setVoiceAgentEnabled).
+  const { data: studioMembership } = await supabase
+    .from('studio_users')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('studio_id', studioId)
+  const isOwnerOrAbove = studioMembership?.some(m => m.role === 'studio_owner' || m.role === 'super_admin') ?? false
+
+  if (!isOwnerOrAbove) {
+    const { data: anyMembership } = await supabase
+      .from('studio_users')
+      .select('role')
+      .eq('user_id', user.id)
+    const isSuper = anyMembership?.some(m => m.role === 'super_admin') ?? false
+    if (!isSuper) throw new Error('Forbidden')
+  }
+
+  const serviceClient = createServiceClient()
+  const { data: studio, error: readErr } = await serviceClient
+    .from('studios')
+    .select('followups_enabled')
+    .eq('id', studioId)
+    .single()
+  if (readErr || !studio) throw new Error('Studio not found')
+  if (studio.followups_enabled === enabled) return
+
+  const { error: updateErr } = await serviceClient
+    .from('studios')
+    .update({
+      followups_enabled: enabled,
+      followups_paused_at: enabled ? null : new Date().toISOString(),
+      followups_paused_by: enabled ? null : user.id,
+    })
+    .eq('id', studioId)
+  if (updateErr) throw new Error(updateErr.message)
+
+  // Activity log — non-critical, fire-and-forget (mirrors setVoiceAgentEnabled).
+  serviceClient.from('activity_logs').insert({
+    studio_id: studioId,
+    lead_name: enabled ? 'Automatic follow-ups (resumed)' : 'Automatic follow-ups (paused)',
+    actor_email: user.email ?? null,
+    event_type: 'update',
+  }).then(() => {}, () => {})
+
+  revalidatePath('/leads')
+}
+
 export async function setActiveOutboundAgent(studioId: string, agentId: string | null): Promise<void> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

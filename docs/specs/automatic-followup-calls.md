@@ -1,9 +1,10 @@
 # Automatic Follow-up Calls — the no-answer ladder
 
-**Status:** migration 061 applied. White Rock and Lincolnshire wired and live;
-Schaumburg wired-ready but its voice agent is off. No ladder observed end-to-end
-yet.
-**Last updated:** 2026-08-05
+**Status:** migrations 061 + 062 applied. White Rock and Lincolnshire wired and
+live; Schaumburg wired-ready but its voice agent is off. No ladder observed
+end-to-end yet. The on/off switch (§10) is live end-to-end — app, RPC guard, and
+all three dialers.
+**Last updated:** 2026-08-06
 
 > Numbered 061, not 060 — `060_ai_escalation_studio_name.sql` landed on staging
 > from a parallel session while this was being written.
@@ -256,6 +257,10 @@ first. The argument-driven signature is only safe while the caller is trusted.
 Three behaviours that follow from this design and should not surprise anyone
 later.
 
+**Superseded in part by §10.** The first of the three below is still true of the
+*voice agent* switch, but the ladder now has its own switch that behaves the
+opposite way on purpose. Read §10 alongside this.
+
 **Pausing the voice agent ends every in-flight sequence.** The migration-054
 trigger abandons all pending rows when `voice_agent_enabled` flips false → true,
 and follow-up rows are pending rows. Confirmed as intended 2026-08-05: this
@@ -450,3 +455,121 @@ A ladder that never starts shows up as a `Queue Follow-up Call` node returning
 condition fired. That was the point of returning jsonb rather than void: the
 2026-07-28 out-of-hours bug went unnoticed for a week because the failure was
 silent.
+
+---
+
+## 10. The on/off switch (migration 062)
+
+The client's request, 2026-08-06:
+
+> can you add a switch in the system dashboard somewhere that can turn automatic
+> followups on and off? it shouldn't affect the normal behavior of the agent tho,
+> only followups
+
+`studios.followups_enabled`, defaulting to `true`, surfaced as a toggle in the
+Leads header beside the AI Voice Agent pill and the outbound agent selector.
+
+### Not a second voice-agent pause
+
+The whole value of the feature is what it does *not* touch. With the switch off the
+agent still answers inbound, still dials new inquiries, still books, still
+escalates. `setFollowupsEnabled` in [`app/actions.ts`](../../app/actions.ts) writes
+one boolean and stops — no Retell call, no inbound-agent swap, no write to
+`voice_agent_enabled`. Anything added there that talks to Retell breaks the promise
+the switch makes.
+
+### Off means hold, not cancel
+
+Chosen over cancelling, and the reverse of what migration 054 does to the voice
+agent's own backlog. Two halves:
+
+| Half | Where | Effect |
+|---|---|---|
+| Stop queuing new rungs | `schedule_followup_call`, migration 062 | returns `{"queued": false, "reason": "followups_disabled"}` |
+| Hold rungs already queued | `Call Window Gate` in each dialer | returns `[]`, row stays PENDING |
+
+Held means the same thing it means out-of-hours: nothing is stamped, so
+`called_at` / `cancelled_at` / `skipped_at` all stay NULL and the sweep after
+switch-on dials the row at its **original** `callback_time`. Flipping the switch
+twice loses nothing.
+
+**Why the asymmetry with 054 is deliberate.** 054 abandons the backlog because a
+studio that has been dark for a week should not suddenly cold-call a stale list. A
+follow-up rung is not a stale list — it is one lead the agent already tried, on a
+schedule that lead was effectively promised. Resuming it is the expected behaviour.
+
+The 054 trigger is `AFTER UPDATE OF voice_agent_enabled` with a
+`WHEN (OLD IS FALSE AND NEW IS TRUE)` clause, so writing `followups_enabled` cannot
+trip it. **If that trigger ever widens to a bare `AFTER UPDATE`, toggling follow-ups
+would silently wipe every pending call in the studio.**
+
+### Verified (2026-08-06)
+
+Exercised against Lincolnshire on the live database inside a `DO` block that
+`RAISE EXCEPTION`s at the end, so every write rolled back. Zero rows persisted,
+confirmed afterwards by count.
+
+| Switch | Result |
+|---|---|
+| off | `{"queued": false, "reason": "followups_disabled"}` — no row inserted |
+| on | `{"queued": true, "attempt": 1, "days_out": 1, "local_time": "… 13:00"}` |
+
+All three studios read `followups_enabled = true` after the migration, so nothing
+changed behaviourally on deploy. Function ACL still `postgres` + `service_role`
+only — `CREATE OR REPLACE` preserves it, and 062 re-issues the REVOKE/GRANT anyway
+so a from-scratch rebuild can't reintroduce the anon grant.
+
+### The dialer half
+
+Two edits per workflow. The `Call Window Gate` already implements hold-and-resume
+for out-of-hours rows, so this is the same mechanism pointed at a different column.
+
+| Workflow | ID | Needed |
+|---|---|---|
+| Voice AI Functions (AM White Rock) | `QNRW2PHkiY0i3dij` | yes |
+| Voice AI Functions (Lincolnshire) | `gcDhc61cSLTPXOKv` | yes — this is where Lincolnshire *dials*, unlike the ladder node, which lives on the copy |
+| Voice AI Functions (AM Schaumburg) | `Wgg5bQTPJYFsDSn8` | yes |
+| Voice AI Functions copy (Joshua) | `LXlMa0Gy2Fq2xuUO` | **no** — its `AI Callback Trigger` is disabled, its `Get row(s)` points at a different studio, and it has no gate nodes at all |
+
+1. `Check Voice Agent Setting` — append `followups_enabled` to the `select=` list.
+2. `Call Window Gate` — hold when the row is a follow-up and the studio has them off.
+
+All three gates were byte-identical before this change, and the `Check Voice Agent
+Setting` nodes differ only by studio UUID, so one body applies to all three.
+
+**The gate fails OPEN, deliberately.** It holds only when the row is explicitly
+`source === 'followup'` **and** the flag is explicitly `false`, with the row lookup
+wrapped in a try/catch. The asymmetry matters: a gate that wrongly holds would stop
+ordinary scheduled callbacks — an existing feature — whereas one that wrongly
+doesn't hold merely lets a follow-up through. A missing `followups_enabled` (a
+half-applied rollout) therefore behaves exactly as before the switch existed, which
+is what makes the two edits order-independent.
+
+`$('Loop Over Items')` is the row source rather than `Phone Number Formatting`, for
+the same reason §8 gives for the ladder node: the formatting node drops every field
+except the phone parts and `lead_id`, so `source` is not on it. `Resolve Field IDs`
+already reads the loop item the same way in the same chain.
+
+#### Verified (2026-08-06)
+
+All three workflows validate with 0 errors. The **deployed** gate body was then
+extracted and executed against a 15-case matrix — not read and reasoned about, per
+the lesson from the earlier Code-node port that shipped two bugs past inspection.
+Real `call_hours` and `timezone` for White Rock and Schaumburg, with the clock
+pinned per case.
+
+| Group | Cases | Result |
+|---|---|---|
+| New behaviour — follow-up row honours the switch | 2 | pass |
+| **Ordinary callbacks ignore the switch entirely** (`manual`, `ai_agent`, no `source`) | 3 | pass |
+| Fail-open (column missing, loop node unreachable) | 2 | pass |
+| **Pre-existing holds still fire** (out-of-hours, closed day, failed studio fetch) | 8 | pass |
+
+The middle two groups are the point of the exercise: they are the regressions this
+change could plausibly have caused, and neither happened.
+
+App side: 8 component tests in
+[`__tests__/components/followups-toggle.test.tsx`](../../__tests__/components/followups-toggle.test.tsx)
+covering both states, the reassurance copy, both flip directions, the staff role
+gate, the super_admin bypass, and the revert-on-failure path. `tsc --noEmit` and
+`next build` both clean.

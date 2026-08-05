@@ -26,6 +26,13 @@ export interface Studio {
   voice_agent_enabled: boolean
   voice_agent_paused_at: string | null
   voice_agent_paused_by: string | null
+  // Master switch for the automatic no-answer follow-up ladder ONLY (migration
+  // 062). Independent of voice_agent_enabled: off means no new rungs are queued
+  // and the queued ones are held, while the agent keeps answering inbound,
+  // dialing new inquiries, booking and escalating exactly as before.
+  followups_enabled: boolean
+  followups_paused_at: string | null
+  followups_paused_by: string | null
   active_outbound_agent_id: string | null
   calendar_start_hour: number
   calendar_end_hour: number

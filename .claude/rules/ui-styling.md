@@ -146,6 +146,33 @@ and not for filters (those are pills). First used by the AI Calling Hours editor
 The standard size doubles as the 44px minimum touch target. The compact size is only
 acceptable inside a row that is itself ≥44px tall, so the tap area still qualifies.
 
+### Inline setting pill
+
+A switch can also live in a header pill rather than a settings form, for a setting
+worth flipping often enough that burying it in Settings would be wrong. Used by the
+Automatic follow-ups switch in the Leads header
+(`components/leads/followups-toggle.tsx`).
+
+- Container: the `OutboundAgentSelector` pill —`flex-shrink-0 flex items-center
+  justify-between gap-3 px-4 py-1.5 rounded-lg text-sm`, `var(--color-surface)` on
+  `1px solid var(--color-border)`
+- Switch: **standard 44 × 26**, never compact. `py-1.5` keeps the pill near the
+  height of its neighbours while the switch itself supplies the 44px touch target.
+- Label reads `<Setting>: <On|Off>` — the word, not just the knob position, because
+  a pill in a header is scanned rather than read
+- Then `·`-separated clauses, same convention as the status pill, dropped at
+  breakpoints (`hidden sm:inline` / `hidden lg:inline`) rather than wrapped
+
+**Tint the off state when off means something stopped.** A setting that silently
+halts an automation must not look identical to one that's running: use the
+`--color-status-warn` tint (`0.08` alpha fill, `0.25` alpha border), the same pair
+the status pill uses for "held, not faulted". No dot — dots belong to status pills,
+and two dotted pills in one header read as two systems reporting health.
+
+**Say what survives the off state.** If pausing holds work rather than destroying
+it, the pill says so ("Queued follow-ups are on hold, not cancelled"). Users assume
+the destructive reading by default and won't touch the switch otherwise.
+
 ---
 
 ## Live Status Pill
