@@ -280,7 +280,10 @@ export interface Appointment {
   appointment_id?: string
 }
 
-export type NotificationType = 'appointment_booked'
+// 'ai_escalation' is written by the notify_ai_escalation RPC (migration 059/060)
+// when the voice agent cannot hand a caller to a human — the transfer rang out,
+// hit voicemail, or the caller was escalated on a question it could not answer.
+export type NotificationType = 'appointment_booked' | 'ai_escalation'
 
 export interface Notification {
   id: string
