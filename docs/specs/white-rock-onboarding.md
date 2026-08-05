@@ -3,7 +3,7 @@
 **Studio ID:** `bbd9233a-2352-4997-8d18-d7791296f549`
 **Location:** Surrey, British Columbia, Canada — `America/Vancouver`
 **Created:** 2026-07-28
-**Last updated:** 2026-07-28
+**Last updated:** 2026-08-05
 
 The first non-US studio, and the first outside `America/Chicago`. Cloned from the
 Schaumburg estate, which is the established second-studio precedent.
@@ -20,8 +20,13 @@ Schaumburg estate, which is the established second-studio precedent.
 | Retell agent `AM White Rock Agent (Joshua-draft)` | `agent_6d0b5e7d413c9817461a0eb347` |
 | Retell conversation flow | `conversation_flow_e50547385d12` |
 
-All three workflows are **inactive**; the agent is an **unpublished v0 draft**. Keep both
-that way until the blockers below clear.
+> **Status changed since this line was first written.** As of 2026-08-05 all three
+> workflows are **active**, and the agent is **published at v11** (flow v11). The
+> `AI Callback Trigger` is enabled and sweeps every 30 minutes, and the
+> `email = jdrsalve@gmail.com` test filter on `Get row(s)` is gone — it reads real
+> `scheduled_calls` rows now. The queue is currently empty (0 pending, 0 ever dialled),
+> so nothing has gone out, but this is a live dialer, not a parked one. The remaining
+> caller-ID blocker is below.
 
 `AMLS Conversations Webhook` (`R3jLXpQzFfYfn7nM`) is **not** cloned — it resolves the
 studio dynamically via `studios.ghl_account_id = body.location.id`. See its caveat below.
@@ -176,10 +181,27 @@ the two disabled nodes is not enough — `Is New Lead?` AND's a condition on
 
 ## To do when a Retell number exists
 
-`Trigger Retell Outbound Call` still has `from_number: "+17623713782"` — Schaumburg's.
-The agent ID is already White Rock's, so this node is half-configured. **Do not activate
-this workflow until the number is set**, or callbacks dial BC leads from Schaumburg's
-caller ID. A Canadian (604/778) number is the right choice.
+`Trigger Retell Outbound Call` still has `from_number: "+17623713782"`.
+
+**Correction (2026-08-05): this is _not_ Schaumburg's number**, as an earlier draft of
+this doc claimed. Verified against `list-phone-numbers` — the account holds exactly three,
+and none has an inbound/outbound agent binding:
+
+| Number | Area code | Used by |
+|---|---|---|
+| `+16307964623` | 630 — Illinois | Lincolnshire (`Voice AI Functions`, and `RETELL_FROM_NUMBER`) |
+| `+18472609336` | 847 — Schaumburg IL | Schaumburg |
+| `+17623713782` | 762 — **Georgia** | Nothing else — a spare, referenced only here |
+
+So the real problem is narrower than "dials from Schaumburg's caller ID": there is no
+cross-studio identity leak, it is simply a US Georgia number cold-calling BC leads. That
+costs answer rate and reads as spam to a Surrey recipient. A Canadian (604/778) number is
+still the right fix. The workflow is now active, so this is live the moment a callback is
+queued.
+
+**White Rock has no inbound number at all.** Nothing is bound to the agent for inbound, so
+today the only way a caller reaches Sarah is an outbound callback. Any transfer test has
+to be driven that way — there is nothing to dial in to.
 
 `studios.retell_agent_id` and `studios.retell_api_key` are still empty on the studio row.
 The API key is account-level and shared with Lincolnshire/Schaumburg (`key_11bb…`).
@@ -196,38 +218,173 @@ The API key is account-level and shared with Lincolnshire/Schaumburg (`key_11bb�
 | Agent persona | Keep "Sarah" | ✅ no change (5 refs) |
 | Closed days | Sunday + Monday | ✅ already matched Lincolnshire |
 
-**Schedule replication.** Lincolnshire's closed days (Sunday + Monday) were already what
-White Rock inherited, so `Check Day` / `Check Day1` needed no change. But the studio row
-differed and `appointment_slots` was empty `{}` — which matters because `Fetch Studio` →
-`Format Studio Details` derives the spoken open-days string from it, so the agent would
-have said nothing. Copied from Lincolnshire:
+**Schedule — real values applied 2026-07-28.** The Lincolnshire placeholder was replaced
+with White Rock's actual schedule. The placeholder was **inverted on two days**: Monday
+was closed (should be open) and Saturday was open (should be closed), and four of its
+slot times fell inside White Rock's break windows.
 
-| Column | Was | Now |
+| Column | Placeholder (Lincolnshire) | Actual |
 |---|---|---|
-| `calendar_start_hour` | 6 | 11 |
-| `calendar_end_hour` | 22 | 21 |
-| `appointment_duration_minutes` | 45 | 45 (unchanged) |
-| `appointment_min_advance_weeks` | 1 | 1 (unchanged) |
-| `appointment_slots` | `{}` | Tue–Sat — Tue–Fri 14:00–20:15, Sat 11:00–16:15 |
+| `calendar_start_hour` | 11 | **12** |
+| `calendar_end_hour` | 21 | 21 |
+| `appointment_duration_minutes` | 45 | 45 |
+| `appointment_min_advance_weeks` | 1 | 1 |
+| Open days | Tue–Sat | **Mon–Fri** |
 
-Slot times are studio-local wall clock, so they were copied literally — "same local
-schedule", no timezone conversion. Confirm these hours actually suit the BC studio.
+Slots (45 min, studio-local wall clock):
+- **Mon–Thu** — 12:00, 12:45, 13:30, ⟨break 14:15–15:30⟩ 15:30, ⟨break 16:15–17:15⟩
+  17:15, 18:00, 18:45, 19:30
+- **Fri** — same minus 19:30 (last lesson ends 7:30 PM)
 
-**Still open:** price is a placeholder inherited from Lincolnshire, and the currency is
-unconfirmed. A BC studio quoting "$80" will be heard as CAD by callers.
+`Check Day` / `Check Day1` in the n8n workflow had `closedDays = { Sunday, Monday }`
+inherited from Schaumburg; now `{ Saturday, Sunday }`.
+
+Verified through the live availability API: Mon 8 slots, Tue 8, Fri 7, Sat closed,
+Sun closed.
+
+> **Known cosmetic gap:** `Format Studio Details` speaks studio hours as
+> `calendar_start_hour` → `calendar_end_hour`, so Sarah will say "12 PM to 9 PM" when the
+> last lesson actually ends 8:15 PM. The grid bound has to be 21 to contain the 19:30–20:15
+> slot. Fixing the spoken string properly needs a separate hours field.
+
+**Pricing — applied 2026-07-28.** Intro lesson is **$30 plus tax**, not the $80 inherited
+from Lincolnshire. Replaced in all 6 places in the conversation flow: 5 spoken quotes now
+read "$30 per person, plus tax", and the internal "do NOT pitch the $30 introductory
+lesson" instruction was kept consistent. Lincolnshire's flow still reads $80, verified.
+
+**Still open on pricing:**
+- Currency is implied CAD by context but never stated aloud.
+- The **Foundation Program** ($380 + tax — 4 lessons, 4 group classes, 4 parties, plus a
+  complimentary lesson) is NOT in the agent. Deliberately left out pending a decision on
+  whether Sarah should mention it if asked.
+
+**Studio email:** `info@dancewhiterock.ca`. Leads are forwarded to **dev@lunastra.ai**,
+which is what the Gmail trigger must watch. The sender filter is still unknown — a
+forwarded message's sender depends on the forwarding mechanism, so this stays unset until
+a real forwarded lead can be inspected.
+
+---
+
+## Unanswered-transfer notifications + question-loop fix — 2026-08-05
+
+Two client requests, both White Rock only. Lincolnshire (`conversation_flow_433bca831dcb`,
+v16) and Schaumburg were verified untouched afterwards: still `cold_transfer` ×2 and the
+canned question ×6.
+
+### 1. "If the AI transfers to us and nobody picks up, can we get a notification?"
+
+The note half already existed — `escalate_message` → n8n → `Build Escalation Note` →
+`Find Lead for Escalation` → `Compose Escalation Note` → `Append Note to Lead`, which
+appends `[timestamp] AI escalation — <message>` to `leads.notes`. Append-only, scoped by
+`id` AND `studio_id`. What was missing was (a) any notification and (b) detection of the
+case the client actually described.
+
+**The detection gap.** Both transfer nodes were `cold_transfer`. Retell hands off and
+drops the moment the destination *answers* — so the "Transfer failed" edge fires only on
+ring-out or busy. If the front desk rolls to **voicemail**, the carrier answers, Retell
+counts the transfer as successful, and the caller is dumped into a voicemail box with no
+signal to anyone. Evidence: all 4 transfers ever recorded (Lincolnshire) ended
+`disconnected_reason = call_transfer`; the failure edge has never fired in production.
+
+Per the API schema, cold transfer exposes only `cold_transfer_mode` and
+`transfer_ring_duration_ms` — no human detection. That lives on **warm transfer**
+(`opt_out_human_detection`, default false; `agent_detection_timeout_ms` = "time to wait
+before considering transfer fails"). Both nodes were switched to:
+
+```
+warm_transfer, opt_out_human_detection: false, agent_detection_timeout_ms: 30000,
+transfer_ring_duration_ms: 25000, on_hold_music: ringtone, enable_bridge_audio_cue: true,
+private_handoff_option: { type: prompt, ... }
+```
+
+`private_handoff_option` (not `public_`) means only the staff member hears the one-line
+"who is calling and why" summary — the caller does not.
+
+**The notification.** Migration `059_ai_escalation_notifications.sql` adds
+`notify_ai_escalation(studio_id, first_name, last_name, phone, email, message)` —
+`SECURITY DEFINER`, execute revoked from `anon`/`authenticated`, granted to `service_role`.
+It resolves the lead itself (email first, else last-10-digits phone), then fans out one
+`notifications` row per recipient: **studio members ∪ every super_admin**, `UNION`-deduped.
+
+Deliberately *not* gated on `notify_appointment_created` — that pref is about bookings,
+and someone who muted booking noise should still hear that a caller went unanswered.
+There is therefore no opt-out for escalations yet.
+
+n8n calls it from one new node, `Notify Studio (Escalation)`, hung off
+`Escalation Status Message` — i.e. **after** Retell already got its response, so it cannot
+eat into the 8s `escalate_message` timeout, and **in parallel** with the note chain, so it
+still fires when no lead matches (link falls back to `/call-history`).
+
+No UI work was needed: `getNotifications` and the bell's Realtime subscription filter on
+`user_id`/`studio_id` only, with no `type` filter or per-type icon switch, so
+`ai_escalation` renders like any other kind.
+
+> **Super-admin split.** `notification-bell.tsx` fires the toast and increments the badge
+> for any row for that user across all studios, but the popover list only shows rows
+> matching the *currently selected* studio. A super admin sitting in Lincolnshire gets a
+> toast and a badge, opens the bell, and sees nothing. Pre-existing (documented in the
+> appointment-notifications spec), but it bites harder for escalations than for bookings.
+
+### 2. "Can the agent answer and move on instead of always asking if we have questions?"
+
+The line was hardcoded verbatim in 3 nodes: `conversation-1777403153194-0`,
+`node-1777604430953`, `node-1777609061737` (BACKUP) — identical in Lincolnshire's flow too.
+Only `node-1777604430953` is live; it is a **global node** (entered from anywhere on a
+question) and the other two have no inbound edges.
+
+The catch: all six of its exit edges are keyed on the *caller's reply*, two of them
+literally on the answer to "can we move on?". The canned question was the mechanism that
+produced the utterance that let the node exit. So this needed an edge change, not just a
+prompt edit — a new `edge-question-handling-auto-bridge` fires when the agent has answered
+and the caller has not raised anything new. The return target is the `Master Switch`
+branch node, so the hand-back is context-aware.
+
+All 3 copies were rewritten (so a future swap to BACKUP can't reintroduce it), plus the
+now-stale "Do NOT state <phrase> after" carve-out in the group-classes path.
+
+### How it was shipped
+
+`PATCH /update-conversation-flow` on a published flow returns
+`400 Cannot update published conversation flow`. Correct sequence:
+
+1. `POST /create-agent-version` `{base_version: 10}` → draft agent v11 + flow v11
+2. `PATCH /update-conversation-flow/{id}?version=11` (the `version` param is required)
+3. `POST /publish-agent-version` `{version: 11}`
+4. n8n `override_agent_version` **0 → 11**
+
+Step 4 matters as much as the rest: the dialer pins the version, so publishing alone
+changes nothing for outbound. It had been pinned at **0** all along, which is why outbound
+callbacks were still quoting **$80** — flow v0 predates the 2026-07-28 pricing fix. The
+bump corrected that as a side effect.
+
+Rollback: agent v10 is still published and intact. Set the pin back to `10` (corrected
+pricing, old transfer behaviour) or `0`.
+
+### Not yet proven
+
+**No signal has traversed the full path.** The RPC was tested by calling it directly
+(phone match, email match, no-match fallback — all correct, test rows deleted); the n8n
+node has never fired. Unverified until a real call: the node's runtime expression against
+the live webhook body, whether the Supabase credential can execute the RPC, and whether
+warm-transfer detection actually flags White Rock's voicemail greeting. One test callback
+where the studio line is left to ring out exercises all three.
 
 ---
 
 ## Other open items
 
-- **0 members in `studio_users`.** Nobody can see this studio in the app except a
-  super_admin — RLS scopes by membership.
+- ~~**0 members in `studio_users`.**~~ **Resolved** — 1 member as of 2026-08-05, plus 3
+  account-wide super_admins. Relevant now because the escalation notification fans out to
+  that union: 4 recipients per escalation.
 - **Shared callback data table.** All four callback nodes point at `AI Callback`
   (`9U0GXNR5uRUTWUPy`), which has no studio column — a third studio's callbacks mix in.
-- **Test scaffolding left in place deliberately:** `Get row(s)` filters
-  `email = jdrsalve@gmail.com`, `AI Callback Trigger` is disabled, and
-  `Test Outbound call` points at a Lincolnshire test agent
-  (`agent_7de0c24381ce8c2f4198ffafd2`, from `+16307964623`).
+- **Test scaffolding is GONE as of 2026-08-05** — this entry is kept only so the change
+  is visible. `Get row(s)` no longer filters `email = jdrsalve@gmail.com`; it reads real
+  `scheduled_calls` for the studio. `AI Callback Trigger` is **enabled** (30-min sweep).
+  A `Call Window Gate` code node now sits before `Voice Agent Enabled?` and fails closed,
+  so a due callback is held until the studio's `call_hours` window opens rather than
+  dialling at 3am. `Test Outbound call` still points at the Lincolnshire test agent
+  (`agent_7de0c24381ce8c2f4198ffafd2`, from `+16307964623`) — that one is unchanged.
 - **Discord channel.** Reports post to the shared `Discord AMLS Alerts` webhook — decide
   whether White Rock gets its own.
 - **The flow never calls `question-handler` or `get-studio-details`.** Both webhooks
