@@ -38,9 +38,12 @@ interface CallHoursEditorProps {
   onChange: (next: CallHours | null) => void
   /** Studio IANA timezone — shown so nobody has to guess whose clock these are. */
   timezone: string
+  /** Drop the settings-card padding and divider. For hosts that own their own
+   *  chrome, e.g. the Leads-page modal. */
+  bare?: boolean
 }
 
-export function CallHoursEditor({ value, onChange, timezone }: CallHoursEditorProps) {
+export function CallHoursEditor({ value, onChange, timezone, bare = false }: CallHoursEditorProps) {
   const restricted = value !== null
 
   // A day whose close <= open can only be reached mid-edit (the DB normalizer
@@ -73,11 +76,17 @@ export function CallHoursEditor({ value, onChange, timezone }: CallHoursEditorPr
   }
 
   return (
-    <div className="px-6 py-5 space-y-4" style={{ borderBottom: '1px solid var(--color-border)' }}>
+    <div
+      className={bare ? 'space-y-4' : 'px-6 py-5 space-y-4'}
+      style={bare ? undefined : { borderBottom: '1px solid var(--color-border)' }}
+    >
       <div>
-        <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-          AI Calling Hours
-        </h3>
+        {/* The modal host supplies its own title — a second one just repeats itself. */}
+        {!bare && (
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+            AI Calling Hours
+          </h3>
+        )}
         <p className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
           When the AI voice agent is allowed to place outbound calls, in this studio&apos;s
           local time ({timezone}). Leads that come in outside these hours aren&apos;t dropped —

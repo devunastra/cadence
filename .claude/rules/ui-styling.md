@@ -174,6 +174,29 @@ flips on its own at the boundary rather than waiting for a navigation.
 
 ---
 
+## Overflow Menu (`⋯`)
+
+Secondary actions on a control that already has a primary button. Used by the AI Voice
+Agent pill, where `Pause` stays visible and everything else lives behind the `⋯`.
+
+- Trigger: `MoreHorizontal` at `size={18}`, `w-11 h-11 md:w-7 md:h-7` (44px touch target
+  on mobile, compact on desktop), `rounded-md`, hover `var(--color-surface-hover)`
+- ARIA: `aria-haspopup="menu"`, `aria-expanded`, and an `aria-label` — the icon alone
+  names nothing
+- Panel: `absolute right-0 top-full mt-1 z-50 rounded-lg shadow-lg overflow-hidden`,
+  `border: 1px solid var(--color-border)`, `backgroundColor: var(--color-bg)`,
+  `minWidth: 190`
+- Items: `w-full flex items-center gap-2 px-3 py-2.5 md:py-2 text-sm text-left`,
+  `role="menuitem"`, leading icon at `size={15}` in `var(--color-text-secondary)`
+- Closes on outside `mousedown` and on Escape
+- Label items that open a modal with a trailing ellipsis — `Calling hours…` — so it's
+  clear the click doesn't apply anything by itself
+
+**Reach for this instead of a third button** when a row is getting tight. One item today
+is fine if it's the natural home for the next one.
+
+---
+
 ## Status Badges
 
 Color is managed via two systems — use the right one for the context:

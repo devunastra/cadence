@@ -78,7 +78,32 @@ nothing:
 | Window logic | [`lib/call-hours.ts`](../../lib/call-hours.ts) — `isWithinCallHours`, `nextCallWindowOpening`, `normalizeCallHours` |
 | Tests | [`__tests__/lib/call-hours.test.ts`](../../__tests__/lib/call-hours.test.ts) — 57 cases, incl. both Vancouver DST crossings |
 | Editor UI | [`components/settings/call-hours-editor.tsx`](../../components/settings/call-hours-editor.tsx) |
+| Leads shortcut | [`components/leads/call-hours-modal.tsx`](../../components/leads/call-hours-modal.tsx) — same editor in a modal, opened from the `⋯` on the voice agent pill |
+| Status pill | [`components/leads/voice-agent-toggle.tsx`](../../components/leads/voice-agent-toggle.tsx) |
 | Persistence | `updateStudio` in [`app/actions.ts`](../../app/actions.ts) — runs `normalizeCallHours` before the write |
+
+### Two entry points, one column
+
+Settings → Business Profile is the canonical home. The Leads pill's `⋯` → *Calling hours…*
+opens the same `CallHoursEditor` in a modal, because Leads is where you actually notice
+the window is wrong. Both write `studios.call_hours` through the same `updateStudio`
+action with the same server-side normalization — neither is a special case.
+
+### The pill has to read both gates
+
+The agent is held by two independent mechanisms: the `voice_agent_enabled` switch and
+this window. A pill that reads only the switch reports "Active" while every outbound
+call is being refused — which is what it did on the day the window shipped. Three states:
+
+| Switch | Window | Pill |
+|---|---|---|
+| on | open | 🟢 Active |
+| on | closed | 🟠 Outside calling hours · resumes 8:00 AM |
+| off | either | 🔴 Paused · 2 hours ago |
+
+`isWithinCallHours` reads the clock, so the pill is hydration-guarded (`useMounted`) and
+ticks once a minute to flip itself at the boundary. Covered by
+[`__tests__/components/voice-agent-toggle.test.tsx`](../../__tests__/components/voice-agent-toggle.test.tsx).
 
 **`call_hours` is never written unvalidated.** It feeds a decision to place phone
 calls, so `updateStudio` normalizes it server-side regardless of what the client

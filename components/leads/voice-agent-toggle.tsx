@@ -5,9 +5,10 @@ import { useCurrentStudio } from '@/components/studio-context'
 import { setVoiceAgentEnabled } from '@/app/actions'
 import { createClient } from '@/lib/supabase/client'
 import { useMounted } from '@/lib/hooks'
-import { X } from 'lucide-react'
+import { X, MoreHorizontal, Clock } from 'lucide-react'
 import { useToast } from '@/components/ui/toast-provider'
 import { normalizeCallHours, isWithinCallHours, formatNextOpeningLabel } from '@/lib/call-hours'
+import { CallHoursModal } from './call-hours-modal'
 
 function formatRelativeTime(iso: string | null): string {
   if (!iso) return ''
@@ -106,6 +107,9 @@ export function VoiceAgentToggle() {
   const { showError } = useToast()
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [editingHours, setEditingHours] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
   // Force a re-render every minute so the "Paused X ago" label updates.
   const [, setTick] = useState(0)
   const canToggle = isSuper || userRole === 'studio_owner'
@@ -187,6 +191,21 @@ export function VoiceAgentToggle() {
     }
   }, [mounted, currentStudio.id, updateCurrentStudio])
 
+  // Close the actions menu on an outside click or Escape.
+  useEffect(() => {
+    if (!menuOpen) return
+    function onDown(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setMenuOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen])
+
   // Tick once per minute so the time-dependent parts stay honest: the "X minutes
   // ago" label while paused, and — when a calling window is configured — the
   // Active/Outside-hours flip itself, which would otherwise only correct on a
@@ -218,7 +237,7 @@ export function VoiceAgentToggle() {
   return (
     <>
       <div
-        className="flex-shrink-0 flex items-center justify-between gap-3 px-4 py-2 rounded-lg text-sm"
+        className="min-w-0 flex items-center justify-between gap-3 px-4 py-2 rounded-lg text-sm"
         style={{
           backgroundColor: !enabled
             ? 'rgba(220,38,38,0.08)'
@@ -264,32 +283,76 @@ export function VoiceAgentToggle() {
               · resumes {resumesAt}
             </span>
           )}
+          {/* Reassurance, not information — "queued" is the one thing that isn't
+              obvious from the status, but it's the first thing to drop for space. */}
           {outsideWindow && (
-            <span className="hidden sm:inline truncate" style={{ color: 'var(--color-text-secondary)' }}>
+            <span className="hidden xl:inline truncate" style={{ color: 'var(--color-text-secondary)' }}>
               · Outbound calls are queued until then.
             </span>
           )}
         </div>
 
         {canToggle && (
-          <button
-            onClick={() => setConfirming(true)}
-            className="flex-shrink-0 px-3 py-1 text-sm font-medium rounded-md transition-colors"
-            style={{
-              border: `1px solid ${enabled ? 'var(--color-border)' : 'rgba(220,38,38,0.35)'}`,
-              backgroundColor: enabled ? 'var(--color-bg)' : 'transparent',
-              color: enabled ? 'var(--color-text-primary)' : '#b91c1c',
-              cursor: 'pointer',
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLElement).style.backgroundColor = enabled ? 'var(--color-surface-hover)' : 'rgba(220,38,38,0.12)'
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLElement).style.backgroundColor = enabled ? 'var(--color-bg)' : 'transparent'
-            }}
-          >
-            {enabled ? 'Pause' : 'Resume'}
-          </button>
+          <div className="flex-shrink-0 flex items-center gap-1.5">
+            <button
+              onClick={() => setConfirming(true)}
+              className="px-3 py-1 text-sm font-medium rounded-md transition-colors"
+              style={{
+                border: `1px solid ${enabled ? 'var(--color-border)' : 'rgba(220,38,38,0.35)'}`,
+                backgroundColor: enabled ? 'var(--color-bg)' : 'transparent',
+                color: enabled ? 'var(--color-text-primary)' : '#b91c1c',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.backgroundColor = enabled ? 'var(--color-surface-hover)' : 'rgba(220,38,38,0.12)'
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.backgroundColor = enabled ? 'var(--color-bg)' : 'transparent'
+              }}
+            >
+              {enabled ? 'Pause' : 'Resume'}
+            </button>
+
+            {/* Agent settings that aren't the on/off switch. Calling hours is the
+                only one today; this is where the next one goes rather than adding
+                another button to an already tight row. */}
+            <div className="relative" ref={menuRef}>
+              <button
+                type="button"
+                onClick={() => setMenuOpen(o => !o)}
+                aria-label="AI voice agent settings"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                className="flex items-center justify-center rounded-md transition-colors w-11 h-11 md:w-7 md:h-7"
+                style={{ color: 'var(--color-text-secondary)' }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface-hover)'}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
+              >
+                <MoreHorizontal size={18} />
+              </button>
+
+              {menuOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full mt-1 z-50 rounded-lg shadow-lg overflow-hidden whitespace-nowrap"
+                  style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', minWidth: 190 }}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setMenuOpen(false); setEditingHours(true) }}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 md:py-2 text-sm text-left transition-colors"
+                    style={{ color: 'var(--color-text-primary)' }}
+                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-surface-hover)'}
+                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
+                  >
+                    <Clock size={15} style={{ color: 'var(--color-text-secondary)' }} />
+                    Calling hours…
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
@@ -302,6 +365,8 @@ export function VoiceAgentToggle() {
           onCancel={() => { if (!saving) setConfirming(false) }}
         />
       )}
+
+      {editingHours && <CallHoursModal onClose={() => setEditingHours(false)} />}
     </>
   )
 }
