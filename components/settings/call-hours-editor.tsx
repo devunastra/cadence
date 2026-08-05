@@ -151,8 +151,9 @@ export function CallHoursEditor({ value, onChange, timezone, bare = false }: Cal
                 className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3 px-3 py-2.5 rounded-lg"
                 style={{ border: `1px solid ${invalid ? 'rgba(220,38,38,0.4)' : 'var(--color-border)'}` }}
               >
-                {/* Day + open/closed toggle */}
-                <div className="flex items-center gap-3 md:w-44 flex-shrink-0">
+                {/* Day + open/closed toggle. Sized to "Wednesday" and no wider —
+                    every pixel here comes off the time selects. */}
+                <div className="flex items-center gap-3 md:w-32 flex-shrink-0">
                   <button
                     type="button"
                     role="switch"
@@ -187,25 +188,31 @@ export function CallHoursEditor({ value, onChange, timezone, bare = false }: Cal
 
                 {open ? (
                   <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <div className="flex-1 min-w-0">
+                    {/* Floor the width at the widest label ("10:00 PM" + chevron).
+                        A bare min-w-0 lets flex-1 collapse these to "8." — the
+                        SimpleSelect trigger truncates rather than overflowing, so
+                        the squeeze is silent. */}
+                    <div className="flex-1 min-w-[7.5rem]">
                       <SimpleSelect
                         value={win!.open}
                         onChange={v => { if (v) setDay(day, { ...win!, open: v }) }}
                         options={TIME_OPTIONS}
                         clearable={false}
                         fullWidth
+                        minWidth={112}
                         triggerBg="var(--color-bg)"
                         triggerClassName="py-2"
                       />
                     </div>
                     <span className="text-sm flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>to</span>
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-[7.5rem]">
                       <SimpleSelect
                         value={win!.close}
                         onChange={v => { if (v) setDay(day, { ...win!, close: v }) }}
                         options={TIME_OPTIONS}
                         clearable={false}
                         fullWidth
+                        minWidth={112}
                         triggerBg="var(--color-bg)"
                         triggerClassName="py-2"
                       />

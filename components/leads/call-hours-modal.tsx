@@ -60,7 +60,7 @@ export function CallHoursModal({ onClose }: CallHoursModalProps) {
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={() => { if (!saving) onClose() }} />
       <div
-        className="relative w-full max-w-lg max-h-[90vh] flex flex-col rounded-2xl shadow-2xl animate-in zoom-in-95 duration-150"
+        className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl shadow-2xl animate-in zoom-in-95 duration-150"
         style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
         role="dialog"
         aria-modal="true"
