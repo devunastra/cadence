@@ -17,7 +17,8 @@ import { useToast } from '@/components/ui/toast-provider'
 import { useCurrentStudio } from '@/components/studio-context'
 import { ALL_LEAD_ENUM_FIELDS, STATUS_COLORS } from '@/lib/constants'
 import { buildDefaultOptions } from '@/lib/field-options'
-import { ALL_COLUMNS_VIEW } from '@/lib/views'
+import { ALL_COLUMNS_VIEW, resolveColumnOrder, moveColumn, visibleColumnsFor } from '@/lib/views'
+import type { HiddenColumns } from '@/lib/views'
 import { createLeadView, deleteLeadView, updateLeadView, fetchLeadsPage, fetchLeadById, deleteLeads, bulkUpdateLeads, updateLead, saveUserPreferences, addStudioFieldOption, renameStudioFieldOption, deleteStudioFieldOption, savePageFilters, fetchStudioFieldOptions } from '@/app/actions'
 import type { PageFilters } from '@/app/actions'
 import { createClient } from '@/lib/supabase/client'
@@ -187,6 +188,8 @@ const ALL_COLUMNS: { key: keyof Lead; label: string; icon?: LucideIcon }[] = [
   { key: 'old',            label: 'OLD',            icon: CheckSquare },
 ]
 
+const COLUMN_BY_KEY = new Map(ALL_COLUMNS.map(c => [String(c.key), c]))
+
 // Columns that support click-to-sort in the table header
 const SORTABLE_LEAD_FIELDS = new Set(['created_at', 'name', 'last_contacted', 'first_lesson', 'phone'])
 
@@ -228,6 +231,16 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
   const pendingDeletes = useRef<Map<string, { ids: string[]; rows: Lead[]; deletedNames: string[]; timeoutId: ReturnType<typeof setTimeout> }>>(new Map())
   const pendingDeleteCounter = useRef(0)
   const [colWidths, setColWidths] = useState<Record<string, number>>({})
+  // Saved column order — [] means "never reordered" (canonical order).
+  const [colOrder, setColOrder] = useState<string[]>([])
+  // Columns this user has hidden, keyed by view id — {} means "everything shows".
+  const [hiddenColumns, setHiddenColumns] = useState<HiddenColumns>({})
+  const [dragCol, setDragCol] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ key: string; after: boolean } | null>(null)
+  // Flips once the user resizes or reorders a column in this session. Gates the
+  // debounced prefs save so a fresh table never writes a layout row it didn't
+  // change — and so an undo back to the canonical order still gets persisted.
+  const layoutDirty = useRef(false)
   const resizeRef = useRef<{ field: string; startX: number; startWidth: number; minWidth: number } | null>(null)
   const prefSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const filterSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -486,6 +499,78 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
     })
   }
 
+  // Single writer for this table's slice of user_preferences. Every call passes
+  // the full layout (widths + order + active view) so an immediate save can't
+  // clobber state a debounced save was about to write.
+  const persistPrefs = useCallback((viewId: string, widths: Record<string, number>, order: string[], hidden: HiddenColumns) => {
+    if (!studioId) return
+    saveUserPreferences(studioId, widths, viewId, (theme ?? 'light') as 'light' | 'dark', undefined, {
+      colOrder: order,
+      hiddenColumns: hidden,
+    }).catch(console.error)
+  }, [studioId, theme])
+
+  /* ── Column reorder ──────────────────────────────────────────────────────
+   * HTML5 drag-and-drop, with `draggable` on the header label only — the
+   * resize handle is a sibling, so dragging the edge still resizes. Order is a
+   * per-user preference (like widths), applied across every view. */
+
+  function handleColumnDragOver(e: React.DragEvent, key: string) {
+    if (!dragCol) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const after = e.clientX > rect.left + rect.width / 2
+    // dragover fires continuously — only re-render when the drop slot actually moves
+    setDropTarget(prev => (prev?.key === key && prev.after === after) ? prev : { key, after })
+  }
+
+  function handleColumnDrop(e: React.DragEvent) {
+    e.preventDefault()
+    const dragKey = dragCol
+    const slot = dropTarget
+    setDragCol(null)
+    setDropTarget(null)
+    if (!dragKey || !slot) return
+    const current = resolveColumnOrder(colOrder)
+    const next = moveColumn(current, dragKey, slot.key, slot.after)
+    if (next.join() === current.join()) return  // dropped back where it started
+    const previous = colOrder
+    layoutDirty.current = true
+    setColOrder(next)
+    showAction(
+      'success',
+      `Moved ${COLUMN_BY_KEY.get(dragKey)?.label ?? dragKey}`,
+      // Undo restores the previous order — including back to [] (canonical), which
+      // is why the save effect gates on layoutDirty rather than on "is it empty".
+      { label: 'Undo', onClick: () => { layoutDirty.current = true; setColOrder(previous) } },
+    )
+  }
+
+  /* ── Column visibility ───────────────────────────────────────────────────
+   * Personal, and scoped to the view it was set in: the view is the studio's
+   * shared column set, this only drops columns from *this* user's screen. */
+
+  // Drops a view's entry entirely, so "nothing hidden" is stored as an absent key
+  // rather than an empty array — keeps the saved object from accreting noise.
+  function withoutView(hidden: HiddenColumns, viewId: string): HiddenColumns {
+    return Object.fromEntries(Object.entries(hidden).filter(([id]) => id !== viewId))
+  }
+
+  function toggleColumnVisibility(key: string) {
+    layoutDirty.current = true
+    setHiddenColumns(prev => {
+      const hidden = prev[activeViewId] ?? []
+      const next = hidden.includes(key) ? hidden.filter(k => k !== key) : [...hidden, key]
+      return next.length === 0 ? withoutView(prev, activeViewId) : { ...prev, [activeViewId]: next }
+    })
+  }
+
+  function showAllColumns() {
+    layoutDirty.current = true
+    setHiddenColumns(prev => (activeViewId in prev) ? withoutView(prev, activeViewId) : prev)
+  }
+
   function startResize(e: React.MouseEvent, field: string) {
     e.preventDefault()
     const minWidth = 40
@@ -500,6 +585,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
       if (!resizeRef.current) return
       const { field, startX, startWidth, minWidth } = resizeRef.current
       const newWidth = Math.max(minWidth, startWidth + ev.clientX - startX)
+      layoutDirty.current = true
       setColWidths(prev => ({ ...prev, [field]: newWidth }))
     }
     function onMouseUp() {
@@ -531,14 +617,13 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
     setSelectedIds(new Set())
   }
 
-  // Debounced DB save when colWidths change — skip during initial load
+  // Debounced DB save when column widths or order change — skip during initial load
   useEffect(() => {
-    if (Object.keys(colWidths).length === 0 || !studioId || !mounted || initializing.current) return
+    if (!layoutDirty.current) return
+    if (!studioId || !mounted || initializing.current) return
     if (prefSaveTimer.current) clearTimeout(prefSaveTimer.current)
-    prefSaveTimer.current = setTimeout(() => {
-      saveUserPreferences(studioId, colWidths, activeViewId, (theme ?? 'light') as 'light' | 'dark').catch(console.error)
-    }, 1000)
-  }, [colWidths, studioId, mounted, activeViewId, theme])
+    prefSaveTimer.current = setTimeout(() => persistPrefs(activeViewId, colWidths, colOrder, hiddenColumns), 1000)
+  }, [colWidths, colOrder, hiddenColumns, studioId, mounted, activeViewId, persistPrefs])
 
   // Single source of truth for the leads list. Waits for prefsReady so the saved
   // filters/sort (loaded by the mount effect below) are applied before the first fetch —
@@ -577,7 +662,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
       const [viewsRes, fieldOptsRows, prefsRes] = await Promise.all([
         supabase.from('lead_views').select('*').eq('studio_id', studioId).order('created_at', { ascending: true }),
         fetchStudioFieldOptions(studioId).catch(() => [] as Array<{ id: string; field: string; value: string; bg: string | null; text: string | null }>),
-        supabase.from('user_preferences').select('col_widths, active_view_id, theme, page_filters, notify_lead_created, notify_lead_updated, notify_lead_deleted').eq('user_id', user.id).eq('studio_id', studioId).maybeSingle(),
+        supabase.from('user_preferences').select('col_widths, col_order, hidden_columns, active_view_id, theme, page_filters, notify_lead_created, notify_lead_updated, notify_lead_deleted').eq('user_id', user.id).eq('studio_id', studioId).maybeSingle(),
       ])
       if (cancelled) return
       // Views
@@ -592,6 +677,10 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
         setTheme(t)
         const cw = (prefs.col_widths ?? {}) as Record<string, number>
         if (Object.keys(cw).length > 0) setColWidths(cw)
+        const co = prefs.col_order
+        if (Array.isArray(co) && co.length > 0) setColOrder(co as string[])
+        const hc = prefs.hidden_columns
+        if (hc && typeof hc === 'object' && !Array.isArray(hc)) setHiddenColumns(hc as HiddenColumns)
         if (prefs.active_view_id) setActiveViewId(prefs.active_view_id as string)
         // Page filters
         const pf = (prefs.page_filters ?? {}) as PageFilters
@@ -753,7 +842,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
       const saved = await createLeadView(studioId, view.name, view.columns)
       setViews(prev => [...prev, { id: saved.id, name: saved.name, columns: saved.columns }])
       setActiveViewId(saved.id)
-      saveUserPreferences(studioId, colWidths, saved.id, (theme ?? 'light') as 'light' | 'dark').catch(console.error)
+      persistPrefs(saved.id, colWidths, colOrder, hiddenColumns)
     } catch (e) { console.error('Failed to create view:', e) }
   }
 
@@ -771,9 +860,7 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
       if (activeViewId === id) {
         const newViewId = ALL_COLUMNS_VIEW.id
         setActiveViewId(newViewId)
-        if (studioId) {
-          saveUserPreferences(studioId, colWidths, newViewId, (theme ?? 'light') as 'light' | 'dark').catch(console.error)
-        }
+        persistPrefs(newViewId, colWidths, colOrder, hiddenColumns)
       }
     } catch (e) { console.error('Failed to delete view:', e) }
   }
@@ -968,7 +1055,19 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
     setPage(0)
   }
 
-  const COLUMNS = ALL_COLUMNS.filter(col => activeView.columns.includes(String(col.key)))
+  // The view offers a column set, the user's hidden list trims it, the saved
+  // order sequences it. `columnOptions` is what the Columns picker lists — every
+  // column the view offers, hidden ones included, in display order.
+  const hiddenForView = hiddenColumns[activeViewId] ?? []
+  // What the picker reports as hidden, ignoring keys this view no longer offers —
+  // a stale entry (view shrank after the user hid a column) must not inflate the
+  // pill's badge or the "N of M shown" count. The stale key stays stored, so the
+  // choice comes back if the view regains that column.
+  const hiddenInView = hiddenForView.filter(key => activeView.columns.includes(key))
+  const toColumnDefs = (keys: string[]) =>
+    keys.map(key => COLUMN_BY_KEY.get(key)).filter((col): col is (typeof ALL_COLUMNS)[number] => Boolean(col))
+  const columnOptions = toColumnDefs(visibleColumnsFor(activeView.columns, [], colOrder))
+  const COLUMNS = toColumnDefs(visibleColumnsFor(activeView.columns, hiddenForView, colOrder))
   const dropdownLead = dropdown ? leads.find(l => l.id === dropdown.leadId) ?? null : null
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const showingFrom = total === 0 ? 0 : page * pageSize + 1
@@ -1004,6 +1103,10 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
               onReasonFilterChange={handleReasonFilterChange}
               fieldOptions={fieldOptions}
               onRefresh={() => setRefreshKey(k => k + 1)}
+              columnOptions={columnOptions.map(c => ({ key: String(c.key), label: c.label }))}
+              hiddenColumns={hiddenInView}
+              onToggleColumn={toggleColumnVisibility}
+              onShowAllColumns={showAllColumns}
             />
           </div>
 
@@ -1095,12 +1198,8 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
             activeViewId={activeViewId}
             onViewChange={v => {
               setActiveViewId(v.id)
-              if (studioId) {
-                if (prefSaveTimer.current) clearTimeout(prefSaveTimer.current)
-                prefSaveTimer.current = setTimeout(() => {
-                  saveUserPreferences(studioId, colWidths, v.id, (theme ?? 'light') as 'light' | 'dark').catch(console.error)
-                }, 1000)
-              }
+              if (prefSaveTimer.current) clearTimeout(prefSaveTimer.current)
+              prefSaveTimer.current = setTimeout(() => persistPrefs(v.id, colWidths, colOrder, hiddenColumns), 1000)
             }}
             onCreateView={handleCreateView}
             onEditView={handleEditView}
@@ -1228,19 +1327,37 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
                   }}
                 />
               </th>
-              {COLUMNS.map(col => (
+              {COLUMNS.map(col => {
+                const key = String(col.key)
+                const sortable = SORTABLE_LEAD_FIELDS.has(key)
+                // Which edge of this column the dragged one would land on (null = not the target)
+                const dropSide = dragCol && dragCol !== key && dropTarget?.key === key
+                  ? (dropTarget.after ? 'right' : 'left')
+                  : null
+                return (
                 <th
                   key={col.key}
                   style={{ width: colWidths[col.key] ?? DEFAULT_COL_WIDTHS[col.key] ?? 120 }}
                   className="relative text-left text-sm font-normal text-[rgba(55,53,47,0.95)] dark:text-[rgba(255,255,255,0.8)] pl-3 pr-4 py-3 border-b border-r border-[#e9e9e7] dark:border-[rgba(255,255,255,0.06)] overflow-hidden [font-family:var(--font-inter,Inter,sans-serif)]"
+                  onDragOver={e => handleColumnDragOver(e, key)}
+                  onDrop={handleColumnDrop}
                 >
                   <span
-                    className={`flex items-center gap-1 overflow-hidden whitespace-nowrap ${SORTABLE_LEAD_FIELDS.has(String(col.key)) ? 'cursor-pointer select-none' : ''}`}
-                    onClick={SORTABLE_LEAD_FIELDS.has(String(col.key)) ? () => handleHeaderSort(String(col.key)) : undefined}
+                    draggable
+                    onDragStart={e => {
+                      e.dataTransfer.effectAllowed = 'move'
+                      e.dataTransfer.setData('text/plain', key)  // Firefox needs a payload to start a drag
+                      setDragCol(key)
+                    }}
+                    onDragEnd={() => { setDragCol(null); setDropTarget(null) }}
+                    title={sortable ? 'Click to sort · drag to reorder' : 'Drag to reorder'}
+                    className={`flex items-center gap-1 overflow-hidden whitespace-nowrap select-none ${sortable ? 'cursor-pointer' : 'cursor-grab'} active:cursor-grabbing`}
+                    style={{ opacity: dragCol === key ? 0.4 : 1, transition: 'opacity var(--transition-fast)' }}
+                    onClick={sortable ? () => handleHeaderSort(key) : undefined}
                   >
                     {col.icon && <col.icon size={14} className="flex-shrink-0 opacity-60" />}
                     <span className="overflow-hidden whitespace-nowrap">{col.label}</span>
-                    {SORTABLE_LEAD_FIELDS.has(String(col.key)) && (
+                    {sortable && (
                       sortField === col.key ? (
                         sortAscending
                           ? <ChevronUp size={14} strokeWidth={2.5} className="flex-shrink-0" style={{ color: 'var(--color-accent)' }} />
@@ -1250,8 +1367,20 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
                       )
                     )}
                   </span>
+                  {/* Drop indicator — which side of this column the dragged one lands on */}
+                  {dropSide && (
+                    <span
+                      className="pointer-events-none absolute top-0 h-full"
+                      style={{
+                        width: 2,
+                        backgroundColor: 'var(--color-accent)',
+                        left: dropSide === 'left' ? 0 : undefined,
+                        right: dropSide === 'right' ? 0 : undefined,
+                      }}
+                    />
+                  )}
                   <div
-                    onMouseDown={e => startResize(e, String(col.key))}
+                    onMouseDown={e => startResize(e, key)}
                     className="absolute right-0 top-0 h-full w-2 cursor-col-resize group/resize flex justify-end"
                     title="Drag to resize column"
                   >
@@ -1259,7 +1388,8 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
                     <span className="w-[2px] h-full opacity-0 group-hover/resize:opacity-100 transition-opacity bg-[var(--color-accent)]" />
                   </div>
                 </th>
-              ))}
+                )
+              })}
             </tr>
           </thead>
           <tbody>

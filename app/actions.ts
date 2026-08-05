@@ -13,6 +13,8 @@ import { reconcileSourceDetail } from '@/lib/source-kinds'
 import type { SourceDetail } from '@/lib/source-kinds'
 import { NOTION_COLORS } from '@/lib/constants'
 import { naiveTzPartsToUtcIso } from '@/lib/date-utils'
+import { normalizeCallHours } from '@/lib/call-hours'
+import type { CallHours } from '@/lib/call-hours'
 import { persistAppointment } from '@/lib/appointment-booking'
 import { NAV_PAGES } from '@/lib/nav'
 
@@ -608,6 +610,7 @@ export async function updateStudio(id: string, updates: {
   retell_agent_id?: string
   retell_api_key?: string
   timezone?: string
+  call_hours?: CallHours | null
 }): Promise<void> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -624,10 +627,17 @@ export async function updateStudio(id: string, updates: {
   const isOwnerHere = memberships?.some(m => m.studio_id === id && m.role === 'studio_owner') ?? false
   if (!isSuper && !isOwnerHere) throw new Error('Forbidden')
 
+  // call_hours lands in a jsonb column that the n8n dialers read to decide
+  // whether to place a call, so it never goes in unvalidated. normalizeCallHours
+  // drops malformed days and any window whose close <= open, which fails those
+  // days CLOSED rather than letting a bad payload widen the window.
+  const clean = { ...updates }
+  if ('call_hours' in clean) clean.call_hours = normalizeCallHours(clean.call_hours)
+
   const serviceClient = createServiceClient()
   const { error } = await serviceClient
     .from('studios')
-    .update(updates)
+    .update(clean)
     .eq('id', id)
 
   if (error) throw new Error(error.message)
@@ -1297,6 +1307,11 @@ export async function saveUserPreferences(
   activeViewId: string,
   theme: 'light' | 'dark',
   navCollapsed?: boolean,
+  // Personal Leads table layout. Each field is written only when supplied, so a
+  // caller that knows about one of them can't blank out the other:
+  //   colOrder      — column keys in display order; `[]` resets to canonical
+  //   hiddenColumns — { [viewId]: hidden column keys }; `{}` shows everything
+  layout?: { colOrder?: string[]; hiddenColumns?: Record<string, string[]> },
 ): Promise<void> {
   const { client, user } = await getAuthorizedClient()
   const { error } = await client
@@ -1309,6 +1324,8 @@ export async function saveUserPreferences(
         active_view_id: activeViewId,
         theme,
         ...(navCollapsed !== undefined ? { nav_collapsed: navCollapsed } : {}),
+        ...(layout?.colOrder !== undefined ? { col_order: layout.colOrder } : {}),
+        ...(layout?.hiddenColumns !== undefined ? { hidden_columns: layout.hiddenColumns } : {}),
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id,studio_id' }

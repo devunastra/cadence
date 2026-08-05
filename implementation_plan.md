@@ -144,6 +144,8 @@ Stores per-user per-studio preferences. Unique on `(user_id, studio_id)`.
 | user_id | uuid FK → auth.users | |
 | studio_id | uuid FK → studios | |
 | col_widths | jsonb | `Record<string, number>` — leads table column widths |
+| col_order | jsonb | `string[]` — leads table column keys in display order. `[]` = canonical order. Holds every column, not just visible ones — views control the shared column set, this controls order |
+| hidden_columns | jsonb | `{ [viewId]: string[] }` — leads columns this user hid, per view (`"all"` = Default View). Stores hidden, not visible, so new app columns appear by default. `{}` = nothing hidden |
 | active_view_id | text | Last active lead view ID |
 | theme | text | 'light' \| 'dark' |
 | nav_collapsed | boolean | Sidebar collapsed state |
