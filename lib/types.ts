@@ -160,10 +160,16 @@ export interface ScheduledCall {
   callback_time: string       // ISO timestamp (timestamptz)
   called_at: string | null
   retell_call_id: string | null
-  source: 'ai_agent' | 'manual'
+  source: 'ai_agent' | 'manual' | 'followup'
   created_by: string | null
   cancelled_at: string | null
   cancelled_by: string | null
+  // The no-answer ladder (migration 061). Which rung this row is, 1-4 — rung 1
+  // is the first automatic retry, so the row is overall attempt 2 of 5. NULL on
+  // every row that is not part of a ladder.
+  followup_attempt: number | null
+  // The retell_call_id whose no-answer produced this row. Idempotency key.
+  followup_triggered_by_call_id: string | null
   // Set by the migration-054 trigger when a studio's voice agent is switched back
   // on: resuming abandons the whole queued backlog rather than deferring it.
   skipped_at: string | null
