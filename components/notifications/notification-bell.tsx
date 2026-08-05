@@ -86,12 +86,22 @@ export function NotificationBell() {
         { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
         payload => {
           const row = payload.new as Notification
-          setUnread(prev => prev + 1)
-          if (row.studio_id === studioId) {
+          const sameStudio = row.studio_id === studioId
+          // Badge must agree with the list. getUnreadNotificationCount is
+          // scoped to the selected studio, so incrementing on cross-studio
+          // rows made the count drift above what the popover could ever show.
+          if (sameStudio) {
+            setUnread(prev => prev + 1)
             setItems(prev => [row, ...prev].slice(0, LIST_LIMIT))
           }
           if (toastPrefRef.current) {
-            showSuccess(row.title)
+            // Super admins get rows for every studio. Name the studio when it
+            // isn't the one on screen, otherwise the toast is unactionable —
+            // the row won't be in this studio's list to go and find.
+            const other = !sameStudio
+              ? (row.metadata as { studio_name?: string } | null)?.studio_name
+              : null
+            showSuccess(other ? `${other} — ${row.title}` : row.title)
           }
         }
       )

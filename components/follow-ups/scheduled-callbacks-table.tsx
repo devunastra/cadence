@@ -30,7 +30,33 @@ function formatName(first: string | null, last: string | null): string {
 
 const COLUMNS = ['Name', 'Phone', 'Email', 'Scheduled For', 'Source', 'Reason', 'Note', 'Dance Interest', ''] as const
 
-function SourceBadge({ source }: { source: PendingScheduledCall['source'] }) {
+// Total calls in a no-answer ladder: the original call plus four retries.
+// followup_attempt counts the retries (1-4), so rung 1 is overall attempt 2.
+const LADDER_TOTAL = 5
+
+function SourceBadge({
+  source,
+  followupAttempt,
+}: {
+  source: PendingScheduledCall['source']
+  followupAttempt: PendingScheduledCall['followup_attempt']
+}) {
+  // A follow-up says *where in the sequence* it is, not just who queued it —
+  // "one more try left" is the thing staff actually need before they decide to
+  // call by hand. Orange matches the Callback chip in Call History: same idea of
+  // a lead the agent hasn't reached yet.
+  if (source === 'followup') {
+    const attempt = followupAttempt !== null ? followupAttempt + 1 : null
+    return (
+      <span
+        className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap status-bg-orange status-text-orange"
+        title="Queued automatically because the previous call went unanswered"
+      >
+        {attempt !== null ? `Auto follow-up · attempt ${attempt} of ${LADDER_TOTAL}` : 'Auto follow-up'}
+      </span>
+    )
+  }
+
   const isManual = source === 'manual'
   return (
     <span
@@ -337,7 +363,7 @@ export function ScheduledCallbacksTable({ studioId, refreshTrigger }: Props) {
                         {row.callback_time ? formatDateTime(row.callback_time, tz) : <span style={{ color: 'var(--color-text-muted)' }}>{'—'}</span>}
                       </td>
                       <td className="px-3 py-3 align-middle">
-                        <SourceBadge source={row.source} />
+                        <SourceBadge source={row.source} followupAttempt={row.followup_attempt} />
                       </td>
                       <td className="px-3 py-3 align-middle" style={{ color: 'var(--color-text-secondary)', maxWidth: 180 }}>
                         <span className="line-clamp-2">

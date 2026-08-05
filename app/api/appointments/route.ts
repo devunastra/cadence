@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAvailabilityForDate, toNaiveLocal } from '@/lib/appointment-availability'
-import { persistAppointment, addMinutesNaive } from '@/lib/appointment-booking'
+import { persistAppointment, addMinutesNaive, syncLeadBookingState } from '@/lib/appointment-booking'
 import { createServiceClient } from '@/lib/supabase/server'
 import { checkSecret, resolveLocalStudio, isValidDate } from './_auth'
 
@@ -131,6 +131,12 @@ export async function POST(req: Request) {
     console.error('[appointments POST]', error)
     return NextResponse.json({ error: 'Failed to create appointment' }, { status: 500 })
   }
+
+  // Stamp first_lesson + action on the lead. Awaited so the follow-up ladder
+  // sees it: the voice agent's post-call webhook fires schedule_followup_call
+  // within a couple of minutes, and that RPC's already-booked guard reads
+  // exactly these two fields.
+  await syncLeadBookingState({ studioId: studio!.id, leadId: contactId })
 
   return NextResponse.json({
     ok: true,

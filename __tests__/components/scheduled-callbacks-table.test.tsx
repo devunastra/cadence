@@ -99,6 +99,8 @@ function makeRow(overrides: Partial<PendingScheduledCall> = {}): PendingSchedule
     cancelled_by: null,
     skipped_at: null,
     skip_reason: null,
+    followup_attempt: null,
+    followup_triggered_by_call_id: null,
     created_at: '2026-05-20T22:10:00.000Z',
     updated_at: '2026-05-20T22:10:00.000Z',
     ...overrides,
@@ -180,6 +182,36 @@ describe('ScheduledCallbacksTable — initial render', () => {
     render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
     expect(await screen.findByText(/scheduled by staff/i)).toBeInTheDocument()
     expect(screen.getByText(/^AI agent$/i)).toBeInTheDocument()
+  })
+
+  // The no-answer ladder (migration 061). followup_attempt counts only the
+  // automatic retries (1-4), so rung 1 is overall attempt 2 of 5 — the +1 is the
+  // whole point of these tests.
+  it('labels a follow-up row with its position in the 5-call ladder', async () => {
+    fetchScheduledCallsMock.mockResolvedValue([
+      makeRow({ id: 'f1', source: 'followup', followup_attempt: 1, first_name: 'Rung', last_name: 'One' }),
+    ])
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
+    expect(await screen.findByText(/attempt 2 of 5/i)).toBeInTheDocument()
+  })
+
+  it('labels the final rung as attempt 5 of 5', async () => {
+    fetchScheduledCallsMock.mockResolvedValue([
+      makeRow({ id: 'f4', source: 'followup', followup_attempt: 4, first_name: 'Last', last_name: 'Rung' }),
+    ])
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
+    expect(await screen.findByText(/attempt 5 of 5/i)).toBeInTheDocument()
+  })
+
+  // Defensive: a followup row whose attempt is somehow null must still render a
+  // badge rather than "attempt NaN of 5".
+  it('falls back to a bare label when a follow-up row has no attempt number', async () => {
+    fetchScheduledCallsMock.mockResolvedValue([
+      makeRow({ id: 'f0', source: 'followup', followup_attempt: null, first_name: 'No', last_name: 'Attempt' }),
+    ])
+    render(<ScheduledCallbacksTable studioId={STUDIO} refreshTrigger={0} />)
+    expect(await screen.findByText(/^Auto follow-up$/i)).toBeInTheDocument()
+    expect(screen.queryByText(/NaN/i)).not.toBeInTheDocument()
   })
 })
 

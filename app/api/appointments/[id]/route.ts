@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { getAvailabilityForDate, toNaiveLocal } from '@/lib/appointment-availability'
-import { addMinutesNaive } from '@/lib/appointment-booking'
+import { addMinutesNaive, syncLeadBookingState } from '@/lib/appointment-booking'
 import { checkSecret, resolveLocalStudio, isValidDate } from '../_auth'
 
 /**
@@ -91,6 +91,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     new_start_time: `${startLocal}+00:00`,
   })
 
+  // Moving the appointment moves first_lesson with it.
+  await syncLeadBookingState({ studioId: appt.studio_id, leadId: appt.contact_id })
+
   return NextResponse.json({ ok: true, appointment_id: id, start_time: startLocal, end_time: endLocal })
 }
 
@@ -125,6 +128,11 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
     contact_id:     appt.contact_id,
     verb:           'Deleted',
   })
+
+  // Recompute first_lesson from what is left, and release the "Scheduled"
+  // action if this was the last appointment — otherwise the lead stays flagged
+  // as booked and the follow-up ladder never re-engages.
+  await syncLeadBookingState({ studioId: appt.studio_id, leadId: appt.contact_id })
 
   return NextResponse.json({ ok: true, appointment_id: id })
 }
