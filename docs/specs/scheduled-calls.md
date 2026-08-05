@@ -146,8 +146,9 @@ handled in exactly one place. Never pass a naive local string.
 
 | # | Gap | Status |
 |---|---|---|
-| G1 | **Two of three dialers ignore `voice_agent_enabled`.** Corrected 2026-07-30 — this is not universal. **Schaumburg already has the guard**: `Resolve Field IDs → Check Voice Agent Setting → Voice Agent Enabled? → Trigger Retell Outbound Call`, verified holding 4 pending callbacks because the studio is paused. **Lincolnshire and White Rock have no such nodes** — `Resolve Field IDs` wires straight to the Retell call, so pausing either studio would not stop its dialer. | Copy Schaumburg's two-node guard into `gcDhc61cSLTPXOKv` and `QNRW2PHkiY0i3dij`. App-side `scheduleCall` refuses to queue for a paused studio regardless. |
+| G1 | ~~**Two of three dialers ignore `voice_agent_enabled`.**~~ ✅ **CLOSED — stale as of 2026-08-05.** All three dialers now carry the guard (`Check Voice Agent Setting → Voice Agent Enabled? → Trigger Retell Outbound Call`), verified directly on `gcDhc61cSLTPXOKv`, `Wgg5bQTPJYFsDSn8` and `QNRW2PHkiY0i3dij`. Lincolnshire and White Rock gained theirs some time after this row was written. | ✅ Done |
 | G2 | **±30 min precision.** The sweep runs every 30 minutes. The modal uses 30-minute steps and states "dials within 30 minutes" rather than implying to-the-minute. Tighten the trigger to 5–10 min if the client wants closer. | By design, disclosed in UI |
+| G8 | **The dialers ignored calling hours entirely.** A callback scheduled from Follow-ups for 03:00 was dialled at 03:00 — only *new inquiries* respected a call window. ✅ **FIXED 2026-08-05** — all three dialers gained a `Call Window Gate` node reading `studios.call_hours`. See [`call-hours.md`](./call-hours.md). | ✅ Done |
 | G3 | **Retell API key + `from_number` are inline in the n8n HTTP nodes**, in plaintext, hardcoded per workflow. Lincolnshire prod also hardcodes `agent_id` instead of using `active_outbound_agent_id`. | Not addressed |
 | G4 | **`callback_time <= $now` on a data-table `date` column looked unreliable** — row 91 was scheduled 20:05 and stamped 20:00:46 on a real tick. Most other "early" stamps were off-boundary manual dev runs. A real `timestamptz` removes the ambiguity; worth re-checking post-cutover. | Expected to be fixed by 053 |
 | G5 | `call_note` → Retell. **n8n half done 2026-07-30** — `Trigger Retell Outbound Call` in the Joshua copy and White Rock now sends `"call_note": "{{ $('Phone Number Formatting').item.json.call_note \|\| '' }}"`. The `\|\| ''` fallback stops a null rendering as the literal string `"null"` in the agent's context. It flows because `Get row(s)` returns every `scheduled_calls` column and `Phone Number Formatting` spreads `...data`. **Still open: the agent's prompt does not reference `{{call_note}}`, so Sarah still cannot read it.** Lincolnshire/Schaumburg also need the same line once swapped (their data tables have no `call_note` column). | Prompt work blocked on G6 |
@@ -310,7 +311,16 @@ workflow. Nothing else in these workflows changes.
 | Voice AI Functions (AM Schaumburg) | `Wgg5bQTPJYFsDSn8` | `aeefb977-5d03-4e40-994a-327cb51b7918` | ✅ **done 2026-07-30** — all 4 nodes on `scheduled_calls`, `onError: continueErrorOutput` preserved on both inserts |
 | Voice AI Functions (Lincolnshire) | `gcDhc61cSLTPXOKv` | `71274499-7c29-4621-990f-b60669ed1de3` | ⛔ **BLOCKED** — see below |
 
-### ⛔ Lincolnshire is blocked by a pre-existing orphaned node
+### ⛔ Lincolnshire is blocked by a pre-existing orphaned node — ✅ NO LONGER TRUE (2026-08-05)
+
+**This block has cleared.** `Send a message` is now connected (from `Send a message2`),
+so it is no longer a disconnected node and the structure gate no longer trips.
+Four operations were saved to `gcDhc61cSLTPXOKv` on 2026-08-05 while adding the
+call-window gate (see [`call-hours.md`](./call-hours.md) §4), all `saved: true`.
+The Step 3 swap can now be done through MCP — the section below is kept for the
+history of *why* it was blocked, not as current guidance.
+
+The original report:
 
 `n8n_update_partial_workflow` refuses to save **any** change to `gcDhc61cSLTPXOKv`:
 

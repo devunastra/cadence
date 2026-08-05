@@ -40,6 +40,13 @@
   --transition-fast:        150ms ease;
   --transition-base:        200ms ease;
 
+  /* Live-status dots (e.g. the AI Voice Agent pill). Inline-style-safe.
+     Distinct from the badge tokens below: those colour Notion enum values,
+     these signal a live system state — healthy / held / stopped. */
+  --color-status-ok:        #16a34a;
+  --color-status-warn:      #d97706;
+  --color-status-danger:    #dc2626;
+
   /* Badge color tokens — inline-style-safe, mirrors status-bg-* classes */
   --badge-blue-bg:          #cbe3f7;
   --badge-blue-text:        #264a72;
@@ -60,6 +67,11 @@
 
 .dark {
   --color-accent-subtle:    rgba(35, 131, 226, 0.12);
+
+  /* Lifted a step so the dots keep their punch against the dark surface. */
+  --color-status-ok:        #22c55e;
+  --color-status-warn:      #f59e0b;
+  --color-status-danger:    #ef4444;
 
   --color-bg:               #111111;
   --color-surface:          #1a1a1a;

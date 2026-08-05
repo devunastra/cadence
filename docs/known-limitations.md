@@ -55,3 +55,26 @@ The Leads table was seeded from Notion — it only contains leads that were trac
 - They will **not appear** in the contact picker when creating a new appointment.
 
 **Workaround:** Manually create a lead entry for the contact in the Leads table (via the "+ New Lead" button). Once a lead record exists with the correct `ghl_contact_id` populated, the contact will behave normally across all pages.
+
+---
+
+## 5. Leads column reorder is desktop-only
+
+Dragging a Leads column header to rearrange columns uses the browser's native HTML5 drag-and-drop, which **does not fire on touch devices**. On a phone or tablet the header simply doesn't drag.
+
+**Why we left it there:** the Leads table scrolls horizontally on mobile, and a long-press-to-drag fallback would fight that scroll gesture for the same finger — a worse trade than not having the feature on a screen that shows two or three columns at a time anyway.
+
+**Workaround:** reorder once on a desktop. The order is saved per user, per studio (`user_preferences.col_order`), so it carries over to that user's phone.
+
+---
+
+## 6. Leads column layout is personal, not shared
+
+Three Leads table settings belong to **you**, not the studio: column **width**, column **order**, and which columns you've **hidden** via the toolbar's Columns picker. Two people in the same studio can have completely different layouts, and changing yours never touches theirs.
+
+The shared thing is the **view** — the tabs above the table. A view defines the column set the studio agreed on; the Columns picker only lets you drop some of those from your own screen. So:
+
+- Hiding a column in the Columns picker → only you stop seeing it.
+- Removing a column from a view (hover the tab → pencil icon) → **everyone** stops seeing it.
+
+Hidden columns are tracked per view, so hiding Email in one view doesn't hide it in another. Hiding is also capped: at least one column must stay visible.

@@ -7,6 +7,8 @@ import {
     X,
     ChevronDown,
     RefreshCw,
+    Columns3,
+    Check,
 } from "lucide-react";
 import { FieldOption } from "@/lib/field-options";
 import { FilterDropdown } from "./filter-dropdown";
@@ -23,6 +25,12 @@ interface LeadsFilterBarProps {
     onReasonFilterChange: (v: string[]) => void;
     fieldOptions: Record<string, FieldOption[]>;
     onRefresh: () => void;
+    /** Every column the active view offers, already in display order. */
+    columnOptions: { key: string; label: string }[];
+    /** Keys the user has hidden in the active view. */
+    hiddenColumns: string[];
+    onToggleColumn: (key: string) => void;
+    onShowAllColumns: () => void;
 }
 
 /* Shared pill button style helper */
@@ -73,15 +81,23 @@ export function LeadsFilterBar({
     onReasonFilterChange,
     fieldOptions,
     onRefresh,
+    columnOptions,
+    hiddenColumns,
+    onToggleColumn,
+    onShowAllColumns,
 }: LeadsFilterBarProps) {
     const [filterOpen, setFilterOpen] = useState(false);
+    const [columnsOpen, setColumnsOpen] = useState(false);
     const [searchOpen, setSearchOpen] = useState(false);
     const [searchFocused, setSearchFocused] = useState(false);
     const [spinning, setSpinning] = useState(false);
     const [inputValue, setInputValue] = useState('');
     const filterRef = useRef<HTMLDivElement>(null);
+    const columnsRef = useRef<HTMLDivElement>(null);
     const searchInputRef = useRef<HTMLInputElement>(null);
     const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const shownCount = columnOptions.length - hiddenColumns.length;
 
     const toStringOptions = (field: string) =>
         (fieldOptions[field] ?? []).map((o) => o.value);
@@ -113,6 +129,20 @@ export function LeadsFilterBar({
         document.addEventListener("mousedown", h);
         return () => document.removeEventListener("mousedown", h);
     }, [filterOpen]);
+
+    // Outside-click close for the columns picker
+    useEffect(() => {
+        if (!columnsOpen) return;
+        function h(e: MouseEvent) {
+            if (
+                columnsRef.current &&
+                !columnsRef.current.contains(e.target as Node)
+            )
+                setColumnsOpen(false);
+        }
+        document.addEventListener("mousedown", h);
+        return () => document.removeEventListener("mousedown", h);
+    }, [columnsOpen]);
 
     // Focus search input when opened
     useEffect(() => {
@@ -338,6 +368,97 @@ export function LeadsFilterBar({
                 )}
             </div>
 
+            {/* ── Columns pill ── */}
+            <div ref={columnsRef} className="relative">
+                <button
+                    onClick={() => setColumnsOpen((o) => !o)}
+                    style={pillStyle(columnsOpen)}
+                    onMouseEnter={onPillEnter}
+                    onMouseLeave={(e) => onPillLeave(e, columnsOpen)}
+                    title="Choose which columns to show"
+                >
+                    <Columns3 size={14} />
+                    Columns
+                    {hiddenColumns.length > 0 && (
+                        <span
+                            className="flex items-center justify-center text-xs font-semibold rounded-full"
+                            style={{ minWidth: 18, height: 18, padding: '0 5px', backgroundColor: 'var(--color-accent)', color: '#ffffff' }}
+                        >
+                            {hiddenColumns.length}
+                        </span>
+                    )}
+                </button>
+
+                {columnsOpen && (
+                    <div
+                        className="fixed left-5 right-5 md:absolute md:left-0 md:right-auto mt-2 z-40 rounded-xl p-4 md:w-[340px]"
+                        style={{
+                            backgroundColor: "var(--color-bg)",
+                            border: "1px solid var(--color-border)",
+                            boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
+                        }}
+                    >
+                        <div className="flex items-baseline justify-between mb-2">
+                            <span className="text-xs font-medium" style={{ color: "var(--color-text-secondary)" }}>
+                                {shownCount} of {columnOptions.length} shown
+                            </span>
+                            {hiddenColumns.length > 0 && (
+                                <button
+                                    onClick={onShowAllColumns}
+                                    className="text-xs"
+                                    style={{ color: "var(--color-accent)" }}
+                                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--color-accent-hover)")}
+                                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--color-accent)")}
+                                >
+                                    Show all
+                                </button>
+                            )}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-1.5 max-h-64 overflow-y-auto pr-1">
+                            {columnOptions.map(({ key, label }) => {
+                                const shown = !hiddenColumns.includes(key);
+                                // A table with no columns is unusable — the last one standing can't be hidden
+                                const locked = shown && shownCount === 1;
+                                return (
+                                    <button
+                                        key={key}
+                                        onClick={() => { if (!locked) onToggleColumn(key); }}
+                                        disabled={locked}
+                                        title={locked ? "At least one column has to stay visible" : undefined}
+                                        className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-left"
+                                        style={{
+                                            backgroundColor: shown ? "var(--color-accent-subtle)" : "var(--color-surface)",
+                                            color: shown ? "var(--color-accent)" : "var(--color-text-secondary)",
+                                            border: `1.5px solid ${shown ? "var(--color-accent)" : "var(--color-border)"}`,
+                                            fontWeight: shown ? 600 : 400,
+                                            cursor: locked ? "not-allowed" : "pointer",
+                                            opacity: locked ? 0.6 : 1,
+                                            transition: "background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast)",
+                                        }}
+                                    >
+                                        <span
+                                            className="w-3.5 h-3.5 rounded flex-shrink-0 flex items-center justify-center border"
+                                            style={{
+                                                borderColor: shown ? "var(--color-accent)" : "var(--color-border)",
+                                                backgroundColor: shown ? "var(--color-accent)" : "transparent",
+                                            }}
+                                        >
+                                            {shown && <Check size={9} strokeWidth={3} color="#fff" />}
+                                        </span>
+                                        <span className="truncate">{label}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {/* Scope is not obvious from the control, so say it outright */}
+                        <p className="text-xs mt-3" style={{ color: "var(--color-text-muted)" }}>
+                            Just for you. Edit the view to change columns for everyone.
+                        </p>
+                    </div>
+                )}
+            </div>
 
         </div>
     );

@@ -59,6 +59,21 @@ All tokens are defined in `app/globals.css` as CSS custom properties.
 | `--transition-fast` | `150ms ease` | Hover states, nav items, opacity changes |
 | `--transition-base` | `200ms ease` | Checkbox fill, button bg, modal open |
 
+### Live Status
+Signals the state of a **running system** — healthy / held / stopped. Distinct from the
+badge tokens, which colour Notion enum values. Inline-style-safe (no CSS class needed).
+
+| Token | Light | Dark | Usage |
+|-------|-------|------|-------|
+| `--color-status-ok` | `#16a34a` | `#22c55e` | Running normally |
+| `--color-status-warn` | `#d97706` | `#f59e0b` | On, but currently held — not a fault |
+| `--color-status-danger` | `#ef4444`* | `#ef4444` | Switched off / stopped |
+
+\* light mode is `#dc2626`. Dark values are lifted a step so the dots keep their punch
+against the dark surface.
+
+**Never add a fourth status hex inline** — extend this group instead.
+
 ---
 
 ## Typography
@@ -105,6 +120,80 @@ All tokens are defined in `app/globals.css` as CSS custom properties.
 - No stroke-dashoffset animation — keep it simple
 - Checkbox column: no vertical border separator, tighter padding than other columns
 - Header (master) checkbox: shows indeterminate (minus) state when partial rows selected
+
+---
+
+## Toggle Switches
+
+Use for a binary setting that takes effect on save — not for row selection (that's a checkbox)
+and not for filters (those are pills). First used by the AI Calling Hours editor
+(`components/settings/call-hours-editor.tsx`).
+
+- Element: `<button type="button" role="switch" aria-checked={on}>` with an `aria-label`.
+  It must be a `button` with an explicit `type="button"` — inside a `<form>` a bare
+  `<button>` submits.
+- Track: fully rounded, `backgroundColor: var(--color-accent)` when on,
+  `var(--color-border-strong)` when off, `transition: background-color var(--transition-base)`
+- Knob: white circle, `position: absolute`, `boxShadow: 0 1px 2px rgba(0,0,0,0.2)`,
+  animated via `left` with `var(--transition-base)`
+- Two sizes:
+
+| Size | Track | Knob | Knob offset (off → on) | Use |
+|---|---|---|---|---|
+| Standard | `44 × 26` | `20`, `top: 3` | `3 → 21` | Section-level master switch |
+| Compact | `36 × 21` | `15`, `top: 3` | `3 → 18` | Repeated per-row switches |
+
+The standard size doubles as the 44px minimum touch target. The compact size is only
+acceptable inside a row that is itself ≥44px tall, so the tap area still qualifies.
+
+---
+
+## Live Status Pill
+
+A dot + label describing what a running system is doing right now. Used by the AI Voice
+Agent pill in the Leads header (`components/leads/voice-agent-toggle.tsx`).
+
+- Container: `flex items-center justify-between gap-3 px-4 py-2 rounded-lg text-sm`
+- Dot: `8 × 8`, fully rounded, `backgroundColor: var(--color-status-*)` plus a
+  `box-shadow: 0 0 0 3px <same colour @ 0.18 alpha>` halo
+- Container tint follows the dot: neutral `var(--color-surface)` for the healthy state,
+  the status colour at `0.08` alpha with a `0.25` alpha border for warn / danger
+- Label reads `<System>: <State>`, then `·`-separated clauses for detail. Clauses that
+  are nice-to-have rather than load-bearing get `hidden sm:inline` so the pill degrades
+  cleanly on mobile instead of wrapping.
+
+**A status pill must reflect every condition that gates the thing it describes.** If a
+system can be held by more than one mechanism (a switch *and* a schedule, say), a pill
+that reads only the switch will confidently report "Active" while nothing happens. Show
+the held state, and say when it ends.
+
+**Anything time-derived must be hydration-guarded.** Computing a state from the clock
+during SSR hydrates against a different instant. Gate on a `useMounted()` flag and render
+the safe under-claim until mounted. Pair it with a 1-minute `setInterval` so the state
+flips on its own at the boundary rather than waiting for a navigation.
+
+---
+
+## Overflow Menu (`⋯`)
+
+Secondary actions on a control that already has a primary button. Used by the AI Voice
+Agent pill, where `Pause` stays visible and everything else lives behind the `⋯`.
+
+- Trigger: `MoreHorizontal` at `size={18}`, `w-11 h-11 md:w-7 md:h-7` (44px touch target
+  on mobile, compact on desktop), `rounded-md`, hover `var(--color-surface-hover)`
+- ARIA: `aria-haspopup="menu"`, `aria-expanded`, and an `aria-label` — the icon alone
+  names nothing
+- Panel: `absolute right-0 top-full mt-1 z-50 rounded-lg shadow-lg overflow-hidden`,
+  `border: 1px solid var(--color-border)`, `backgroundColor: var(--color-bg)`,
+  `minWidth: 190`
+- Items: `w-full flex items-center gap-2 px-3 py-2.5 md:py-2 text-sm text-left`,
+  `role="menuitem"`, leading icon at `size={15}` in `var(--color-text-secondary)`
+- Closes on outside `mousedown` and on Escape
+- Label items that open a modal with a trailing ellipsis — `Calling hours…` — so it's
+  clear the click doesn't apply anything by itself
+
+**Reach for this instead of a third button** when a row is getting tight. One item today
+is fine if it's the natural home for the next one.
 
 ---
 
@@ -187,6 +276,58 @@ All table-based pages (Leads, Call History, etc.) must follow these patterns exa
 - Transition: `transition-colors`
 - Clickable rows: add `cursor-pointer`
 - Text color: `var(--color-text-primary)` for primary data, `var(--color-text-secondary)` for secondary, `var(--color-text-muted)` for null/empty placeholders
+
+### Column Reorder (drag a header)
+
+Used by the Leads table (`components/leads/leads-table.tsx`). Any table that adopts
+this must follow the same split, because the header already owns two other gestures.
+
+- **Who owns which gesture in a `<th>`:** the label `<span>` is `draggable` (reorder)
+  and carries the click-to-sort handler; the 8px `absolute right-0` strip is the
+  resize handle. Never put `draggable` on the `<th>` itself — it swallows the resize
+  drag.
+- **Cursor maps to the header's primary action:** `cursor-pointer` when the column
+  sorts, `cursor-grab` when it doesn't; `active:cursor-grabbing` on both. Add
+  `select-none` so a drag doesn't select the label text, and a `title` that names
+  both gestures (`"Click to sort · drag to reorder"`).
+- **Dragged column:** `opacity: 0.4`, transitioned with `var(--transition-fast)`.
+- **Drop indicator:** a `pointer-events-none absolute top-0 h-full` bar, `width: 2`,
+  `var(--color-accent)`, pinned to `left: 0` or `right: 0` of the column being
+  hovered — whichever side the dragged column would land on (pointer past the
+  midpoint = right). Never show it on the dragged column itself.
+- **`dragover` fires continuously** — compare against the previous drop slot and
+  return the same state object when unchanged, or every mouse move re-renders the
+  whole table.
+- **Confirm with an undo, not a reset button.** A drop is easy to trigger by
+  accident, so commit it and hand back an `showAction(..., { label: 'Undo' })`
+  toast — same pattern as row delete. That's cheaper than permanent reset chrome.
+
+Order is a **per-user preference** (`user_preferences.col_order`), sibling to
+`col_widths` — not view state. A view decides *which* columns show; the preference
+decides *what order*. Storing order on the shared `lead_views` row would make one
+user's drag rearrange every colleague's table.
+
+HTML5 drag-and-drop is mouse-only — reorder is a desktop gesture and simply does
+nothing on touch. Don't add a touch fallback that competes with the table's
+horizontal scroll.
+
+### Column Visibility (toolbar "Columns" picker)
+
+The Leads toolbar pill that hides/shows columns (`components/leads/leads-filter-bar.tsx`).
+
+- **Pill:** `pillStyle(open)` + `Columns3` icon, with the same accent count badge the
+  Filter pill uses — the badge counts *hidden* columns, and disappears at zero.
+- **Panel:** the offset-dropdown pattern (`fixed left-5 right-5 md:absolute md:left-0
+  md:right-auto`), `md:w-[340px]`, `z-40`, closes on outside `mousedown`.
+- **Options:** reuse the view modal's checkbox chips verbatim (2-col grid, accent
+  fill when on) so the two column pickers read as the same control in two places.
+  List them in **display order**, so the panel mirrors the table.
+- **Never allow zero columns.** The last visible option renders disabled at
+  `opacity: 0.6`, `cursor: not-allowed`, with a `title` saying why.
+- **Name the scope when a control's blast radius isn't obvious.** This one hides
+  columns for one user while the view beside it is studio-wide, so the panel ends
+  with a muted line saying exactly that. A toggle that looks shared but isn't (or
+  vice versa) is worth one line of text.
 
 ### Badges (in table cells)
 - Classes: `inline-flex items-center px-2 py-0.5 rounded text-sm font-medium`

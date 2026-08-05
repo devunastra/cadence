@@ -12,6 +12,8 @@ import {
   getRegionLabelFor,
   getTimezoneOptionsFor,
 } from '@/lib/locale-data'
+import { CallHoursEditor, callHoursAreValid } from './call-hours-editor'
+import { normalizeCallHours, type CallHours } from '@/lib/call-hours'
 import type { Studio } from '@/lib/types'
 
 const COUNTRY_OPTIONS = getCountryOptions()
@@ -40,6 +42,9 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
   const [retellApiKey, setRetellApiKey] = useState(studio.retell_api_key ?? '')
   const [showApiKey, setShowApiKey] = useState(false)
   const [timezone, setTimezone] = useState<string>(studio.timezone)
+  const [callHours, setCallHours] = useState<CallHours | null>(
+    normalizeCallHours(studio.call_hours),
+  )
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -72,10 +77,11 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
         retell_agent_id: retellId,
         retell_api_key: retellApiKey || undefined,
         timezone,
+        call_hours: callHours,
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-      updateCurrentStudio({ name, city, state, timezone })
+      updateCurrentStudio({ name, city, state, timezone, call_hours: callHours })
       showSuccess('Business profile saved.')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save business profile.'
@@ -180,6 +186,9 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
             </div>
           </div>
 
+          {/* AI Calling Hours — sits under Location because it reads the timezone set there. */}
+          <CallHoursEditor value={callHours} onChange={setCallHours} timezone={timezone} />
+
           {/* Integrations */}
           <div className="px-6 py-5 space-y-4" style={{ borderBottom: '1px solid var(--color-border)' }}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -249,9 +258,12 @@ export function BusinessProfileForm({ studio }: BusinessProfileFormProps) {
           {/* Footer */}
           <div className="px-6 py-4 flex items-center justify-end gap-3" style={{ backgroundColor: 'var(--color-surface)' }}>
             {error && <p className="text-sm text-red-600 mr-auto">{error}</p>}
+            {!error && !callHoursAreValid(callHours) && (
+              <p className="text-sm text-red-600 mr-auto">Fix the calling hours above before saving.</p>
+            )}
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || !callHoursAreValid(callHours)}
               className="px-5 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-60 transition-opacity hover:opacity-90"
               style={{ backgroundColor: 'var(--color-accent)' }}
             >
