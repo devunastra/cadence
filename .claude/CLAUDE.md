@@ -53,7 +53,7 @@ A unified web app for **Arthur Murray Lincolnshire (AMLS)** dance studio, built 
 
 | Page | Route | Status | Description |
 |---|---|---|---|
-| **Leads** | `/leads` | ✅ Live | Notion-style table, inline editing, views, multi-select filters, sort, real-time |
+| **Leads** | `/leads` | ✅ Live | Notion-style table, inline editing, views, multi-select filters, sort, show/hide + drag-to-reorder + resize columns, real-time |
 | **Call Analytics** | `/call-analytics` | ✅ Live | KPI cards, charts, transcript viewer, date range filter |
 | **Call History** | `/call-history` | ✅ Live | Tabbed call log (All, Outbound, Inbound, Failed, Callbacks), filters, detail drawer |
 | **Conversations** | `/conversations` | ✅ Live | SMS + Email unibox, real-time, inline reply, lead side panel |
@@ -85,7 +85,7 @@ Full schema with all columns → see `implementation_plan.md`.
 |---|---|
 | `studios` | Studio info — name, address, GHL IDs, Retell IDs, calendar config, appointment slots |
 | `studio_users` | Maps users to studios with a role |
-| `user_preferences` | Per-user per-studio prefs — col widths, theme, view, notifications, page filters, analytics prefs |
+| `user_preferences` | Per-user per-studio prefs — col widths, col order, hidden columns, theme, view, notifications, page filters, analytics prefs |
 | `leads` | All lead data (mirrors Notion fields). Enum options live in `studio_field_options`. |
 | `studio_field_options` | Per-studio enum options for lead fields (status, level, action, source, reason, partnership) with custom colors + sort order |
 | `lead_views` | Saved column-set views per studio |

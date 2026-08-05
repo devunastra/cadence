@@ -1307,6 +1307,11 @@ export async function saveUserPreferences(
   activeViewId: string,
   theme: 'light' | 'dark',
   navCollapsed?: boolean,
+  // Personal Leads table layout. Each field is written only when supplied, so a
+  // caller that knows about one of them can't blank out the other:
+  //   colOrder      — column keys in display order; `[]` resets to canonical
+  //   hiddenColumns — { [viewId]: hidden column keys }; `{}` shows everything
+  layout?: { colOrder?: string[]; hiddenColumns?: Record<string, string[]> },
 ): Promise<void> {
   const { client, user } = await getAuthorizedClient()
   const { error } = await client
@@ -1319,6 +1324,8 @@ export async function saveUserPreferences(
         active_view_id: activeViewId,
         theme,
         ...(navCollapsed !== undefined ? { nav_collapsed: navCollapsed } : {}),
+        ...(layout?.colOrder !== undefined ? { col_order: layout.colOrder } : {}),
+        ...(layout?.hiddenColumns !== undefined ? { hidden_columns: layout.hiddenColumns } : {}),
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id,studio_id' }

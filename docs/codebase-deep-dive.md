@@ -469,6 +469,8 @@ All defined in `app/actions.ts`.
 | `user_id` | uuid (FK) | |
 | `studio_id` | uuid (FK) | |
 | `col_widths` | jsonb | `Record<string, number>` |
+| `col_order` | jsonb (default: `[]`) | `string[]` — leads column keys in display order; `[]` = canonical |
+| `hidden_columns` | jsonb (default: `{}`) | `{ [viewId]: string[] }` — leads columns this user hid, per view |
 | `field_options` | jsonb | |
 | `active_view_id` | text (default: 'all') | |
 | `theme` | text (default: 'light') | |

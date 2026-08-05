@@ -128,7 +128,7 @@ All external API calls (GoHighLevel, Retell AI) happen inside `app/api/` routes 
 |-------|---------|
 | `studios` | Studio info — name, address, GHL/Retell IDs, calendar config, appointment slots |
 | `studio_users` | User ↔ studio role mapping |
-| `user_preferences` | Per-user per-studio prefs (col widths, theme, view, page filters, analytics prefs) |
+| `user_preferences` | Per-user per-studio prefs (col widths, col order, hidden columns, theme, view, page filters, analytics prefs) |
 | `leads` | Lead records |
 | `studio_field_options` | Per-studio enum options for lead fields with custom colors + sort order |
 | `lead_views` | Saved column-set views per studio |
