@@ -3586,7 +3586,7 @@ function normalizePhone(raw: string | null | undefined): string | null {
 // Must stay a single `as const` literal: supabase-js parses the select string at
 // the type level, so a concatenated expression degrades the row type to
 // GenericStringError.
-const SCHEDULED_CALL_COLUMNS = 'id, studio_id, lead_id, first_name, last_name, phone_number, email, dance_interest, reason, call_note, callback_time, called_at, retell_call_id, source, created_by, cancelled_at, cancelled_by, skipped_at, skip_reason, created_at, updated_at' as const
+const SCHEDULED_CALL_COLUMNS = 'id, studio_id, lead_id, first_name, last_name, phone_number, email, dance_interest, reason, call_note, callback_time, called_at, retell_call_id, source, created_by, cancelled_at, cancelled_by, skipped_at, skip_reason, followup_attempt, followup_triggered_by_call_id, created_at, updated_at' as const
 
 /**
  * Pending scheduled calls for ONE studio, soonest first.
