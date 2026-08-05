@@ -277,6 +277,58 @@ All table-based pages (Leads, Call History, etc.) must follow these patterns exa
 - Clickable rows: add `cursor-pointer`
 - Text color: `var(--color-text-primary)` for primary data, `var(--color-text-secondary)` for secondary, `var(--color-text-muted)` for null/empty placeholders
 
+### Column Reorder (drag a header)
+
+Used by the Leads table (`components/leads/leads-table.tsx`). Any table that adopts
+this must follow the same split, because the header already owns two other gestures.
+
+- **Who owns which gesture in a `<th>`:** the label `<span>` is `draggable` (reorder)
+  and carries the click-to-sort handler; the 8px `absolute right-0` strip is the
+  resize handle. Never put `draggable` on the `<th>` itself — it swallows the resize
+  drag.
+- **Cursor maps to the header's primary action:** `cursor-pointer` when the column
+  sorts, `cursor-grab` when it doesn't; `active:cursor-grabbing` on both. Add
+  `select-none` so a drag doesn't select the label text, and a `title` that names
+  both gestures (`"Click to sort · drag to reorder"`).
+- **Dragged column:** `opacity: 0.4`, transitioned with `var(--transition-fast)`.
+- **Drop indicator:** a `pointer-events-none absolute top-0 h-full` bar, `width: 2`,
+  `var(--color-accent)`, pinned to `left: 0` or `right: 0` of the column being
+  hovered — whichever side the dragged column would land on (pointer past the
+  midpoint = right). Never show it on the dragged column itself.
+- **`dragover` fires continuously** — compare against the previous drop slot and
+  return the same state object when unchanged, or every mouse move re-renders the
+  whole table.
+- **Confirm with an undo, not a reset button.** A drop is easy to trigger by
+  accident, so commit it and hand back an `showAction(..., { label: 'Undo' })`
+  toast — same pattern as row delete. That's cheaper than permanent reset chrome.
+
+Order is a **per-user preference** (`user_preferences.col_order`), sibling to
+`col_widths` — not view state. A view decides *which* columns show; the preference
+decides *what order*. Storing order on the shared `lead_views` row would make one
+user's drag rearrange every colleague's table.
+
+HTML5 drag-and-drop is mouse-only — reorder is a desktop gesture and simply does
+nothing on touch. Don't add a touch fallback that competes with the table's
+horizontal scroll.
+
+### Column Visibility (toolbar "Columns" picker)
+
+The Leads toolbar pill that hides/shows columns (`components/leads/leads-filter-bar.tsx`).
+
+- **Pill:** `pillStyle(open)` + `Columns3` icon, with the same accent count badge the
+  Filter pill uses — the badge counts *hidden* columns, and disappears at zero.
+- **Panel:** the offset-dropdown pattern (`fixed left-5 right-5 md:absolute md:left-0
+  md:right-auto`), `md:w-[340px]`, `z-40`, closes on outside `mousedown`.
+- **Options:** reuse the view modal's checkbox chips verbatim (2-col grid, accent
+  fill when on) so the two column pickers read as the same control in two places.
+  List them in **display order**, so the panel mirrors the table.
+- **Never allow zero columns.** The last visible option renders disabled at
+  `opacity: 0.6`, `cursor: not-allowed`, with a `title` saying why.
+- **Name the scope when a control's blast radius isn't obvious.** This one hides
+  columns for one user while the view beside it is studio-wide, so the panel ends
+  with a muted line saying exactly that. A toggle that looks shared but isn't (or
+  vice versa) is worth one line of text.
+
 ### Badges (in table cells)
 - Classes: `inline-flex items-center px-2 py-0.5 rounded text-sm font-medium`
 - Colors: use `STATUS_COLORS` from `lib/constants.ts` → `status-bg-*` / `status-text-*` CSS classes
