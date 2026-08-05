@@ -108,6 +108,31 @@ All tokens are defined in `app/globals.css` as CSS custom properties.
 
 ---
 
+## Toggle Switches
+
+Use for a binary setting that takes effect on save — not for row selection (that's a checkbox)
+and not for filters (those are pills). First used by the AI Calling Hours editor
+(`components/settings/call-hours-editor.tsx`).
+
+- Element: `<button type="button" role="switch" aria-checked={on}>` with an `aria-label`.
+  It must be a `button` with an explicit `type="button"` — inside a `<form>` a bare
+  `<button>` submits.
+- Track: fully rounded, `backgroundColor: var(--color-accent)` when on,
+  `var(--color-border-strong)` when off, `transition: background-color var(--transition-base)`
+- Knob: white circle, `position: absolute`, `boxShadow: 0 1px 2px rgba(0,0,0,0.2)`,
+  animated via `left` with `var(--transition-base)`
+- Two sizes:
+
+| Size | Track | Knob | Knob offset (off → on) | Use |
+|---|---|---|---|---|
+| Standard | `44 × 26` | `20`, `top: 3` | `3 → 21` | Section-level master switch |
+| Compact | `36 × 21` | `15`, `top: 3` | `3 → 18` | Repeated per-row switches |
+
+The standard size doubles as the 44px minimum touch target. The compact size is only
+acceptable inside a row that is itself ≥44px tall, so the tap area still qualifies.
+
+---
+
 ## Status Badges
 
 Color is managed via two systems — use the right one for the context:

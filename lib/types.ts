@@ -33,6 +33,10 @@ export interface Studio {
   appointment_min_advance_weeks: number
   appointment_slots: Record<string, string[]>
   timezone: string
+  // Outbound call window — day-of-week ("0"=Sun.."6"=Sat) -> window or null (closed).
+  // Wall-clock in `timezone`. null/{} = no restriction (24/7). Gates outbound
+  // dialing only; inbound is answered by Retell regardless. See lib/call-hours.ts.
+  call_hours: import('./call-hours').CallHours | null
   review_enabled: boolean
   // Per-studio sidebar tab visibility overrides (nav href -> boolean).
   // Missing key = tab default. Super-admin managed. See lib/nav.ts.
