@@ -105,6 +105,7 @@ export interface Lead {
   bought: boolean
   partnership: string | null
   old: boolean
+  dnd: boolean
   ghl_contact_id: string | null
   created_by_email: string | null
 }

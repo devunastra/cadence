@@ -23,6 +23,7 @@ export const ALL_COLUMN_LABELS: Record<string, string> = {
   bought:         'Bought',
   partnership:    'Partnership',
   old:            'OLD',
+  dnd:            'Do Not Disturb',
 }
 
 export const ALL_COLUMN_KEYS = Object.keys(ALL_COLUMN_LABELS)
