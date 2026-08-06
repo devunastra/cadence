@@ -1,9 +1,9 @@
 # Automatic Follow-up Calls — the no-answer ladder
 
 **Status:** migrations 061 + 062 applied. White Rock and Lincolnshire wired and
-live; Schaumburg wired-ready but its voice agent is off. No ladder observed
-end-to-end yet. The on/off switch (§10) is live end-to-end — app, RPC guard, and
-all three dialers.
+live; Schaumburg wired-ready but its voice agent is off. **The ladder is running** —
+7 rungs queued since 2026-08-05, 5 still pending. The on/off switch (§10) is live
+end-to-end — app, RPC guard, and all three dialers.
 **Last updated:** 2026-08-06
 
 > Numbered 061, not 060 — `060_ai_escalation_studio_name.sql` landed on staging
@@ -430,7 +430,12 @@ silently stop Lincolnshire's post-call processing *and* its follow-up ladder.
 
 ### Still to do
 
-8. Observe one real ladder end-to-end.
+8. ~~Observe one real ladder end-to-end.~~ **Rung 1 confirmed firing (2026-08-06.)**
+   7 `source='followup'` rows exist, queued 2026-08-05: 4 Lincolnshire, 3 White
+   Rock. All rung 1; 5 pending, 2 cancelled by staff. The preference mapping is
+   visible in the data — Jennifer Velasquez landed at 18:30 and everyone else at
+   13:00. Still unobserved: rungs 2–4, i.e. what happens when a *follow-up* call
+   itself goes unanswered and has to advance the ladder.
 9. Decide Lincolnshire's routing properly: repoint `agent_cd8a872b64…` from
    `/webhook/post-call-joshua` to `/webhook/post-call` (which
    `gcDhc61cSLTPXOKv` already listens on and which has never received a call),

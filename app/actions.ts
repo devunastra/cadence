@@ -256,6 +256,45 @@ export async function updateLead(id: string, updates: Record<string, string | bo
   }
 }
 
+// Per-lead Do Not Disturb (migration 063). Flips leads.dnd and stamps the audit
+// trio in one write. Deliberately NOT routed through updateLead: this owns the
+// dnd_set_at / dnd_set_by columns updateLead doesn't know about, and it is the one
+// lever the app has over the manual + follow-up call paths (see scheduleCall and
+// schedule_followup_call). Uses the caller's RLS client, so studio scope and the
+// "can edit this lead" permission are enforced by the database — any studio member
+// who can update the lead can flip its DND.
+export async function setLeadDnd(leadId: string, dnd: boolean): Promise<void> {
+  const { client, user } = await getAuthorizedClient()
+
+  const { data: before } = await client
+    .from('leads')
+    .select('studio_id, name, dnd')
+    .eq('id', leadId)
+    .single()
+  if (!before) throw new Error('Lead not found')
+  if (before.dnd === dnd) return // no-op — nothing to write or log
+
+  const { error } = await client
+    .from('leads')
+    .update({
+      dnd,
+      dnd_set_at: dnd ? new Date().toISOString() : null,
+      dnd_set_by: dnd ? user.id : null,
+    })
+    .eq('id', leadId)
+  if (error) throw new Error(error.message)
+
+  // Activity log — non-critical, fire-and-forget (mirrors updateLead).
+  client.from('activity_logs').insert({
+    studio_id:   before.studio_id as string,
+    lead_id:     leadId,
+    lead_name:   (before.name as string | null) ?? null,
+    actor_email: user.email ?? null,
+    event_type:  'update',
+    changes: [{ field: 'dnd', old_value: before.dnd ? 'On' : 'Off', new_value: dnd ? 'On' : 'Off' }],
+  }).then(() => {}, () => {})
+}
+
 export async function deleteLeads(ids: string[]) {
   if (ids.length === 0) return
   const { client, user } = await getAuthorizedClient()
@@ -983,7 +1022,7 @@ export async function uploadAvatar(formData: FormData): Promise<{ url: string }>
 const ENUM_JOIN_SELECT = `
   id, studio_id, created_at, name, phone, email,
   last_contacted, first_lesson, comments, notes, available,
-  showed, bought, old, ghl_contact_id, created_by_email,
+  showed, bought, old, dnd, ghl_contact_id, created_by_email,
   status:studio_field_options!leads_status_fkey(id, value),
   level:studio_field_options!leads_level_fkey(id, value),
   action:studio_field_options!leads_action_fkey(id, value),
@@ -3686,7 +3725,7 @@ export type ScheduleCallResult =
   | {
       ok: false
       error: string
-      code: 'not_found' | 'no_phone' | 'past_time' | 'bad_time' | 'voice_agent_paused' | 'duplicate'
+      code: 'not_found' | 'no_phone' | 'past_time' | 'bad_time' | 'voice_agent_paused' | 'dnd' | 'duplicate'
       existing?: PendingScheduledCall
     }
 
@@ -3726,7 +3765,7 @@ export async function scheduleCall(input: {
   const [{ data: lead }, { data: studio }] = await Promise.all([
     client
       .from('leads')
-      .select('id, studio_id, name, phone, email, reason, comments')
+      .select('id, studio_id, name, phone, email, reason, comments, dnd')
       .eq('id', input.leadId)
       .eq('studio_id', input.studioId)
       .maybeSingle(),
@@ -3739,6 +3778,18 @@ export async function scheduleCall(input: {
 
   if (!lead || !studio) {
     return { ok: false, code: 'not_found', error: 'That lead is no longer available.' }
+  }
+
+  // Per-lead Do Not Disturb (migration 063). Like voice_agent_paused below, the
+  // n8n dialer does not re-check this on rows already queued, so refusing to queue
+  // is the app's lever for the manual path. Checked before phone: a DND lead
+  // should say "DND", not "add a phone number".
+  if (lead.dnd === true) {
+    return {
+      ok: false,
+      code: 'dnd',
+      error: 'This lead is set to Do Not Disturb. Turn DND off to schedule an AI call.',
+    }
   }
 
   const phone = normalizePhone(lead.phone as string | null)

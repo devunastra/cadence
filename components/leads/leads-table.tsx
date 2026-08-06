@@ -4,7 +4,7 @@ import { useState, useTransition, useEffect, useCallback, useRef } from 'react'
 import { useMounted } from '@/lib/hooks'
 import { displayTzForLeadField } from '@/lib/date-utils'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronUp, PanelRightOpen, Clock, User, CircleDot, Zap, Phone, Calendar, GraduationCap, MessageSquare, StickyNote, Globe, Mail, Tag, AlarmClock, Users, CheckSquare, Copy, Check, Trash2, ChevronDown, X, type LucideIcon } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronUp, PanelRightOpen, Clock, User, CircleDot, Zap, Phone, Calendar, GraduationCap, MessageSquare, StickyNote, Globe, Mail, Tag, AlarmClock, Users, CheckSquare, BellOff, Copy, Check, Trash2, ChevronDown, X, type LucideIcon } from 'lucide-react'
 import { EnumDropdown } from './enum-dropdown'
 import { DatePickerPopup } from './date-picker-popup'
 import { NewLeadModal } from './new-lead-modal'
@@ -19,7 +19,7 @@ import { ALL_LEAD_ENUM_FIELDS, STATUS_COLORS } from '@/lib/constants'
 import { buildDefaultOptions } from '@/lib/field-options'
 import { ALL_COLUMNS_VIEW, resolveColumnOrder, moveColumn, visibleColumnsFor } from '@/lib/views'
 import type { HiddenColumns } from '@/lib/views'
-import { createLeadView, deleteLeadView, updateLeadView, fetchLeadsPage, fetchLeadById, deleteLeads, bulkUpdateLeads, updateLead, saveUserPreferences, addStudioFieldOption, renameStudioFieldOption, deleteStudioFieldOption, savePageFilters, fetchStudioFieldOptions } from '@/app/actions'
+import { createLeadView, deleteLeadView, updateLeadView, fetchLeadsPage, fetchLeadById, deleteLeads, bulkUpdateLeads, updateLead, setLeadDnd, saveUserPreferences, addStudioFieldOption, renameStudioFieldOption, deleteStudioFieldOption, savePageFilters, fetchStudioFieldOptions } from '@/app/actions'
 import type { PageFilters } from '@/app/actions'
 import { createClient } from '@/lib/supabase/client'
 import { useTheme } from 'next-themes'
@@ -86,6 +86,7 @@ const DEFAULT_COL_WIDTHS: Partial<Record<keyof Lead, number>> = {
   bought:         100,
   partnership:    125,
   old:             90,
+  dnd:            140,
 }
 const PAGE_SIZE_OPTIONS = [20, 50, 100]
 
@@ -173,6 +174,7 @@ const ALL_COLUMNS: { key: keyof Lead; label: string; icon?: LucideIcon }[] = [
   { key: 'name',           label: 'Name',           icon: User },
   { key: 'status',         label: 'Status',         icon: CircleDot },
   { key: 'action',         label: 'Action',         icon: Zap },
+  { key: 'dnd',            label: 'Do Not Disturb', icon: BellOff },
   { key: 'phone',          label: 'Phone',          icon: Phone },
   { key: 'last_contacted', label: 'Last Contacted', icon: Calendar },
   { key: 'first_lesson',   label: 'First Lesson',   icon: GraduationCap },
@@ -803,6 +805,20 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
     }
   }
 
+  // Per-lead Do Not Disturb (migration 063). Its own path, not toggleBoolean:
+  // dnd is not an UPDATABLE_LEAD_FIELDS column and setLeadDnd owns the audit
+  // trio (dnd_set_at / dnd_set_by). Optimistic + revert, same shape as above.
+  async function toggleDnd(lead: Lead) {
+    const newValue = !lead.dnd
+    setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, dnd: newValue } : l))
+    try {
+      await setLeadDnd(lead.id, newValue)
+      broadcastLeadUpdated([{ id: lead.id, name: lead.name || 'Unknown' }])
+    } catch {
+      setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, dnd: lead.dnd } : l))
+    }
+  }
+
   const handleOptionsChange = useCallback((field: string, options: FieldOption[]) => {
     setFieldOptions(prev => ({ ...prev, [field]: options }))
   }, [])
@@ -877,6 +893,44 @@ export function LeadsTable({ studioId }: LeadsTableProps) {
   function renderCell(lead: Lead, field: keyof Lead) {
     const isEditing = editing?.leadId === lead.id && editing?.field === field
     const value = lead[field]
+
+    // Do Not Disturb — a compact toggle, not a checkbox: it is a binary setting
+    // that takes effect on save (design rules § Toggle Switches), not row
+    // selection. On == calls held, so the track is warn-amber, not accent — an
+    // amber toggle reads as "intentionally stopped", the same vocabulary the
+    // follow-ups switch uses for its held state.
+    if (field === 'dnd') {
+      const on = lead.dnd
+      return (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          aria-label={`Do Not Disturb for ${lead.name || 'this lead'}`}
+          onClick={(e) => { e.stopPropagation(); toggleDnd(lead) }}
+          title={on
+            ? 'Do Not Disturb is ON — the AI will not call this lead. Click to allow calls.'
+            : 'Click to stop the AI from calling this lead (Do Not Disturb).'}
+          className="relative flex-shrink-0 rounded-full cursor-pointer"
+          style={{
+            width: 36,
+            height: 21,
+            backgroundColor: on ? 'var(--color-status-warn)' : 'var(--color-border-strong)',
+            transition: 'background-color var(--transition-base)',
+          }}
+        >
+          <span
+            className="absolute rounded-full bg-white"
+            style={{
+              width: 15, height: 15, top: 3,
+              left: on ? 18 : 3,
+              transition: 'left var(--transition-base)',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+            }}
+          />
+        </button>
+      )
+    }
 
     if (BOOLEAN_FIELDS.includes(field)) {
       return (
