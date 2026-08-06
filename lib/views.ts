@@ -10,6 +10,7 @@ export const ALL_COLUMN_LABELS: Record<string, string> = {
   name:           'Name',
   status:         'Status',
   action:         'Action',
+  dnd:            'Do Not Disturb',
   phone:          'Phone',
   last_contacted: 'Last Contacted',
   first_lesson:   'First Lesson',
@@ -23,7 +24,6 @@ export const ALL_COLUMN_LABELS: Record<string, string> = {
   bought:         'Bought',
   partnership:    'Partnership',
   old:            'OLD',
-  dnd:            'Do Not Disturb',
 }
 
 export const ALL_COLUMN_KEYS = Object.keys(ALL_COLUMN_LABELS)

@@ -174,6 +174,7 @@ const ALL_COLUMNS: { key: keyof Lead; label: string; icon?: LucideIcon }[] = [
   { key: 'name',           label: 'Name',           icon: User },
   { key: 'status',         label: 'Status',         icon: CircleDot },
   { key: 'action',         label: 'Action',         icon: Zap },
+  { key: 'dnd',            label: 'Do Not Disturb', icon: BellOff },
   { key: 'phone',          label: 'Phone',          icon: Phone },
   { key: 'last_contacted', label: 'Last Contacted', icon: Calendar },
   { key: 'first_lesson',   label: 'First Lesson',   icon: GraduationCap },
@@ -187,7 +188,6 @@ const ALL_COLUMNS: { key: keyof Lead; label: string; icon?: LucideIcon }[] = [
   { key: 'bought',         label: 'Bought',         icon: CheckSquare },
   { key: 'partnership',    label: 'Partnership',    icon: Users },
   { key: 'old',            label: 'OLD',            icon: CheckSquare },
-  { key: 'dnd',            label: 'Do Not Disturb', icon: BellOff },
 ]
 
 const COLUMN_BY_KEY = new Map(ALL_COLUMNS.map(c => [String(c.key), c]))
