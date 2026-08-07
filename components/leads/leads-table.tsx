@@ -174,7 +174,7 @@ const ALL_COLUMNS: { key: keyof Lead; label: string; icon?: LucideIcon }[] = [
   { key: 'name',           label: 'Name',           icon: User },
   { key: 'status',         label: 'Status',         icon: CircleDot },
   { key: 'action',         label: 'Action',         icon: Zap },
-  { key: 'dnd',            label: 'Do Not Disturb', icon: BellOff },
+  { key: 'dnd',            label: 'DND', icon: BellOff },
   { key: 'phone',          label: 'Phone',          icon: Phone },
   { key: 'last_contacted', label: 'Last Contacted', icon: Calendar },
   { key: 'first_lesson',   label: 'First Lesson',   icon: GraduationCap },
